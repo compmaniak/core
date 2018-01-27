@@ -1,9 +1,7 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "common.h"
 #include "array.h"
-#include "fd-set-nonblock.h"
-#include "fd-close-on-exec.h"
 #include "ioloop.h"
 #include "net.h"
 #ifdef HAVE_SYSTEMD

@@ -1,4 +1,4 @@
-/* Copyright (c) 2007-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2007-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -163,11 +163,7 @@ static void squat_trie_close_fd(struct squat_trie *trie)
 		trie->mmap_base = NULL;
 		trie->mmap_size = 0;
 	}
-	if (trie->fd != -1) {
-		if (close(trie->fd) < 0)
-			i_error("close(%s) failed: %m", trie->path);
-		trie->fd = -1;
-	}
+	i_close_fd_path(&trie->fd, trie->path);
 }
 
 static void squat_trie_close(struct squat_trie *trie)
@@ -336,7 +332,7 @@ static int squat_trie_lock(struct squat_trie *trie, int lock_type,
 }
 
 static void
-node_make_squential(struct squat_trie *trie, struct squat_node *node, int level)
+node_make_sequential(struct squat_trie *trie, struct squat_node *node, int level)
 {
 	const unsigned int alloc_size =
 		NODE_CHILDREN_ALLOC_SIZE(SEQUENTIAL_COUNT);
@@ -377,7 +373,7 @@ node_add_child(struct squat_trie *trie, struct squat_node *node,
 	i_assert(node->leaf_string_length == 0);
 
 	if (node->want_sequential) {
-		node_make_squential(trie, node, level);
+		node_make_sequential(trie, node, level);
 
 		if (chr < SEQUENTIAL_COUNT)
 			return chr;
@@ -1682,7 +1678,7 @@ static int squat_trie_write(struct squat_trie_build_context *ctx)
 		(void)o_stream_seek(output, 0);
 		o_stream_nsend(output, &trie->hdr, sizeof(trie->hdr));
 	}
-	if (o_stream_nfinish(output) < 0) {
+	if (o_stream_finish(output) < 0) {
 		i_error("write(%s) failed: %s", path,
 			o_stream_get_error(output));
 		ret = -1;

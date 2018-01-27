@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -68,6 +68,8 @@ struct dsync_mailbox_importer {
 	enum mailbox_transaction_flags transaction_flags;
 	unsigned int hdr_hash_version;
 	unsigned int commit_msgs_interval;
+
+	const char *const *hashed_headers;
 
 	enum mail_flags sync_flag;
 	const char *sync_keyword;
@@ -229,7 +231,8 @@ dsync_mailbox_import_init(struct mailbox *box,
 			  const char *sync_flag,
 			  unsigned int commit_msgs_interval,
 			  enum dsync_mailbox_import_flags flags,
-			  unsigned int hdr_hash_version)
+			  unsigned int hdr_hash_version,
+			  const char *const *hashed_headers)
 {
 	struct dsync_mailbox_importer *importer;
 	struct mailbox_status status;
@@ -254,6 +257,8 @@ dsync_mailbox_import_init(struct mailbox *box,
 	importer->sync_until_timestamp = sync_until_timestamp;
 	importer->sync_max_size = sync_max_size;
 	importer->stateful_import = importer->last_common_uid_found;
+	importer->hashed_headers = hashed_headers;
+
 	if (sync_flag != NULL) {
 		if (sync_flag[0] == '-') {
 			importer->sync_flag_dontwant = TRUE;
@@ -312,14 +317,14 @@ dsync_mailbox_import_init(struct mailbox *box,
 			importer->local_uid_next, last_common_uid));
 	} else if (importer->local_initial_highestmodseq < last_common_modseq) {
 		dsync_import_unexpected_state(importer, t_strdup_printf(
-			"local HIGHESTMODSEQ %llu < last common HIGHESTMODSEQ %llu",
-			(unsigned long long)importer->local_initial_highestmodseq,
-			(unsigned long long)last_common_modseq));
+			"local HIGHESTMODSEQ %"PRIu64" < last common HIGHESTMODSEQ %"PRIu64,
+			importer->local_initial_highestmodseq,
+			last_common_modseq));
 	} else if (importer->local_initial_highestpvtmodseq < last_common_pvt_modseq) {
 		dsync_import_unexpected_state(importer, t_strdup_printf(
-			"local HIGHESTMODSEQ %llu < last common HIGHESTMODSEQ %llu",
-			(unsigned long long)importer->local_initial_highestpvtmodseq,
-			(unsigned long long)last_common_pvt_modseq));
+			"local HIGHESTMODSEQ %"PRIu64" < last common HIGHESTMODSEQ %"PRIu64,
+			importer->local_initial_highestpvtmodseq,
+			last_common_pvt_modseq));
 	}
 
 	importer->local_changes = dsync_transaction_log_scan_get_hash(log_scan);
@@ -659,6 +664,7 @@ importer_try_next_mail(struct dsync_mailbox_importer *importer,
 	} else {
 		if (dsync_mail_get_hdr_hash(importer->cur_mail,
 					    importer->hdr_hash_version,
+					    importer->hashed_headers,
 					    &hdr_hash) < 0) {
 			dsync_mail_error(importer, importer->cur_mail,
 					 "header hash");
@@ -1575,7 +1581,8 @@ dsync_mailbox_import_match_msg(struct dsync_mailbox_importer *importer,
 	}
 
 	if (dsync_mail_get_hdr_hash(importer->cur_mail,
-				    importer->hdr_hash_version, &hdr_hash) < 0) {
+				    importer->hdr_hash_version,
+				    importer->hashed_headers, &hdr_hash) < 0) {
 		dsync_mail_error(importer, importer->cur_mail, "hdr-stream");
 		*result_r = "Error fetching header stream";
 		return -1;
@@ -2782,11 +2789,11 @@ static int dsync_mailbox_import_finish(struct dsync_mailbox_importer *importer,
 		update.min_highest_pvt_modseq = importer->remote_highest_pvt_modseq;
 
 		imp_debug(importer, "Finish update: min_next_uid=%u "
-			  "min_first_recent_uid=%u min_highest_modseq=%llu "
-			  "min_highest_pvt_modseq=%llu",
+			  "min_first_recent_uid=%u min_highest_modseq=%"PRIu64" "
+			  "min_highest_pvt_modseq=%"PRIu64,
 			  update.min_next_uid, update.min_first_recent_uid,
-			  (unsigned long long)update.min_highest_modseq,
-			  (unsigned long long)update.min_highest_pvt_modseq);
+			  update.min_highest_modseq,
+			  update.min_highest_pvt_modseq);
 
 		if (mailbox_update(importer->box, &update) < 0) {
 			i_error("Mailbox %s: Update failed: %s",

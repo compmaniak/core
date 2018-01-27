@@ -1,10 +1,9 @@
-/* Copyright (c) 2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2017-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
 #include "hostpid.h"
 #include "net.h"
-#include "fd-set-nonblock.h"
 #include "istream.h"
 #include "ostream.h"
 #include "ioloop.h"

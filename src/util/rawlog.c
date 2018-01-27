@@ -1,9 +1,8 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 
 #include "ioloop.h"
-#include "fd-set-nonblock.h"
 #include "net.h"
 #include "str.h"
 #include "write-full.h"
@@ -47,7 +46,7 @@ static void rawlog_proxy_destroy(struct rawlog_proxy *proxy)
 {
 	if (proxy->in_output != NULL) {
 		o_stream_uncork(proxy->in_output);
-		if (o_stream_nfinish(proxy->in_output) < 0) {
+		if (o_stream_finish(proxy->in_output) < 0) {
 			i_error("write(in) failed: %s",
 				o_stream_get_error(proxy->in_output));
 		}
@@ -55,7 +54,7 @@ static void rawlog_proxy_destroy(struct rawlog_proxy *proxy)
 	}
 	if (proxy->out_output != NULL) {
 		o_stream_uncork(proxy->out_output);
-		if (o_stream_nfinish(proxy->out_output) < 0) {
+		if (o_stream_finish(proxy->out_output) < 0) {
 			i_error("write(out) failed: %s",
 				o_stream_get_error(proxy->out_output));
 		}

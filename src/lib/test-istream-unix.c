@@ -1,8 +1,7 @@
-/* Copyright (c) 2015-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2015-2018 Dovecot authors, see the included COPYING file */
 
 #include "test-lib.h"
 #include "net.h"
-#include "fd-set-nonblock.h"
 #include "fdpass.h"
 #include "istream.h"
 #include "istream-unix.h"
@@ -71,11 +70,11 @@ static void test_istream_unix_server(int fd)
 	/* 2) fd was sent but we won't get it */
 	test_server_read_nofd(input, 2);
 	/* we still shouldn't have the fd */
-	fd_set_nonblock(fd, TRUE);
+	i_stream_set_blocking(input, FALSE);
 	i_stream_unix_set_read_fd(input);
 	test_assert(i_stream_read_more(input, &data, &size) == 0);
 	test_assert(i_stream_unix_get_read_fd(input) == -1);
-	fd_set_nonblock(fd, FALSE);
+	i_stream_set_blocking(input, TRUE);
 	write_one(fd);
 
 	/* 3) the previous fd should be lost now */

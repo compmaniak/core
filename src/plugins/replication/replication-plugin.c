@@ -1,10 +1,9 @@
-/* Copyright (c) 2013-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
 #include "str.h"
 #include "strescape.h"
-#include "fd-set-nonblock.h"
 #include "ioloop.h"
 #include "net.h"
 #include "write-full.h"
@@ -106,6 +105,7 @@ static void replication_notify_now(struct mail_user *user)
 	struct replication_user *ruser = REPLICATION_USER_CONTEXT(user);
 	int ret;
 
+	i_assert(ruser != NULL);
 	i_assert(ruser->priority != REPLICATION_PRIORITY_NONE);
 	i_assert(ruser->priority != REPLICATION_PRIORITY_SYNC);
 
@@ -128,6 +128,8 @@ static int replication_notify_sync(struct mail_user *user)
 	int fd;
 	ssize_t ret;
 	bool success = FALSE;
+
+	i_assert(ruser != NULL);
 
 	fd = net_connect_unix(ruser->socket_path);
 	if (fd == -1) {
@@ -297,6 +299,8 @@ static void replication_user_deinit(struct mail_user *user)
 {
 	struct replication_user *ruser = REPLICATION_USER_CONTEXT(user);
 
+	i_assert(ruser != NULL);
+
 	if (ruser->to != NULL) {
 		replication_notify_now(user);
 		if (ruser->to != NULL) {
@@ -378,11 +382,7 @@ void replication_plugin_init(struct module *module)
 
 void replication_plugin_deinit(void)
 {
-	if (fifo_fd != -1) {
-		if (close(fifo_fd) < 0)
-			i_error("close(%s) failed: %m", fifo_path);
-		fifo_fd = -1;
-	}
+	i_close_fd_path(&fifo_fd, fifo_path);
 	i_free_and_null(fifo_path);
 
 	mail_storage_hooks_remove(&replication_mail_storage_hooks);

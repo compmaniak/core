@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file
  */
 
 #include "lib.h"
@@ -65,7 +65,7 @@ void test_program_client_destroy(struct test_client **_client)
 	struct test_client *client = *_client;
 	*_client = NULL;
 
-	if (o_stream_nfinish(client->out) != 0)
+	if (o_stream_finish(client->out) < 0)
 		i_error("output error: %s", o_stream_get_error(client->out));
 
 	io_remove(&client->io);

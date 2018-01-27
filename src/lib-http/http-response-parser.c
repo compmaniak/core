@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "str.h"
@@ -264,7 +264,8 @@ http_response_parse_status_line(struct http_response_parser *parser)
 		if (_parser->input->eof &&
 		    parser->state == HTTP_RESPONSE_PARSE_STATE_INIT)
 			return 0;
-		_parser->error = "Stream error";
+		_parser->error = t_strdup_printf("Stream error: %s",
+			i_stream_get_error(_parser->input));
 		return -1;
 	}
 	return 0;

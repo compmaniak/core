@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 
@@ -25,7 +25,6 @@ static void o_stream_bzlib_close(struct iostream_private *stream,
 {
 	struct bzlib_ostream *zstream = (struct bzlib_ostream *)stream;
 
-	(void)o_stream_flush(&zstream->ostream.ostream);
 	(void)BZ2_bzCompressEnd(&zstream->zs);
 	if (close_parent)
 		o_stream_close(zstream->ostream.parent);
@@ -146,15 +145,11 @@ static int o_stream_bzlib_send_flush(struct bzlib_ostream *zstream)
 static int o_stream_bzlib_flush(struct ostream_private *stream)
 {
 	struct bzlib_ostream *zstream = (struct bzlib_ostream *)stream;
-	int ret;
 
 	if (o_stream_bzlib_send_flush(zstream) < 0)
 		return -1;
 
-	ret = o_stream_flush(stream->parent);
-	if (ret < 0)
-		o_stream_copy_error_from_parent(stream);
-	return ret;
+	return o_stream_flush_parent(stream);
 }
 
 static ssize_t

@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "istream.h"
@@ -413,6 +413,9 @@ static void file_try_unlink_locked(struct file_lock *lock)
 void file_lock_free(struct file_lock **_lock)
 {
 	struct file_lock *lock = *_lock;
+
+	if (lock == NULL)
+		return;
 
 	*_lock = NULL;
 

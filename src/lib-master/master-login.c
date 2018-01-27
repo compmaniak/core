@@ -1,10 +1,9 @@
-/* Copyright (c) 2009-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
 #include "ostream.h"
 #include "fdpass.h"
-#include "fd-close-on-exec.h"
 #include "llist.h"
 #include "str.h"
 #include "strescape.h"
@@ -416,10 +415,7 @@ static void master_login_conn_input(struct master_login_connection *conn)
 			master_login_conn_close(conn);
 			master_login_conn_unref(&conn);
 		}
-		if (client_fd != -1) {
-			if (close(client_fd) < 0)
-				i_error("close(fd_read client) failed: %m");
-		}
+		i_close_fd(&client_fd);
 		return;
 	}
 	fd_close_on_exec(client_fd, TRUE);

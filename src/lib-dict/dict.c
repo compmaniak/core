@@ -1,10 +1,9 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
 #include "llist.h"
 #include "str.h"
-#include "dict-sql.h"
 #include "dict-private.h"
 
 static ARRAY(struct dict *) dict_drivers;

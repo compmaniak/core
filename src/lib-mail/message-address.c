@@ -1,8 +1,9 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "str.h"
 #include "strescape.h"
+#include "smtp-address.h"
 #include "message-parser.h"
 #include "message-address.h"
 #include "rfc822-parser.h"
@@ -511,6 +512,41 @@ void message_address_write(string_t *str, const struct message_address *addr)
 	}
 }
 
+const char *message_address_to_string(const struct message_address *addr)
+{
+	string_t *str = t_str_new(256);
+	message_address_write(str, addr);
+	return str_c(str);
+}
+
+const char *message_address_first_to_string(const struct message_address *addr)
+{
+	struct message_address first_addr;
+
+	first_addr = *addr;
+	first_addr.next = NULL;
+	first_addr.route = NULL;
+	return message_address_to_string(&first_addr);
+}
+
+void message_address_init(struct message_address *addr,
+	const char *name, const char *mailbox, const char *domain)
+{
+	i_zero(addr);
+	addr->name = name;
+	addr->mailbox = mailbox;
+	addr->domain = domain;
+}
+
+void message_address_init_from_smtp(struct message_address *addr,
+	const char *name, const struct smtp_address *smtp_addr)
+{
+	i_zero(addr);
+	addr->name = name;
+	addr->mailbox = smtp_addr->localpart;
+	addr->domain = smtp_addr->domain;
+}
+
 static const char *address_headers[] = {
 	"From", "Sender", "Reply-To",
 	"To", "Cc", "Bcc",
@@ -527,33 +563,3 @@ bool message_header_is_address(const char *hdr_name)
 	}
 	return FALSE;
 }
-
-void message_detail_address_parse(const char *delimiters, const char *address,
-				  const char **username_r, char *delim_r,
-				  const char **detail_r)
-{
-	const char *p, *domain;
-	size_t idx;
-
-	*username_r = address;
-	*detail_r = "";
-	*delim_r = '\0';
-
-	domain = strchr(address, '@');
-	/* first character that matches the recipient_delimiter */
-	idx = strcspn(address, delimiters);
-	p = address[idx] != '\0' ? address + idx : NULL;
-
-	if (p != NULL && (domain == NULL || p < domain)) {
-		*delim_r = *p;
-		/* user+detail@domain */
-		*username_r = t_strdup_until(*username_r, p);
-		if (domain == NULL)
-			*detail_r = p+1;
-		else {
-			*detail_r = t_strdup_until(p+1, domain);
-			*username_r = t_strconcat(*username_r, domain, NULL);
-		}
-	}
-}
-

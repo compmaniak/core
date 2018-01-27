@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file
  */
 
 #include "lib.h"
@@ -82,7 +82,7 @@ void test_program_client_destroy(struct test_client **_client)
 	struct test_client *client = *_client;
 	*_client = NULL;
 
-	if (o_stream_nfinish(client->out) != 0)
+	if (o_stream_finish(client->out) < 0)
 		i_error("output error: %s", o_stream_get_error(client->out));
 
 	io_remove(&client->io);
@@ -90,7 +90,7 @@ void test_program_client_destroy(struct test_client **_client)
 	i_stream_unref(&client->in);
 	o_stream_unref(&client->os_body);
 	i_stream_unref(&client->body);
-	close(client->fd);
+	i_close_fd(&client->fd);
 	pool_unref(&client->pool);
 	test_globals.client = NULL;
 	test_program_io_loop_stop();
@@ -179,7 +179,7 @@ void test_program_run(struct test_client *client)
 			} else if (strcmp(args[0], "test_program_io")==0) {
 				os = o_stream_create_dot(client->out, FALSE);
 				o_stream_send_istream(os, client->body);
-				test_assert(o_stream_flush(os) > 0);
+				test_assert(o_stream_finish(os) > 0);
 				o_stream_unref(&os);
 				o_stream_nsend_str(client->out, "+\n");
 			} else if (strcmp(args[0], "test_program_failure")==0) {

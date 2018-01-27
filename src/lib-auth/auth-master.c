@@ -1,4 +1,4 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "lib-signals.h"
@@ -83,11 +83,7 @@ auth_master_init(const char *auth_socket_path, enum auth_master_flags flags)
 static void auth_connection_close(struct auth_master_connection *conn)
 {
 	timeout_remove(&conn->to);
-	if (conn->fd != -1) {
-		if (close(conn->fd) < 0)
-			i_error("close(%s) failed: %m", conn->auth_socket_path);
-		conn->fd = -1;
-	}
+	i_close_fd_path(&conn->fd, conn->auth_socket_path);
 
 	conn->sent_handshake = FALSE;
 	conn->handshaked = FALSE;
@@ -410,7 +406,7 @@ static int auth_master_run_cmd_pre(struct auth_master_connection *conn,
 	o_stream_nsend_str(conn->output, cmd);
 	o_stream_uncork(conn->output);
 
-	if (o_stream_nfinish(conn->output) < 0) {
+	if (o_stream_flush(conn->output) < 0) {
 		i_error("write(auth socket) failed: %s",
 			o_stream_get_error(conn->output));
 		auth_master_unset_io(conn);

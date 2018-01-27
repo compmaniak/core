@@ -1,4 +1,4 @@
-/* Copyright (c) 2003-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -62,9 +62,10 @@ password_scheme_lookup(const char *name, enum password_encoding *encoding_r)
 	return scheme;
 }
 
-int password_verify(const char *plaintext, const char *user, const char *scheme,
-		    const unsigned char *raw_password, size_t size,
-		    const char **error_r)
+int password_verify(const char *plaintext,
+		    const struct password_generate_params *params,
+		    const char *scheme, const unsigned char *raw_password,
+		    size_t size, const char **error_r)
 {
 	const struct password_scheme *s;
 	enum password_encoding encoding;
@@ -79,19 +80,19 @@ int password_verify(const char *plaintext, const char *user, const char *scheme,
 	}
 
 	if (s->password_verify != NULL) {
-		ret = s->password_verify(plaintext, user, raw_password, size,
+		ret = s->password_verify(plaintext, params, raw_password, size,
 					 error_r);
 	} else {
 		/* generic verification handler: generate the password and
 		   compare it to the one in database */
-		s->password_generate(plaintext, user,
+		s->password_generate(plaintext, params,
 				     &generated, &generated_size);
 		ret = size != generated_size ? 0 :
 			mem_equals_timing_safe(generated, raw_password, size) ? 1 : 0;
 	}
 
 	if (ret == 0)
-		*error_r = "Password mismatch";
+		*error_r = AUTH_LOG_MSG_PASSWORD_MISMATCH;
 	return ret;
 }
 
@@ -164,8 +165,7 @@ int password_decode(const char *password, const char *scheme,
 		*size_r = len;
 		break;
 	case PW_ENCODING_HEX:
-		buf = buffer_create_dynamic(pool_datastack_create(),
-					    len / 2 + 1);
+		buf = t_buffer_create(len / 2 + 1);
 		if (hex_to_binary(password, buf) == 0) {
 			*raw_password_r = buf->data;
 			*size_r = buf->used;
@@ -179,8 +179,7 @@ int password_decode(const char *password, const char *scheme,
 		   produce matching hex and base64 encoded lengths. */
 		/* fall through */
 	case PW_ENCODING_BASE64:
-		buf = buffer_create_dynamic(pool_datastack_create(),
-					    MAX_BASE64_DECODED_SIZE(len));
+		buf = t_buffer_create(MAX_BASE64_DECODED_SIZE(len));
 		if (base64_decode(password, len, NULL, buf) < 0) {
 			*error_r = "Input isn't valid base64 encoded data";
 			return -1;
@@ -200,7 +199,7 @@ int password_decode(const char *password, const char *scheme,
 	return 1;
 }
 
-bool password_generate(const char *plaintext, const char *user,
+bool password_generate(const char *plaintext, const struct password_generate_params *params,
 		       const char *scheme,
 		       const unsigned char **raw_password_r, size_t *size_r)
 {
@@ -211,11 +210,11 @@ bool password_generate(const char *plaintext, const char *user,
 	if (s == NULL)
 		return FALSE;
 
-	s->password_generate(plaintext, user, raw_password_r, size_r);
+	s->password_generate(plaintext, params, raw_password_r, size_r);
 	return TRUE;
 }
 
-bool password_generate_encoded(const char *plaintext, const char *user,
+bool password_generate_encoded(const char *plaintext, const struct password_generate_params *params,
 			       const char *scheme, const char **password_r)
 {
 	const struct password_scheme *s;
@@ -228,7 +227,7 @@ bool password_generate_encoded(const char *plaintext, const char *user,
 	if (s == NULL)
 		return FALSE;
 
-	s->password_generate(plaintext, user, &raw_password, &size);
+	s->password_generate(plaintext, params, &raw_password, &size);
 	switch (encoding) {
 	case PW_ENCODING_NONE:
 		*password_r = t_strndup(raw_password, size);
@@ -281,7 +280,7 @@ bool password_scheme_is_alias(const char *scheme1, const char *scheme2)
 
 const char *
 password_scheme_detect(const char *plain_password, const char *crypted_password,
-		       const char *user)
+		       const struct password_generate_params *params)
 {
 	struct hash_iterate_context *ctx;
 	const char *key;
@@ -297,20 +296,26 @@ password_scheme_detect(const char *plain_password, const char *crypted_password,
 				    &error) <= 0)
 			continue;
 
-		if (password_verify(plain_password, user, scheme->name,
+		if (password_verify(plain_password, params, scheme->name,
 				    raw_password, raw_password_size,
 				    &error) > 0)
 			break;
 		key = NULL;
 	}
+	hash_table_iterate_deinit(&ctx);
 	return key;
 }
 
-int crypt_verify(const char *plaintext, const char *user ATTR_UNUSED,
+int crypt_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		 const unsigned char *raw_password, size_t size,
 		 const char **error_r)
 {
 	const char *password, *crypted;
+
+	if (size > 4 && raw_password[0] == '$' && raw_password[1] == '2' &&
+	    raw_password[3] == '$')
+		return password_verify(plaintext, params, "BLF-CRYPT",
+				       raw_password, size, error_r);
 
 	if (size == 0) {
 		/* the default mycrypt() handler would return match */
@@ -329,7 +334,7 @@ int crypt_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static int
-md5_verify(const char *plaintext, const char *user,
+md5_verify(const char *plaintext, const struct password_generate_params *params,
 	   const unsigned char *raw_password, size_t size, const char **error_r)
 {
 	const char *password, *str, *error;
@@ -346,13 +351,13 @@ md5_verify(const char *plaintext, const char *user,
 		*error_r = "Not a valid MD5-CRYPT or PLAIN-MD5 password";
 		return -1;
 	} else {
-		return password_verify(plaintext, user, "PLAIN-MD5",
+		return password_verify(plaintext, params, "PLAIN-MD5",
 				       md5_password, md5_size, error_r);
 	}
 }
 
 static int
-md5_crypt_verify(const char *plaintext, const char *user ATTR_UNUSED,
+md5_crypt_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		 const unsigned char *raw_password, size_t size,
 		 const char **error_r ATTR_UNUSED)
 {
@@ -364,7 +369,7 @@ md5_crypt_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-md5_crypt_generate(const char *plaintext, const char *user ATTR_UNUSED,
+md5_crypt_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		   const unsigned char **raw_password_r, size_t *size_r)
 {
 	const char *password;
@@ -382,7 +387,7 @@ md5_crypt_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-sha1_generate(const char *plaintext, const char *user ATTR_UNUSED,
+sha1_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	      const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -395,7 +400,7 @@ sha1_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-sha256_generate(const char *plaintext, const char *user ATTR_UNUSED,
+sha256_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -408,7 +413,7 @@ sha256_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-sha512_generate(const char *plaintext, const char *user ATTR_UNUSED,
+sha512_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -421,7 +426,7 @@ sha512_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-ssha_generate(const char *plaintext, const char *user ATTR_UNUSED,
+ssha_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	      const unsigned char **raw_password_r, size_t *size_r)
 {
 #define SSHA_SALT_LEN 4
@@ -441,7 +446,7 @@ ssha_generate(const char *plaintext, const char *user ATTR_UNUSED,
 	*size_r = SHA1_RESULTLEN + SSHA_SALT_LEN;
 }
 
-static int ssha_verify(const char *plaintext, const char *user ATTR_UNUSED,
+static int ssha_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		       const unsigned char *raw_password, size_t size,
 		       const char **error_r)
 {
@@ -462,7 +467,7 @@ static int ssha_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-ssha256_generate(const char *plaintext, const char *user ATTR_UNUSED,
+ssha256_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		 const unsigned char **raw_password_r, size_t *size_r)
 {
 #define SSHA256_SALT_LEN 4
@@ -482,7 +487,7 @@ ssha256_generate(const char *plaintext, const char *user ATTR_UNUSED,
 	*size_r = SHA256_RESULTLEN + SSHA256_SALT_LEN;
 }
 
-static int ssha256_verify(const char *plaintext, const char *user ATTR_UNUSED,
+static int ssha256_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 			  const unsigned char *raw_password, size_t size,
 			  const char **error_r)
 {
@@ -505,7 +510,7 @@ static int ssha256_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-ssha512_generate(const char *plaintext, const char *user ATTR_UNUSED,
+ssha512_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		 const unsigned char **raw_password_r, size_t *size_r)
 {
 #define SSHA512_SALT_LEN 4
@@ -525,7 +530,7 @@ ssha512_generate(const char *plaintext, const char *user ATTR_UNUSED,
 	*size_r = SHA512_RESULTLEN + SSHA512_SALT_LEN;
 }
 
-static int ssha512_verify(const char *plaintext, const char *user ATTR_UNUSED,
+static int ssha512_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 			  const unsigned char *raw_password, size_t size,
 			  const char **error_r)
 {
@@ -548,7 +553,7 @@ static int ssha512_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-smd5_generate(const char *plaintext, const char *user ATTR_UNUSED,
+smd5_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	      const unsigned char **raw_password_r, size_t *size_r)
 {
 #define SMD5_SALT_LEN 4
@@ -568,7 +573,7 @@ smd5_generate(const char *plaintext, const char *user ATTR_UNUSED,
 	*size_r = MD5_RESULTLEN + SMD5_SALT_LEN;
 }
 
-static int smd5_verify(const char *plaintext, const char *user ATTR_UNUSED,
+static int smd5_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		       const unsigned char *raw_password, size_t size,
 		       const char **error_r)
 {
@@ -589,7 +594,7 @@ static int smd5_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-plain_generate(const char *plaintext, const char *user ATTR_UNUSED,
+plain_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	       const unsigned char **raw_password_r, size_t *size_r)
 {
 	*raw_password_r = (const unsigned char *)plaintext,
@@ -597,7 +602,7 @@ plain_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static int
-plain_verify(const char *plaintext, const char *user ATTR_UNUSED,
+plain_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	     const unsigned char *raw_password, size_t size,
 	     const char **error_r ATTR_UNUSED)
 {
@@ -609,7 +614,7 @@ plain_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static int
-plain_trunc_verify(const char *plaintext, const char *user ATTR_UNUSED,
+plain_trunc_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		   const unsigned char *raw_password, size_t size,
 		   const char **error_r)
 {
@@ -639,7 +644,7 @@ plain_trunc_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-cram_md5_generate(const char *plaintext, const char *user ATTR_UNUSED,
+cram_md5_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		  const unsigned char **raw_password_r, size_t *size_r)
 {
 	struct hmac_context ctx;
@@ -655,14 +660,16 @@ cram_md5_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-digest_md5_generate(const char *plaintext, const char *user,
+digest_md5_generate(const char *plaintext, const struct password_generate_params *params,
 		    const unsigned char **raw_password_r, size_t *size_r)
 {
-	const char *realm, *str;
+	const char *realm, *str, *user;
 	unsigned char *digest;
 
-	if (user == NULL)
+	if (params->user == NULL)
 		i_fatal("digest_md5_generate(): username not given");
+
+	user = params->user;
 
 
 	/* assume user@realm format for username. If user@domain is wanted
@@ -685,7 +692,7 @@ digest_md5_generate(const char *plaintext, const char *user,
 }
 
 static void
-plain_md4_generate(const char *plaintext, const char *user ATTR_UNUSED,
+plain_md4_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		   const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -698,7 +705,7 @@ plain_md4_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-plain_md5_generate(const char *plaintext, const char *user ATTR_UNUSED,
+plain_md5_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		   const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -711,7 +718,7 @@ plain_md5_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-lm_generate(const char *plaintext, const char *user ATTR_UNUSED,
+lm_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	    const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -724,7 +731,7 @@ lm_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-ntlm_generate(const char *plaintext, const char *user ATTR_UNUSED,
+ntlm_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	      const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -736,7 +743,7 @@ ntlm_generate(const char *plaintext, const char *user ATTR_UNUSED,
 	*size_r = NTLMSSP_HASH_SIZE;
 }
 
-static int otp_verify(const char *plaintext, const char *user ATTR_UNUSED,
+static int otp_verify(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 		      const unsigned char *raw_password, size_t size,
 		      const char **error_r)
 {
@@ -752,7 +759,7 @@ static int otp_verify(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-otp_generate(const char *plaintext, const char *user ATTR_UNUSED,
+otp_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	     const unsigned char **raw_password_r, size_t *size_r)
 {
 	const char *password;
@@ -764,7 +771,7 @@ otp_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-skey_generate(const char *plaintext, const char *user ATTR_UNUSED,
+skey_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	      const unsigned char **raw_password_r, size_t *size_r)
 {
 	const char *password;
@@ -776,7 +783,7 @@ skey_generate(const char *plaintext, const char *user ATTR_UNUSED,
 }
 
 static void
-rpa_generate(const char *plaintext, const char *user ATTR_UNUSED,
+rpa_generate(const char *plaintext, const struct password_generate_params *params ATTR_UNUSED,
 	     const unsigned char **raw_password_r, size_t *size_r)
 {
 	unsigned char *digest;
@@ -865,6 +872,9 @@ void password_schemes_init(void)
 	for (i = 0; i < N_ELEMENTS(builtin_schemes); i++)
 		password_scheme_register(&builtin_schemes[i]);
 	password_scheme_register_crypt();
+#ifdef HAVE_LIBSODIUM
+	password_scheme_register_sodium();
+#endif
 }
 
 void password_schemes_deinit(void)

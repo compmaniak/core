@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 /* @UNSAFE: whole file */
 
@@ -58,20 +58,18 @@ ssize_t i_stream_file_read(struct istream_private *stream)
 	}
 
 	offset = stream->istream.v_offset + (stream->pos - stream->skip);
-	do {
-		if (fstream->file) {
-			ret = pread(stream->fd, stream->w_buffer + stream->pos,
-				    size, offset);
-		} else if (fstream->seen_eof) {
-			/* don't try to read() again. EOF from keyboard (^D)
-			   requires this to work right. */
-			ret = 0;
-		} else {
-			ret = read(stream->fd, stream->w_buffer + stream->pos,
-				   size);
-		}
-	} while (unlikely(ret < 0 && errno == EINTR &&
-			  stream->istream.blocking));
+
+	if (fstream->file) {
+		ret = pread(stream->fd, stream->w_buffer + stream->pos,
+			    size, offset);
+	} else if (fstream->seen_eof) {
+		/* don't try to read() again. EOF from keyboard (^D)
+		   requires this to work right. */
+		ret = 0;
+	} else {
+		ret = read(stream->fd, stream->w_buffer + stream->pos,
+			   size);
+	}
 
 	if (ret == 0) {
 		/* EOF */
@@ -81,8 +79,8 @@ ssize_t i_stream_file_read(struct istream_private *stream)
 	}
 
 	if (unlikely(ret < 0)) {
-		if (errno == EINTR || errno == EAGAIN) {
-			i_assert(!stream->istream.blocking);
+		if ((errno == EINTR || errno == EAGAIN) &&
+		    !stream->istream.blocking) {
 			ret = 0;
 		} else {
 			i_assert(errno != 0);
@@ -188,6 +186,7 @@ i_stream_create_file_common(struct file_istream *fstream,
 	struct istream *input;
 	struct stat st;
 	bool is_file;
+	int flags;
 
 	fstream->autoclose_fd = autoclose_fd;
 
@@ -199,9 +198,10 @@ i_stream_create_file_common(struct file_istream *fstream,
 	fstream->istream.stat = i_stream_file_stat;
 
 	/* if it's a file, set the flags properly */
-	if (fd == -1)
+	if (fd == -1) {
+		/* only the path is known for now - the fd is opened later */
 		is_file = TRUE;
-	else if (fstat(fd, &st) < 0)
+	} else if (fstat(fd, &st) < 0)
 		is_file = FALSE;
 	else if (S_ISREG(st.st_mode))
 		is_file = TRUE;
@@ -220,10 +220,18 @@ i_stream_create_file_common(struct file_istream *fstream,
 		fstream->file = TRUE;
 		fstream->istream.istream.blocking = TRUE;
 		fstream->istream.istream.seekable = TRUE;
+	} else if ((flags = fcntl(fd, F_GETFL, 0)) < 0) {
+		/* shouldn't happen */
+		fstream->istream.istream.stream_errno = errno;
+		io_stream_set_error(&fstream->istream.iostream,
+			"fcntl(%d, F_GETFL) failed: %m", fd);
+	} else if ((flags & O_NONBLOCK) == 0) {
+		/* blocking socket/fifo */
+		fstream->istream.istream.blocking = TRUE;
 	}
 	fstream->istream.istream.readable_fd = TRUE;
 
-	input = i_stream_create(&fstream->istream, NULL, fd);
+	input = i_stream_create(&fstream->istream, NULL, fd, 0);
 	i_stream_set_name(input, is_file ? "(file)" : "(fd)");
 	return input;
 }

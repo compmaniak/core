@@ -37,6 +37,8 @@ enum mail_storage_service_flags {
 };
 
 struct mail_storage_service_input {
+	struct event *parent_event;
+
 	const char *module;
 	const char *service;
 	const char *username;
@@ -62,6 +64,10 @@ struct mail_storage_service_input {
 	bool no_userdb_lookup:1;
 	/* Enable auth_debug=yes for this lookup */
 	bool debug:1;
+	/* Connection is secure (SSL or just trusted) */
+	bool conn_secured:1;
+	/* Connection is secured using SSL specifically */
+	bool conn_ssl_secured:1;
 };
 
 extern struct module *mail_storage_service_modules;
@@ -138,7 +144,6 @@ void mail_storage_service_io_activate_user(struct mail_storage_service_user *use
 /* Deactivate user context. This only switches back to non-user-specific
    log prefix. */
 void mail_storage_service_io_deactivate_user(struct mail_storage_service_user *user);
-void mail_storage_service_io_deactivate(struct mail_storage_service_ctx *ctx);
 
 /* Return the settings pointed to by set_root parameter in _init().
    The settings contain all the changes done by userdb lookups. */

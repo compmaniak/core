@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -26,7 +26,7 @@
 	 (st).st_atime < (st).st_mtime ? MAILBOX_MARKED : MAILBOX_UNMARKED)
 
 #define MBOX_LIST_CONTEXT(obj) \
-	MODULE_CONTEXT(obj, mbox_mailbox_list_module)
+	MODULE_CONTEXT_REQUIRE(obj, mbox_mailbox_list_module)
 
 struct mbox_mailbox_list {
 	union mailbox_list_module_context module_ctx;
@@ -78,9 +78,8 @@ void mbox_set_syscall_error(struct mbox_mailbox *mbox, const char *function)
 	} else {
 		const char *toobig_error = errno != EFBIG ? "" :
 			" (process was started with ulimit -f limit)";
-		mail_storage_set_critical(&mbox->storage->storage,
-			"%s failed with mbox file %s: %m%s", function,
-			mailbox_get_path(&mbox->box), toobig_error);
+		mailbox_set_critical(&mbox->box,
+			"%s failed with mbox: %m%s", function, toobig_error);
 	}
 }
 
@@ -101,6 +100,7 @@ mbox_list_get_path(struct mailbox_list *list, const char *name,
 	switch (type) {
 	case MAILBOX_LIST_PATH_TYPE_CONTROL:
 	case MAILBOX_LIST_PATH_TYPE_INDEX:
+	case MAILBOX_LIST_PATH_TYPE_INDEX_CACHE:
 	case MAILBOX_LIST_PATH_TYPE_LIST_INDEX:
 		if (name == NULL && type == MAILBOX_LIST_PATH_TYPE_CONTROL &&
 		    list->set.control_dir != NULL) {
@@ -498,7 +498,7 @@ static int mbox_mailbox_open(struct mailbox *box)
 	} else if (mail_storage_set_error_from_errno(box->storage)) {
 		return -1;
 	} else {
-		mail_storage_set_critical(box->storage,
+		mailbox_set_critical(box,
 			"stat(%s) failed: %m", mailbox_get_path(box));
 		return -1;
 	}
@@ -545,7 +545,7 @@ static int create_inbox(struct mailbox *box)
 		i_close_fd(&fd);
 		return 0;
 	} else if (errno == EACCES) {
-		mail_storage_set_critical(box->storage, "%s",
+		mailbox_set_critical(box, "%s",
 			mail_error_create_eacces_msg("open", inbox_path));
 		return -1;
 	} else if (errno == EEXIST) {
@@ -553,7 +553,7 @@ static int create_inbox(struct mailbox *box)
 				       "Mailbox already exists");
 		return -1;
 	} else {
-		mail_storage_set_critical(box->storage,
+		mailbox_set_critical(box,
 			"open(%s, O_CREAT) failed: %m", inbox_path);
 		return -1;
 	}

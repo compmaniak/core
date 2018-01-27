@@ -1,9 +1,8 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "common.h"
 #include "array.h"
 #include "ioloop.h"
-#include "fd-close-on-exec.h"
 #include "hash.h"
 #include "str.h"
 #include "safe-mkstemp.h"

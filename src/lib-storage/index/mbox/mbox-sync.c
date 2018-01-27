@@ -1,4 +1,4 @@
-/* Copyright (c) 2004-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2004-2018 Dovecot authors, see the included COPYING file */
 
 /*
    Modifying mbox can be slow, so we try to do it all at once minimizing the
@@ -71,17 +71,15 @@ void mbox_sync_set_critical(struct mbox_sync_context *sync_ctx,
 
 	sync_ctx->errors = TRUE;
 	if (sync_ctx->ext_modified) {
-		mail_storage_set_critical(&sync_ctx->mbox->storage->storage,
-			"mbox file %s was modified while we were syncing, "
-			"check your locking settings",
-			mailbox_get_path(&sync_ctx->mbox->box));
+		mailbox_set_critical(&sync_ctx->mbox->box,
+			"mbox was modified while we were syncing, "
+			"check your locking settings");
 	}
 
 	va_start(va, fmt);
-	mail_storage_set_critical(&sync_ctx->mbox->storage->storage,
-				  "Sync failed for mbox file %s: %s",
-				  mailbox_get_path(&sync_ctx->mbox->box),
-				  t_strdup_vprintf(fmt, va));
+	mailbox_set_critical(&sync_ctx->mbox->box,
+			     "Sync failed for mbox: %s",
+			     t_strdup_vprintf(fmt, va));
 	va_end(va);
 }
 
@@ -673,8 +671,7 @@ static int mbox_sync_handle_header(struct mbox_sync_mail_context *mail_ctx)
 		if (ret > 0) {
 			/* rewrite successful, write From-line to
 			   new location */
-			i_assert(move_diff > 0 ||
-				 (off_t)mail_ctx->mail.from_offset >=
+			i_assert((off_t)mail_ctx->mail.from_offset >=
 				 -move_diff);
 			mail_ctx->mail.from_offset += move_diff;
 			mail_ctx->mail.offset += move_diff;
@@ -1137,11 +1134,8 @@ static int mbox_sync_loop(struct mbox_sync_context *sync_ctx,
 				/* oh no, we're out of UIDs. this shouldn't
 				   happen normally, so just try to get it fixed
 				   without crashing. */
-				mail_storage_set_critical(
-					&sync_ctx->mbox->storage->storage,
-					"Out of UIDs, renumbering them in mbox "
-					"file %s",
-					mailbox_get_path(&sync_ctx->mbox->box));
+				mailbox_set_critical(&sync_ctx->mbox->box,
+					"Out of UIDs, renumbering them in mbox");
 				sync_ctx->renumber_uids = TRUE;
 				return 0;
 			}
@@ -1771,7 +1765,7 @@ int mbox_sync_has_changed(struct mbox_mailbox *mbox, bool leave_dirty)
 		/* fully synced */
 		if (mbox->mbox_hdr.dirty_flag != 0 || leave_dirty)
 			return 0;
-		/* flushing dirtyness */
+		/* flushing dirtiness */
 	}
 
 	/* file changed */
@@ -1887,7 +1881,7 @@ again:
 		/* nothing to do */
 	nothing_to_do:
 		/* index may need to do internal syncing though, so commit
-		   instead of rollbacking. */
+		   instead of rolling back. */
 		index_storage_expunging_deinit(&mbox->box);
 		if (mail_index_sync_commit(&index_sync_ctx) < 0) {
 			mailbox_set_index_error(&mbox->box);

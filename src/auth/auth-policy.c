@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2016-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "net.h"
@@ -234,10 +234,10 @@ void auth_policy_finish(struct policy_lookup_ctx *context)
 {
 	if (context->parser != NULL) {
 		const char *error ATTR_UNUSED;
-		(void)json_parser_deinit(&(context->parser), &error);
+		(void)json_parser_deinit(&context->parser, &error);
 	}
 	if (context->http_request != NULL)
-		http_client_request_abort(&(context->http_request));
+		http_client_request_abort(&context->http_request);
 	if (context->request != NULL)
 		auth_request_unref(&context->request);
 }
@@ -260,7 +260,7 @@ void auth_policy_parse_response(struct policy_lookup_ctx *context)
 			else
 				continue;
 		} else if (context->parse_state == POLICY_RESULT_VALUE_STATUS) {
-			if (type != JSON_TYPE_NUMBER || str_to_int(value, &(context->result)) != 0)
+			if (type != JSON_TYPE_NUMBER || str_to_int(value, &context->result) != 0)
 				break;
 			context->parse_state = POLICY_RESULT;
 		} else if (context->parse_state == POLICY_RESULT_VALUE_MESSAGE) {
@@ -279,7 +279,7 @@ void auth_policy_parse_response(struct policy_lookup_ctx *context)
 
 	context->parse_error = TRUE;
 
-	io_remove(&(context->io));
+	io_remove(&context->io);
 
 	if (context->payload->stream_errno != 0) {
 		auth_request_log_error(context->request, "policy",
@@ -293,13 +293,13 @@ void auth_policy_parse_response(struct policy_lookup_ctx *context)
 			"Policy server response was malformed");
 	} else {
 		const char *error = "unknown";
-		if (json_parser_deinit(&(context->parser), &error) != 0)
+		if (json_parser_deinit(&context->parser, &error) != 0)
 			auth_request_log_error(context->request, "policy",
 				"Policy server response JSON parse error: %s", error);
 		else if (context->parse_state == POLICY_RESULT)
 			context->parse_error = FALSE;
 	}
-	i_stream_unref(&(context->payload));
+	i_stream_unref(&context->payload);
 
 	if (context->parse_error) {
 		context->result = (context->set->policy_reject_on_fail ? -1 : 0);
@@ -448,7 +448,7 @@ void auth_policy_create_json(struct policy_lookup_ctx *context,
 	i_assert(digest != NULL);
 
 	void *ctx = t_malloc_no0(digest->context_size);
-	buffer_t *buffer = buffer_create_dynamic(pool_datastack_create(), 64);
+	buffer_t *buffer = t_buffer_create(64);
 
 	digest->init(ctx);
 	digest->loop(ctx,
@@ -487,6 +487,11 @@ void auth_policy_create_json(struct policy_lookup_ctx *context,
 		str_append(context->json, ",\"policy_reject\":");
 		str_append(context->json, context->request->policy_refusal ? "true" : "false");
 	}
+	str_append(context->json, ",\"tls\":");
+	if (context->request->secured == AUTH_REQUEST_SECURED_TLS)
+		str_append(context->json, "true");
+	else
+		str_append(context->json, "false");
 	str_append_c(context->json, '}');
 	auth_request_log_debug(context->request, "policy",
 		"Policy server request JSON: %s", str_c(context->json));

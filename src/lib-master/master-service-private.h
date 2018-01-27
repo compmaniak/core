@@ -70,6 +70,7 @@ struct master_service {
 	struct ssl_iostream_context *ssl_ctx;
 	time_t ssl_params_last_refresh;
 
+	struct stats_client *stats_client;
 	struct master_service_haproxy_conn *haproxy_conns;
 
 	bool killed:1;
@@ -83,6 +84,7 @@ struct master_service {
 	bool want_ssl_settings:1;
 	bool ssl_ctx_initialized:1;
 	bool config_path_from_master:1;
+	bool log_initialized:1;
 };
 
 void master_service_io_listeners_add(struct master_service *service);

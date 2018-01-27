@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "imap-common.h"
 #include "array.h"
@@ -862,8 +862,7 @@ static int fetch_modseq(struct imap_fetch_context *ctx, struct mail *mail,
 	modseq = mail_get_modseq(mail);
 	if (ctx->client->highest_fetch_modseq < modseq)
 		ctx->client->highest_fetch_modseq = modseq;
-	str_printfa(ctx->state.cur_str, "MODSEQ (%llu) ",
-		    (unsigned long long)modseq);
+	str_printfa(ctx->state.cur_str, "MODSEQ (%"PRIu64") ", modseq);
 	return 1;
 }
 
@@ -994,6 +993,7 @@ imap_fetch_default_handlers[] = {
 	{ "INTERNALDATE", fetch_internaldate_init },
 	{ "MODSEQ", imap_fetch_modseq_init },
 	{ "RFC822", imap_fetch_rfc822_init },
+	{ "SNIPPET", imap_fetch_snippet_init },
 	{ "UID", imap_fetch_uid_init },
 	{ "X-GUID", fetch_guid_init },
 	{ "X-MAILBOX", fetch_x_mailbox_init },

@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file
  */
 
 #include "lib.h"
@@ -76,7 +76,7 @@ program_client_istream_read(struct istream_private *stream)
 		ret = -1;
 	} else
 		do {
-			if ((ret = i_stream_read(stream->parent)) == -2) {
+			if ((ret = i_stream_read_memarea(stream->parent)) == -2) {
 				return -2;	/* input buffer full */
 			}
 
@@ -186,7 +186,7 @@ struct istream *program_client_istream_create(struct program_client *program_cli
 
 	i_stream_seek(input, 0);
 
-	return i_stream_create(&scstream->istream, input, -1);
+	return i_stream_create(&scstream->istream, input, -1, 0);
 }
 
 /*

@@ -1,11 +1,11 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "lib-signals.h"
 #include "hostpid.h"
 #include "restrict-access.h"
 #include "master-interface.h"
-#include "master-service.h"
+#include "master-service-private.h"
 #include "master-service-settings.h"
 #include "log-error-buffer.h"
 #include "log-connection.h"
@@ -14,12 +14,13 @@
 #include <unistd.h>
 
 bool verbose_proctitle;
-const char *global_log_prefix;
+char *global_log_prefix;
 static struct log_error_buffer *errorbuf;
 
 static void
 sig_reopen_logs(const siginfo_t *si ATTR_UNUSED, void *context ATTR_UNUSED)
 {
+	master_service->log_initialized = FALSE;
 	master_service_init_log(master_service, global_log_prefix);
 }
 
@@ -36,6 +37,7 @@ static void main_deinit(void)
 {
 	log_connections_deinit();
 	log_error_buffer_deinit(&errorbuf);
+	i_free(global_log_prefix);
 }
 
 static void client_connected(struct master_service_connection *conn)
@@ -64,7 +66,7 @@ int main(int argc, char *argv[])
 
 	/* use log prefix and log to stderr until we've configured the real
 	   logging */
-	global_log_prefix = t_strdup_printf("log(%s): ", my_pid);
+	global_log_prefix = i_strdup_printf("log(%s): ", my_pid);
 	i_set_failure_file("/dev/stderr", global_log_prefix);
 
 	if (master_getopt(master_service) > 0)

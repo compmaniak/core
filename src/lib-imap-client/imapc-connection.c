@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2011-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -64,6 +64,8 @@ struct imapc_command {
 	bool idle:1;
 	/* Waiting for '+' literal reply before we can continue */
 	bool wait_for_literal:1;
+	/* Command is fully sent to server */
+	bool sent:1;
 };
 ARRAY_DEFINE_TYPE(imapc_command, struct imapc_command *);
 
@@ -114,6 +116,9 @@ struct imapc_connection {
 	ARRAY_TYPE(imapc_command) cmd_send_queue;
 	/* commands that have been sent, waiting for their tagged reply */
 	ARRAY_TYPE(imapc_command) cmd_wait_list;
+	/* commands that were already sent, but were aborted since (due to
+	   unselecting mailbox). */
+	ARRAY_TYPE(seq_range) aborted_cmd_tags;
 	unsigned int reconnect_command_count;
 
 	unsigned int ips_count, prev_connect_idx;
@@ -135,6 +140,7 @@ struct imapc_connection {
 	bool idling:1;
 	bool idle_stopping:1;
 	bool idle_plus_waiting:1;
+	bool select_waiting_reply:1;
 };
 
 static void imapc_connection_capability_cb(const struct imapc_command_reply *reply,
@@ -201,6 +207,7 @@ imapc_connection_init(struct imapc_client *client,
 	i_array_init(&conn->cmd_send_queue, 8);
 	i_array_init(&conn->cmd_wait_list, 32);
 	i_array_init(&conn->literal_files, 4);
+	i_array_init(&conn->aborted_cmd_tags, 8);
 
 	if (client->set.debug)
 		i_debug("imapc(%s): Created new connection", conn->name);
@@ -233,6 +240,7 @@ static void imapc_connection_unref(struct imapc_connection **_conn)
 	array_free(&conn->cmd_send_queue);
 	array_free(&conn->cmd_wait_list);
 	array_free(&conn->literal_files);
+	array_free(&conn->aborted_cmd_tags);
 	imapc_client_unref(&conn->client);
 	i_free(conn->ips);
 	i_free(conn->name);
@@ -337,16 +345,25 @@ void imapc_connection_abort_commands(struct imapc_connection *conn,
 	   callback recurses us back here we don't crash */
 	i_zero(&reply);
 	reply.state = IMAPC_COMMAND_STATE_DISCONNECTED;
-	reply.text_without_resp = reply.text_full =
-		"Disconnected from server";
+	if (only_box != NULL) {
+		reply.text_without_resp = reply.text_full =
+			"Unselecting mailbox";
+	} else {
+		reply.text_without_resp = reply.text_full =
+			"Disconnected from server";
+	}
 	array_foreach(&tmp_array, cmdp) {
 		cmd = *cmdp;
 
+		if (cmd->sent && conn->state == IMAPC_CONNECTION_STATE_DONE) {
+			/* We're not disconnected, so the reply will still
+			   come. Remember that it needs to be ignored. */
+			seq_range_array_add(&conn->aborted_cmd_tags, cmd->tag);
+		}
 		cmd->callback(&reply, cmd->context);
 		imapc_command_free(cmd);
 	}
-	if (conn->to != NULL)
-		timeout_remove(&conn->to);
+	timeout_remove(&conn->to);
 }
 
 static void
@@ -380,10 +397,12 @@ static void imapc_connection_set_state(struct imapc_connection *conn,
 			i_free(conn->ips);
 			conn->ips_count = 0;
 		}
+		array_clear(&conn->aborted_cmd_tags);
 		conn->idling = FALSE;
 		conn->idle_plus_waiting = FALSE;
 		conn->idle_stopping = FALSE;
 
+		conn->select_waiting_reply = FALSE;
 		conn->selecting_box = NULL;
 		conn->selected_box = NULL;
 		/* fall through */
@@ -412,10 +431,7 @@ static void imapc_connection_lfiles_free(struct imapc_connection *conn)
 static void
 imapc_connection_literal_reset(struct imapc_connection_literal *literal)
 {
-	if (literal->fd != -1) {
-		if (close(literal->fd) < 0)
-			i_error("close(%s) failed: %m", literal->temp_path);
-	}
+	i_close_fd_path(&literal->fd, literal->temp_path);
 	i_free_and_null(literal->temp_path);
 
 	i_zero(literal);
@@ -896,8 +912,7 @@ imapc_connection_authenticate_cb(const struct imapc_command_reply *reply,
 	}
 
 	input_len = strlen(reply->text_full);
-	buf = buffer_create_dynamic(pool_datastack_create(),
-				    MAX_BASE64_DECODED_SIZE(input_len));
+	buf = t_buffer_create(MAX_BASE64_DECODED_SIZE(input_len));
 	if (base64_decode(reply->text_full, input_len, NULL, buf) < 0) {
 		imapc_auth_failed(conn, reply,
 				  t_strdup_printf("Server sent non-base64 input for AUTHENTICATE: %s",
@@ -1264,7 +1279,7 @@ static int imapc_connection_input_plus(struct imapc_connection *conn)
 		/* "+ idling" reply for IDLE command */
 		conn->idle_plus_waiting = FALSE;
 		conn->idling = TRUE;
-		/* no timeouting while IDLEing */
+		/* no timing out while IDLEing */
 		if (conn->to != NULL && !conn->idle_stopping)
 			timeout_remove(&conn->to);
 	} else if (cmds_count > 0 && cmds[0]->wait_for_literal) {
@@ -1443,11 +1458,20 @@ static int imapc_connection_input_tagged(struct imapc_connection *conn)
 		timeout_remove(&conn->to);
 
 	if (cmd == NULL) {
+		if (seq_range_exists(&conn->aborted_cmd_tags, conn->cur_tag)) {
+			/* sent command was already aborted - ignore it */
+			seq_range_array_remove(&conn->aborted_cmd_tags,
+					       conn->cur_tag);
+			imapc_connection_input_reset(conn);
+			return 1;
+		}
 		imapc_connection_input_error(conn,
 			"Unknown tag in a reply: %u %s %s",
 			conn->cur_tag, line, reply.text_full);
 		return -1;
 	}
+	if ((cmd->flags & IMAPC_COMMAND_FLAG_SELECT) != 0)
+		conn->select_waiting_reply = FALSE;
 
 	if (reply.state == IMAPC_COMMAND_STATE_BAD) {
 		i_error("imapc(%s): Command '%s' failed with BAD: %u %s",
@@ -1465,6 +1489,7 @@ static int imapc_connection_input_tagged(struct imapc_connection *conn)
 
 	if (conn->reconnect_command_count > 0 &&
 	    (cmd->flags & IMAPC_COMMAND_FLAG_RECONNECTED) != 0) {
+		i_assert(conn->reconnect_command_count > 0);
 		if (--conn->reconnect_command_count == 0) {
 			/* we've received replies for all the commands started
 			   before reconnection. if we get disconnected now, we
@@ -1992,6 +2017,7 @@ static void imapc_command_send_finished(struct imapc_connection *conn,
 
 	if (cmd->idle)
 		conn->idle_plus_waiting = TRUE;
+	cmd->sent = TRUE;
 
 	/* everything sent. move command to wait list. */
 	cmdp = array_idx(&conn->cmd_send_queue, 0);
@@ -2075,6 +2101,7 @@ static void imapc_connection_set_selecting(struct imapc_client_mailbox *box)
 		   are for the mailbox we're selecting */
 		conn->selected_box = box;
 	}
+	conn->select_waiting_reply = TRUE;
 }
 
 static bool imapc_connection_is_throttled(struct imapc_connection *conn)
@@ -2127,6 +2154,10 @@ static void imapc_command_send_more(struct imapc_connection *conn)
 	if ((cmd->flags & IMAPC_COMMAND_FLAG_LOGOUT) != 0 &&
 	    array_count(&conn->cmd_wait_list) > 0) {
 		/* wait until existing commands have finished */
+		return;
+	}
+	if (conn->select_waiting_reply) {
+		/* wait for SELECT to finish */
 		return;
 	}
 	if (cmd->wait_for_literal) {
@@ -2235,8 +2266,12 @@ static void imapc_connection_send_idle_done(struct imapc_connection *conn)
 static void imapc_connection_cmd_send(struct imapc_command *cmd)
 {
 	struct imapc_connection *conn = cmd->conn;
+	struct imapc_command *const *cmds;
+	unsigned int i, count;
 
 	imapc_connection_send_idle_done(conn);
+
+	i_assert((cmd->flags & IMAPC_COMMAND_FLAG_RECONNECTED) == 0);
 
 	if ((cmd->flags & IMAPC_COMMAND_FLAG_PRELOGIN) != 0 &&
 	    conn->state == IMAPC_CONNECTION_STATE_AUTHENTICATING) {
@@ -2246,14 +2281,13 @@ static void imapc_connection_cmd_send(struct imapc_command *cmd)
 		return;
 	}
 
-	if ((cmd->flags & IMAPC_COMMAND_FLAG_SELECT) != 0 &&
-	    conn->selected_box == NULL) {
-		/* reopening the mailbox. add it before other
-		   queued commands. */
-		array_insert(&conn->cmd_send_queue, 0, &cmd, 1);
-	} else {
-		array_append(&conn->cmd_send_queue, &cmd, 1);
+	/* add the command just before retried commands */
+	cmds = array_get(&conn->cmd_send_queue, &count);
+	for (i = count; i > 0; i--) {
+		if ((cmds[i-1]->flags & IMAPC_COMMAND_FLAG_RECONNECTED) == 0)
+			break;
 	}
+	array_insert(&conn->cmd_send_queue, i, &cmd, 1);
 	imapc_command_send_more(conn);
 }
 

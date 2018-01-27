@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file
  */
 
 #include "lib.h"
@@ -186,7 +186,7 @@ bool program_client_input_pending(struct program_client *pclient)
 
 	if (pclient->program_input != NULL &&
 	    !pclient->program_input->closed &&
-	    !i_stream_is_eof(pclient->program_input)) {
+	    !i_stream_read_eof(pclient->program_input)) {
 		return TRUE;
 	}
 
@@ -195,7 +195,7 @@ bool program_client_input_pending(struct program_client *pclient)
 		for(i = 0; i < count; i++) {
 			if (efds[i].input != NULL &&
 			    !efds[i].input->closed &&
-			    !i_stream_is_eof(efds[i].input)) {
+			    !i_stream_read_eof(efds[i].input)) {
 				return TRUE;
 			}
 		}
@@ -261,7 +261,7 @@ int program_client_program_output(struct program_client *pclient)
 	if (input == NULL &&
 	    output != NULL &&
 	    pclient->dot_output != NULL) {
-		if ((ret = o_stream_flush(pclient->dot_output)) <= 0) {
+		if ((ret = o_stream_finish(pclient->dot_output)) <= 0) {
 			if (ret < 0) {
 				i_error("write(%s) failed: %s",
 					o_stream_get_name(output),
@@ -389,7 +389,7 @@ void program_client_extra_fd_input(struct program_client_extra_fd *efd)
 	i_assert(efd->callback != NULL);
 	efd->callback(efd->context, efd->input);
 
-	if (efd->input->closed || i_stream_is_eof(efd->input)) {
+	if (efd->input->closed || i_stream_read_eof(efd->input)) {
 		if (!program_client_input_pending(pclient))
 			program_client_disconnect(pclient, FALSE);
 	}
@@ -523,6 +523,7 @@ void program_client_init_streams(struct program_client *pclient)
 			o_stream_create_fd(pclient->fd_out,
 					   MAX_OUTPUT_BUFFER_SIZE);
 		o_stream_set_name(pclient->program_output, "program stdin");
+		o_stream_set_no_error_handling(pclient->program_output, TRUE);
 	}
 	if (pclient->fd_in >= 0) {
 		pclient->program_input =

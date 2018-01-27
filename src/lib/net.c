@@ -1,8 +1,7 @@
-/* Copyright (c) 1999-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 1999-2018 Dovecot authors, see the included COPYING file */
 
 #define _GNU_SOURCE /* For Linux's struct ucred */
 #include "lib.h"
-#include "fd-set-nonblock.h"
 #include "time-util.h"
 #include "net.h"
 
@@ -33,6 +32,8 @@ union sockaddr_union_unix {
 
 #if !defined(HAVE_GETPEEREID) && !defined(SO_PEERCRED) && !defined(HAVE_GETPEERUCRED) && defined(MSG_WAITALL) && defined(LOCAL_CREDS)
 #  define NEEDS_LOCAL_CREDS 1
+#else
+#  undef NEEDS_LOCAL_CREDS
 #endif
 
 /* If connect() fails with EADDRNOTAVAIL (or some others on FreeBSD), retry it
@@ -616,23 +617,6 @@ ssize_t net_receive(int fd, void *buf, size_t len)
 	return ret;
 }
 
-ssize_t net_transmit(int fd, const void *data, size_t len)
-{
-        ssize_t ret;
-
-	i_assert(fd >= 0);
-	i_assert(len <= SSIZE_T_MAX);
-
-	ret = send(fd, data, len, 0);
-	if (ret == -1) {
-		if (errno == EINTR || errno == EAGAIN)
-			return 0;
-		if (errno == EPIPE)
-			return -2;
-	}
-        return ret;
-}
-
 int net_gethostbyname(const char *addr, struct ip_addr **ips,
 		      unsigned int *ips_count)
 {
@@ -836,7 +820,7 @@ int net_getunixcred(int fd, struct net_unix_cred *cred_r)
 		return -1;
 	}
 	return 0;
-#elif NEEDS_LOCAL_CREDS
+#elif defined(NEEDS_LOCAL_CREDS)
 	/* NetBSD < 5 */
 	int i, n, on;
 	struct iovec iov;
@@ -883,18 +867,55 @@ int net_getunixcred(int fd, struct net_unix_cred *cred_r)
 
 const char *net_ip2addr(const struct ip_addr *ip)
 {
-	char addr[MAX_IP_LEN+1];
+	char *addr = t_malloc_no0(MAX_IP_LEN+1);
 
-	addr[MAX_IP_LEN] = '\0';
 	if (inet_ntop(ip->family, &ip->u.ip6, addr, MAX_IP_LEN) == NULL)
 		return "";
 
-	return t_strdup(addr);
+	return addr;
+}
+
+static bool net_addr2ip_inet4_fast(const char *addr, struct ip_addr *ip)
+{
+	uint8_t *saddr = (void *)&ip->u.ip4.s_addr;
+	unsigned int i, num;
+
+	if (str_parse_uint(addr, &num, &addr) < 0)
+		return FALSE;
+	if (*addr == '\0' && num <= 0xffffffff) {
+		/* single-number IPv4 address */
+		ip->u.ip4.s_addr = htonl(num);
+		ip->family = AF_INET;
+		return TRUE;
+	}
+
+	/* try to parse as a.b.c.d */
+	i = 0;
+	for (;;) {
+		if (num >= 256)
+			return FALSE;
+		saddr[i] = num;
+		if (i == 3)
+			break;
+		i++;
+		if (*addr != '.')
+			return FALSE;
+		addr++;
+		if (str_parse_uint(addr, &num, &addr) < 0)
+			return FALSE;
+	}
+	if (*addr != '\0')
+		return FALSE;
+	ip->family = AF_INET;
+	return TRUE;
 }
 
 int net_addr2ip(const char *addr, struct ip_addr *ip)
 {
 	int ret;
+
+	if (net_addr2ip_inet4_fast(addr, ip))
+		return 0;
 
 	if (strchr(addr, ':') != NULL) {
 		/* IPv6 */

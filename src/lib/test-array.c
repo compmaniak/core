@@ -1,4 +1,4 @@
-/* Copyright (c) 2007-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2007-2018 Dovecot authors, see the included COPYING file */
 
 #include "test-lib.h"
 #include "array.h"
@@ -304,18 +304,20 @@ enum fatal_test_state fatal_array(unsigned int stage)
 		test_begin("fatal_array");
 		t_array_init(&ad, 3);
 		/* allocation big enough, but memory not initialised */
+		test_expect_fatal_string("(array_idx_i): assertion failed: (idx * array->element_size < array->buffer->used)");
 		useless_ptr = array_idx(&ad, 0);
 		return FATAL_TEST_FAILURE;
-	} break;
+	}
 
 	case 1: {
 		ARRAY(double) ad;
 		t_array_init(&ad, 2);
 		array_append(&ad, tmpd, 2);
 		/* actual out of range address requested */
+		test_expect_fatal_string("(array_idx_i): assertion failed: (idx * array->element_size < array->buffer->used)");
 		useless_ptr = array_idx(&ad, 2);
 		return FATAL_TEST_FAILURE;
-	} break;
+	}
 
 	case 2: {
 		ARRAY(double) ad;
@@ -323,9 +325,11 @@ enum fatal_test_state fatal_array(unsigned int stage)
 		t_array_init(&ad, 2);
 		t_array_init(&as, 8);
 		array_append(&as, tmps, 2);
+		/* can't copy different array sizes */
+		test_expect_fatal_string("(array_copy): assertion failed: (dest->element_size == src->element_size)");
 		array_copy(&ad.arr, 1, &as.arr, 0, 4);
 		return FATAL_TEST_FAILURE;
-	} break;
+	}
 	}
 	test_end();
 	/* Forces the compiler to check the value of useless_ptr, so that it

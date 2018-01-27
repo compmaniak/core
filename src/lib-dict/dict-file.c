@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2008-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -96,10 +96,7 @@ static void file_dict_deinit(struct dict *_dict)
 {
 	struct file_dict *dict = (struct file_dict *)_dict;
 
-	if (dict->fd != -1) {
-		if (close(dict->fd) < 0)
-			i_error("close(%s) failed: %m", dict->path);
-	}
+	i_close_fd_path(&dict->fd, dict->path);
 	hash_table_destroy(&dict->hash);
 	pool_unref(&dict->hash_pool);
 	i_free(dict->path);
@@ -149,10 +146,7 @@ static int file_dict_open_latest(struct file_dict *dict, const char **error_r)
 	if (!file_dict_need_refresh(dict))
 		return 0;
 
-	if (dict->fd != -1) {
-		if (close(dict->fd) < 0)
-			i_error("close(%s) failed: %m", dict->path);
-	}
+	i_close_fd_path(&dict->fd, dict->path);
 
 	open_type = dict->lock_method == FILE_LOCK_METHOD_DOTLOCK ?
 		O_RDONLY : O_RDWR;
@@ -596,7 +590,7 @@ file_dict_write_changes(struct dict_transaction_memory_context *ctx,
 	}
 	hash_table_iterate_deinit(&iter);
 
-	if (o_stream_nfinish(output) < 0) {
+	if (o_stream_finish(output) <= 0) {
 		*error_r = t_strdup_printf("write(%s) failed: %s", temp_path,
 					   o_stream_get_error(output));
 		o_stream_destroy(&output);

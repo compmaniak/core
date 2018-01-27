@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -79,8 +79,8 @@ int connection_verify_version(struct connection *conn,
 	    strcmp(args[0], "VERSION") != 0 ||
 	    str_to_uint(args[2], &recv_major_version) < 0 ||
 	    str_to_uint(args[3], &conn->minor_version) < 0) {
-		i_error("%s didn't reply with a valid VERSION line",
-			conn->name);
+		i_error("%s didn't reply with a valid VERSION line: %s",
+			conn->name, t_strarray_join(args, "\t"));
 		return -1;
 	}
 
@@ -151,6 +151,7 @@ static void connection_init_streams(struct connection *conn)
 			conn->output = o_stream_create_fd(conn->fd_out,
 							  set->output_max_size);
 		o_stream_set_no_error_handling(conn->output, TRUE);
+		o_stream_set_finish_via_child(conn->output, FALSE);
 		o_stream_set_name(conn->output, conn->name);
 	}
 	if (set->input_idle_timeout_secs != 0) {
@@ -180,6 +181,22 @@ static void connection_client_connected(struct connection *conn, bool success)
 	}
 }
 
+void connection_init(struct connection_list *list,
+		     struct connection *conn)
+{
+	conn->fd_in = -1;
+	conn->fd_out = -1;
+	conn->name = NULL;
+
+	if (conn->list != NULL) {
+		i_assert(conn->list == list);
+	} else {
+		conn->list = list;
+		DLLIST_PREPEND(&list->connections, conn);
+		list->connections_count++;
+	}
+}
+
 void connection_init_server(struct connection_list *list,
 			    struct connection *conn, const char *name,
 			    int fd_in, int fd_out)
@@ -187,14 +204,12 @@ void connection_init_server(struct connection_list *list,
 	i_assert(name != NULL);
 	i_assert(!list->set.client);
 
-	conn->list = list;
+	connection_init(list, conn);
+
 	conn->name = i_strdup(name);
 	conn->fd_in = fd_in;
 	conn->fd_out = fd_out;
 	connection_init_streams(conn);
-
-	DLLIST_PREPEND(&list->connections, conn);
-	list->connections_count++;
 }
 
 void connection_init_client_ip(struct connection_list *list,
@@ -203,15 +218,13 @@ void connection_init_client_ip(struct connection_list *list,
 {
 	i_assert(list->set.client);
 
+	connection_init(list, conn);
+
 	conn->fd_in = conn->fd_out = -1;
-	conn->list = list;
 	conn->name = i_strdup_printf("%s:%u", net_ip2addr(ip), port);
 
 	conn->ip = *ip;
 	conn->port = port;
-
-	DLLIST_PREPEND(&list->connections, conn);
-	list->connections_count++;
 }
 
 void connection_init_client_unix(struct connection_list *list,
@@ -219,13 +232,11 @@ void connection_init_client_unix(struct connection_list *list,
 {
 	i_assert(list->set.client);
 
+	connection_init(list, conn);
+
 	conn->fd_in = conn->fd_out = -1;
-	conn->list = list;
 	conn->name = i_strdup(path);
 	conn->unix_socket = TRUE;
-
-	DLLIST_PREPEND(&list->connections, conn);
-	list->connections_count++;
 }
 
 void connection_init_from_streams(struct connection_list *list,
@@ -234,7 +245,8 @@ void connection_init_from_streams(struct connection_list *list,
 {
 	i_assert(name != NULL);
 
-	conn->list = list;
+	connection_init(list, conn);
+
 	conn->name = i_strdup(name);
 	conn->fd_in = i_stream_get_fd(input);
 	conn->fd_out = o_stream_get_fd(output);
@@ -256,9 +268,6 @@ void connection_init_from_streams(struct connection_list *list,
 	o_stream_set_name(conn->output, conn->name);
 
 	conn->io = io_add_istream(conn->input, *list->v.input, conn);
-	
-	DLLIST_PREPEND(&list->connections, conn);
-	list->connections_count++;
 
 	if (list->v.client_connected != NULL)
 		list->v.client_connected(conn, TRUE);
@@ -312,14 +321,10 @@ void connection_disconnect(struct connection *conn)
 	i_zero(&conn->last_input_tv);
 	timeout_remove(&conn->to);
 	io_remove(&conn->io);
-	if (conn->input != NULL) {
-		i_stream_close(conn->input);
-		i_stream_destroy(&conn->input);
-	}
-	if (conn->output != NULL) {
-		o_stream_close(conn->output);
-		o_stream_destroy(&conn->output);
-	}
+	i_stream_close(conn->input);
+	i_stream_destroy(&conn->input);
+	o_stream_close(conn->output);
+	o_stream_destroy(&conn->output);
 	fd_close_maybe_stdio(&conn->fd_in, &conn->fd_out);
 }
 

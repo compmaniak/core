@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -813,9 +813,7 @@ void io_loop_destroy(struct ioloop **_ioloop)
 	if (ioloop->handler_context != NULL)
 		io_loop_handler_deinit(ioloop);
 
-	if (ioloop->cur_ctx != NULL)
-		io_loop_context_deactivate(ioloop->cur_ctx);
-
+	i_assert(ioloop->cur_ctx == NULL);
 	i_free(ioloop);
 }
 
@@ -878,8 +876,12 @@ struct ioloop_context *io_loop_context_new(struct ioloop *ioloop)
 	ctx->ioloop = ioloop;
 	i_array_init(&ctx->callbacks, 4);
 
-	if (ioloop->cur_ctx != NULL)
-		io_loop_context_unref(&ioloop->cur_ctx);
+	if (ioloop->cur_ctx != NULL) {
+		io_loop_context_deactivate(ioloop->cur_ctx);
+		/* deactivation may remove the cur_ctx */
+		if (ioloop->cur_ctx != NULL)
+			io_loop_context_unref(&ioloop->cur_ctx);
+	}
 	ioloop->cur_ctx = ctx;
 	return ctx;
 }
@@ -981,7 +983,7 @@ void io_loop_context_deactivate(struct ioloop_context *ctx)
 {
 	struct ioloop_context_callback *cb;
 
-	i_assert(ctx->ioloop->cur_ctx != NULL);
+	i_assert(ctx->ioloop->cur_ctx == ctx);
 
 	array_foreach_modifiable(&ctx->callbacks, cb) {
 		if (!cb->activated) {

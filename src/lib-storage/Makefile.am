@@ -26,6 +26,7 @@ libstorage_la_SOURCES = \
 	mail.c \
 	mail-autoexpunge.c \
 	mail-copy.c \
+	mail-duplicate.c \
 	mail-error.c \
 	mail-namespace.c \
 	mail-search.c \
@@ -68,6 +69,7 @@ headers = \
 	fail-mail-storage.h \
 	mail-autoexpunge.h \
 	mail-copy.h \
+	mail-duplicate.h \
 	mail-error.h \
 	mail-namespace.h \
 	mail-search.h \
@@ -159,8 +161,7 @@ test_mail_storage_SOURCES = test-mail-storage.c
 test_mail_storage_LDADD = libstorage.la $(LIBDOVECOT)
 test_mail_storage_DEPENDENCIES = libstorage.la $(LIBDOVECOT_DEPS)
 
-check: check-am check-test
-check-test: all-am
+check-local:
 	for bin in $(test_programs); do \
 	  if ! $(RUN_TEST) ./$$bin; then exit 1; fi; \
 	done

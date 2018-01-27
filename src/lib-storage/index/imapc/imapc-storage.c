@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2011-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -137,7 +137,8 @@ void imapc_mailbox_run_nofetch(struct imapc_mailbox *mbox)
 {
 	do {
 		imapc_client_run(mbox->storage->client->client);
-	} while (mbox->storage->reopen_count > 0);
+	} while (mbox->storage->reopen_count > 0 ||
+		 mbox->state_fetching_uid1);
 }
 
 void imapc_simple_callback(const struct imapc_command_reply *reply,
@@ -579,8 +580,10 @@ imapc_mailbox_reopen_callback(const struct imapc_command_reply *reply,
 	mbox->selecting = FALSE;
 	if (reply->state != IMAPC_COMMAND_STATE_OK)
 		errmsg = reply->text_full;
-	else if (imapc_mailbox_verify_select(mbox, &errmsg))
+	else if (imapc_mailbox_verify_select(mbox, &errmsg)) {
 		errmsg = NULL;
+		mbox->selected = TRUE;
+	}
 
 	if (errmsg != NULL) {
 		imapc_client_mailbox_reconnect(mbox->client_box,
@@ -611,6 +614,7 @@ static void imapc_mailbox_reopen(void *context)
 
 	mbox->initial_sync_done = FALSE;
 	mbox->selecting = TRUE;
+	mbox->selected = FALSE;
 	mbox->exists_received = FALSE;
 
 	cmd = imapc_client_mailbox_cmd(mbox->client_box,
@@ -624,9 +628,6 @@ static void imapc_mailbox_reopen(void *context)
 				    imapc_mailbox_get_remote_name(mbox));
 	}
 	mbox->storage->reopen_count++;
-
-	if (mbox->syncing)
-		imapc_sync_mailbox_reopened(mbox);
 }
 
 static void
@@ -637,14 +638,13 @@ imapc_mailbox_open_callback(const struct imapc_command_reply *reply,
 	const char *error;
 
 	ctx->mbox->selecting = FALSE;
-	ctx->mbox->selected = TRUE;
 	if (reply->state == IMAPC_COMMAND_STATE_OK) {
 		if (!imapc_mailbox_verify_select(ctx->mbox, &error)) {
-			mail_storage_set_critical(ctx->mbox->box.storage,
-				"imapc: Opening mailbox '%s' failed: %s",
-				ctx->mbox->box.name, error);
+			mailbox_set_critical(&ctx->mbox->box,
+				"imapc: Opening mailbox failed: %s", error);
 			ctx->ret = -1;
 		} else {
+			ctx->mbox->selected = TRUE;
 			ctx->ret = 0;
 		}
 	} else if (reply->state == IMAPC_COMMAND_STATE_NO) {
@@ -657,9 +657,8 @@ imapc_mailbox_open_callback(const struct imapc_command_reply *reply,
 		ctx->ret = -1;
 		mail_storage_set_internal_error(ctx->mbox->box.storage);
 	} else {
-		mail_storage_set_critical(ctx->mbox->box.storage,
-			"imapc: Opening mailbox '%s' failed: %s",
-			ctx->mbox->box.name, reply->text_full);
+		mailbox_set_critical(&ctx->mbox->box,
+			"imapc: Opening mailbox failed: %s", reply->text_full);
 		ctx->ret = -1;
 	}
 	imapc_client_stop(ctx->mbox->storage->client->client);
@@ -727,8 +726,10 @@ int imapc_mailbox_select(struct imapc_mailbox *mbox)
 			imapc_mailbox_get_remote_name(mbox));
 	}
 
-	while (ctx.ret == -2)
+	while (ctx.ret == -2 || mbox->state_fetching_uid1)
 		imapc_mailbox_run(mbox);
+	if (!mbox->state_fetched_success)
+		ctx.ret = -1;
 	return ctx.ret;
 }
 
@@ -763,11 +764,7 @@ static int imapc_mailbox_open(struct mailbox *box)
 
 void imapc_mail_cache_free(struct imapc_mail_cache *cache)
 {
-	if (cache->fd != -1) {
-		if (close(cache->fd) < 0)
-			i_error("close(imapc cached mail) failed: %m");
-		cache->fd = -1;
-	}
+	i_close_fd(&cache->fd);
 	buffer_free(&cache->buf);
 	cache->uid = 0;
 }
@@ -914,12 +911,10 @@ static void imapc_untagged_namespace(const struct imapc_untagged_reply *reply,
 	}
 }
 
-static int imapc_mailbox_get_selected_status(struct imapc_mailbox *mbox,
-					     enum mailbox_status_items items,
-					     struct mailbox_status *status_r)
+static void imapc_mailbox_get_selected_status(struct imapc_mailbox *mbox,
+					      enum mailbox_status_items items,
+					      struct mailbox_status *status_r)
 {
-	int ret = 0;
-
 	index_storage_get_open_status(&mbox->box, items, status_r);
 	if ((items & STATUS_PERMANENT_FLAGS) != 0)
 		status_r->permanent_flags = mbox->permanent_flags;
@@ -939,7 +934,6 @@ static int imapc_mailbox_get_selected_status(struct imapc_mailbox *mbox,
 		   have modseqs on the IMAP server itself. */
 		status_r->nonpermanent_modseqs = FALSE;
 	}
-	return ret;
 }
 
 static int imapc_mailbox_delete(struct mailbox *box)
@@ -1005,17 +999,14 @@ static int imapc_mailbox_get_status(struct mailbox *box,
 		status_r->have_guids = TRUE;
 
 	if (box->opened) {
-		if (imapc_mailbox_get_selected_status(mbox, items, status_r) < 0) {
-			/* can't do anything about this */
-		}
+		imapc_mailbox_get_selected_status(mbox, items, status_r);
 	} else if ((items & (STATUS_FIRST_UNSEEN_SEQ | STATUS_KEYWORDS |
 			     STATUS_PERMANENT_FLAGS |
 			     STATUS_FIRST_RECENT_UID)) != 0) {
 		/* getting these requires opening the mailbox */
 		if (mailbox_open(box) < 0)
 			return -1;
-		if (imapc_mailbox_get_selected_status(mbox, items, status_r) < 0)
-			return -1;
+		imapc_mailbox_get_selected_status(mbox, items, status_r);
 	} else {
 		if (imapc_mailbox_run_status(box, items, status_r) < 0)
 			return -1;

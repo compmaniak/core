@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2016-2018 Dovecot authors, see the included COPYING file */
 
 #include "test-lib.h"
 #include "istream.h"
@@ -7,7 +7,6 @@
 #include "str.h"
 #include "ioloop.h"
 #include "iostream-pump.h"
-#include "fd-set-nonblock.h"
 #include "istream-failure-at.h"
 #include "ostream-failure-at.h"
 
@@ -19,10 +18,10 @@ static
 unsigned char data[] = "hello, world";
 
 static
-void completed(bool success, int *u0)
+void completed(enum iostream_pump_status status, int *u0)
 {
 	/* to somehow discern between error and success .. */
-	(*u0) -= (success ? 1 : 2);
+	(*u0) -= (status == IOSTREAM_PUMP_STATUS_INPUT_EOF ? 1 : 2);
 	io_loop_stop(current_ioloop);
 }
 
@@ -106,6 +105,8 @@ const char *run_pump(struct istream *in, struct ostream *out, int *counter, buff
 		/* input failed, finish flushing output */
 		test_ostream_set_max_output_size(ctx.out, (size_t)-1);
 		test_assert(o_stream_flush(ctx.out) > 0);
+	} else {
+		test_assert(o_stream_flush(ctx.out) != 0);
 	}
 
 	const char *ret = t_strdup(str_c(out_buffer));
@@ -120,7 +121,7 @@ static
 void test_iostream_setup(bool block, struct istream **in_r,
 			 struct ostream **out_r, buffer_t **out_buffer_r)
 {
-	*out_buffer_r = buffer_create_dynamic(pool_datastack_create(), 128);
+	*out_buffer_r = t_buffer_create(128);
 
 	*in_r = test_istream_create_data(data, sizeof(data));
 	(*in_r)->blocking = block;
@@ -160,7 +161,7 @@ void test_iostream_pump_failure_start_read(bool block)
 	buffer_t *buffer;
 
 	test_iostream_setup(block, &in_2, &out, &buffer);
-	struct istream *in = i_stream_create_failure_at(in_2, 0, "test pump fail");
+	struct istream *in = i_stream_create_failure_at(in_2, 0, EIO, "test pump fail");
 	i_stream_unref(&in_2);
 	counter = 2;
 	test_assert(strcmp(run_pump(in, out, &counter, buffer), "") == 0);
@@ -179,7 +180,7 @@ void test_iostream_pump_failure_mid_read(bool block)
 	buffer_t *buffer;
 
 	test_iostream_setup(block, &in_2, &out, &buffer);
-	struct istream *in = i_stream_create_failure_at(in_2, 4, "test pump fail");
+	struct istream *in = i_stream_create_failure_at(in_2, 4, EIO, "test pump fail");
 	i_stream_unref(&in_2);
 	counter = 2;
 	test_assert(strcmp(run_pump(in, out, &counter, buffer), "hell") == 0);
@@ -198,7 +199,7 @@ void test_iostream_pump_failure_end_read(bool block)
 	buffer_t *buffer;
 
 	test_iostream_setup(block, &in_2, &out, &buffer);
-	struct istream *in = i_stream_create_failure_at_eof(in_2, "test pump fail");
+	struct istream *in = i_stream_create_failure_at_eof(in_2, EIO, "test pump fail");
 	i_stream_unref(&in_2);
 	counter = 2;
 	test_assert(strcmp(run_pump(in, out, &counter, buffer), "hello, world") == 0);

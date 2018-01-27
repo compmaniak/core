@@ -1,4 +1,4 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -45,7 +45,7 @@ static void config_export_size(string_t *str, uoff_t size)
 		suffix = suffixes[i];
 		size /= 1024;
 	}
-	str_printfa(str, "%llu %c", (unsigned long long)size, suffix);
+	str_printfa(str, "%"PRIuUOFF_T" %c", size, suffix);
 }
 
 static void config_export_time(string_t *str, unsigned int stamp)
@@ -465,7 +465,8 @@ int config_export_finish(struct config_export_context **_ctx)
 			enum setting_type stype;
 			const char *const *value = settings_parse_get_value(parser->parser, "ssl", &stype);
 
-			if (value != NULL && strcmp(*value, "no") != 0 &&
+			if ((ctx->flags & CONFIG_DUMP_FLAG_IN_SECTION) == 0 &&
+			    value != NULL && strcmp(*value, "no") != 0 &&
 			    settings_parse_is_valid_key(parser->parser, "ssl_dh")) {
 				value = settings_parse_get_value(parser->parser,
 					"ssl_dh", &stype);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -32,6 +32,7 @@ cmd_log_test(int argc ATTR_UNUSED, char *argv[] ATTR_UNUSED)
 	struct failure_context ctx;
 	unsigned int i;
 
+	master_service->log_initialized = FALSE;
 	master_service->flags |= MASTER_SERVICE_FLAG_DONT_LOG_TO_STDERR;
 	master_service_init_log(master_service, "doveadm: ");
 

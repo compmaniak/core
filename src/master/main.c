@@ -1,9 +1,8 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "common.h"
 #include "ioloop.h"
 #include "lib-signals.h"
-#include "fd-close-on-exec.h"
 #include "array.h"
 #include "write-full.h"
 #include "env-util.h"
@@ -82,7 +81,7 @@ void process_exec(const char *cmd)
 				  argv[0]);
 	if (strncmp(argv[0], PACKAGE, strlen(PACKAGE)) != 0)
 		argv[0] = t_strconcat(PACKAGE"-", argv[0], NULL);
-	(void)execv_const(executable, argv);
+	execv_const(executable, argv);
 }
 
 int get_uidgid(const char *user, uid_t *uid_r, gid_t *gid_r,
@@ -585,7 +584,7 @@ static const char *get_full_config_path(struct service_list *list)
 
 static void master_time_moved(time_t old_time, time_t new_time)
 {
-	unsigned long secs;
+	time_t secs;
 
 	if (new_time >= old_time)
 		return;
@@ -596,9 +595,9 @@ static void master_time_moved(time_t old_time, time_t new_time)
 	if (secs > SERVICE_TIME_MOVED_BACKWARDS_MAX_THROTTLE_SECS)
 		secs = SERVICE_TIME_MOVED_BACKWARDS_MAX_THROTTLE_SECS;
 	services_throttle_time_sensitives(services, secs);
-	i_warning("Time moved backwards by %lu seconds, "
-		  "waiting for %lu secs until new services are launched again.",
-		  (unsigned long)(old_time - new_time), secs);
+	i_warning("Time moved backwards by %"PRIdTIME_T" seconds, waiting for "
+		  "%"PRIdTIME_T" secs until new services are launched again.",
+		  old_time - new_time, secs);
 }
 
 static void daemonize(void)

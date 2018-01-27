@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */
 
 #include "auth-common.h"
 
@@ -49,7 +49,7 @@ passwd_file_add(struct passwd_file *pw, const char *username,
 	    pass[len-1] == ']' && pass[len-4] == '[') {
 		/* password[type] - we're being libpam-pwdfile compatible
 		   here. it uses 13 = DES and 34 = MD5. For backwards
-		   comaptibility with ourself, we have also 56 = Digest-MD5. */
+		   compatibility with ourself, we have also 56 = Digest-MD5. */
 		int num = (pass[len-3] - '0') * 10 + (pass[len-2] - '0');
 
 		pass = t_strndup(pass, len-4);
@@ -234,11 +234,7 @@ static int passwd_file_open(struct passwd_file *pw, bool startup,
 
 static void passwd_file_close(struct passwd_file *pw)
 {
-	if (pw->fd != -1) {
-		if (close(pw->fd) < 0)
-			i_error("passwd-file %s: close() failed: %m", pw->path);
-		pw->fd = -1;
-	}
+	i_close_fd_path(&pw->fd, pw->path);
 
 	if (hash_table_is_created(pw->users))
 		hash_table_destroy(&pw->users);

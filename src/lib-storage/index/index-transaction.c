@@ -1,4 +1,4 @@
-/* Copyright (c) 2003-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -26,7 +26,7 @@ index_transaction_index_commit(struct mail_index_transaction *index_trans,
 			       struct mail_index_transaction_commit_result *result_r)
 {
 	struct mailbox_transaction_context *t =
-		MAIL_STORAGE_CONTEXT(index_trans);
+		MAIL_STORAGE_CONTEXT_REQUIRE(index_trans);
 	struct index_mailbox_sync_pvt_context *pvt_sync_ctx = NULL;
 	const char *error;
 	int ret = 0;
@@ -37,14 +37,14 @@ index_transaction_index_commit(struct mail_index_transaction *index_trans,
 
 	if (t->attr_pvt_trans != NULL) {
 		if (dict_transaction_commit(&t->attr_pvt_trans, &error) < 0) {
-			mail_storage_set_critical(t->box->storage,
+			mailbox_set_critical(t->box,
 				"Dict private transaction commit failed: %s", error);
 			ret = -1;
 		}
 	}
 	if (t->attr_shared_trans != NULL) {
 		if (dict_transaction_commit(&t->attr_shared_trans, &error) < 0) {
-			mail_storage_set_critical(t->box->storage,
+			mailbox_set_critical(t->box,
 				"Dict shared transaction commit failed: %s", error);
 			ret = -1;
 		}
@@ -94,6 +94,8 @@ index_transaction_index_commit(struct mail_index_transaction *index_trans,
 		index_mailbox_sync_pvt_deinit(&pvt_sync_ctx);
 	}
 
+	if (ret < 0)
+		mail_index_set_error_nolog(t->box->index, mailbox_get_last_error(t->box, NULL));
 	index_transaction_free(t);
 	return ret;
 }
@@ -102,7 +104,7 @@ static void
 index_transaction_index_rollback(struct mail_index_transaction *index_trans)
 {
 	struct mailbox_transaction_context *t =
-		MAIL_STORAGE_CONTEXT(index_trans);
+		MAIL_STORAGE_CONTEXT_REQUIRE(index_trans);
 
 	if (t->attr_pvt_trans != NULL)
 		dict_transaction_rollback(&t->attr_pvt_trans);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2016-2018 Dovecot authors, see the included COPYING file */
 
 #include "test-lib.h"
 #include "istream.h"
@@ -6,14 +6,14 @@
 #include "buffer.h"
 #include "ioloop.h"
 #include "iostream-proxy.h"
-#include "fd-set-nonblock.h"
 
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
 static
-void completed(enum iostream_proxy_side side ATTR_UNUSED, bool success ATTR_UNUSED, int *u0)
+void completed(enum iostream_proxy_side side ATTR_UNUSED,
+	       enum iostream_proxy_status status ATTR_UNUSED, int *u0)
 {
 	i_assert(*u0 > 0);
 	if (--*u0 == 0)
@@ -97,10 +97,10 @@ void test_iostream_proxy_simple(void)
 	i_stream_unref(&right_in);
 
 	/* close fd */
-	close(sfdl[0]);
-	close(sfdl[1]);
-	close(sfdr[0]);
-	close(sfdr[1]);
+	i_close_fd(&sfdl[0]);
+	i_close_fd(&sfdl[1]);
+	i_close_fd(&sfdr[0]);
+	i_close_fd(&sfdr[1]);
 
 	test_end();
 }

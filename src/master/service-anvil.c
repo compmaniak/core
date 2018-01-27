@@ -1,9 +1,7 @@
-/* Copyright (c) 2009-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */
 
 #include "common.h"
 #include "ioloop.h"
-#include "fd-close-on-exec.h"
-#include "fd-set-nonblock.h"
 #include "fdpass.h"
 #include "service.h"
 #include "service-process.h"

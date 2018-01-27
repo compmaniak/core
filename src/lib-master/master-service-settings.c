@@ -1,7 +1,8 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
+#include "event-filter.h"
 #include "path-util.h"
 #include "istream.h"
 #include "write-full.h"
@@ -12,6 +13,7 @@
 #include "env-util.h"
 #include "execv-const.h"
 #include "settings-parser.h"
+#include "stats-client.h"
 #include "master-service-private.h"
 #include "master-service-ssl-settings.h"
 #include "master-service-settings.h"
@@ -41,8 +43,10 @@ static const struct setting_define master_service_setting_defines[] = {
 	DEF(SET_STR, info_log_path),
 	DEF(SET_STR, debug_log_path),
 	DEF(SET_STR, log_timestamp),
+	DEF(SET_STR, log_debug),
 	DEF(SET_STR, syslog_facility),
 	DEF(SET_STR, import_environment),
+	DEF(SET_STR, stats_writer_socket_path),
 	DEF(SET_SIZE, config_cache_size),
 	DEF(SET_BOOL, version_ignore),
 	DEF(SET_BOOL, shutdown_clients),
@@ -74,8 +78,10 @@ static const struct master_service_settings master_service_default_settings = {
 	.info_log_path = "",
 	.debug_log_path = "",
 	.log_timestamp = DEFAULT_FAILURE_STAMP_FORMAT,
+	.log_debug = "",
 	.syslog_facility = "mail",
 	.import_environment = "TZ CORE_OUTOFMEM CORE_ERROR" ENV_SYSTEMD ENV_GDB,
+	.stats_writer_socket_path = "stats-writer",
 	.config_cache_size = 1024*1024,
 	.version_ignore = FALSE,
 	.shutdown_clients = TRUE,
@@ -98,6 +104,24 @@ const struct setting_parser_info master_service_setting_parser_info = {
 };
 
 /* <settings checks> */
+int master_service_log_debug_parse(struct event_filter *filter, const char *str,
+				   const char **error_r)
+{
+	const char *categories[2] = { NULL, NULL };
+	struct event_filter_query query = {
+		.categories = categories
+	};
+
+	/* FIXME: we should support more complicated filters */
+	const char *const *args = t_strsplit_spaces(str, " ");
+	for (unsigned int i = 0; args[i] != NULL; i++) {
+		categories[0] = args[i];
+		event_filter_add(filter, &query);
+	}
+	*error_r = NULL;
+	return 0;
+}
+
 static bool
 master_service_settings_check(void *_set, pool_t pool ATTR_UNUSED,
 			      const char **error_r)
@@ -114,6 +138,17 @@ master_service_settings_check(void *_set, pool_t pool ATTR_UNUSED,
 					   set->syslog_facility);
 		return FALSE;
 	}
+	struct event_filter *filter = event_filter_create();
+	const char *error;
+	if (master_service_log_debug_parse(filter, set->log_debug, &error) < 0) {
+		*error_r = t_strdup_printf("Invalid log_debug: %s", error);
+		event_filter_unref(&filter);
+		return FALSE;
+	}
+#ifndef CONFIG_BINARY
+	event_set_global_debug_log_filter(filter);
+#endif
+	event_filter_unref(&filter);
 	return TRUE;
 }
 /* </settings checks> */
@@ -322,8 +357,8 @@ master_service_apply_config_overrides(struct master_service *service,
 				settings_parser_get_error(parser));
 			return -1;
 		}
-		settings_parse_set_key_expandeded(parser, service->set_pool,
-						  t_strcut(overrides[i], '='));
+		settings_parse_set_key_expanded(parser, service->set_pool,
+						t_strcut(overrides[i], '='));
 	}
 	return 0;
 }
@@ -483,7 +518,8 @@ int master_service_settings_read(struct master_service *service,
 				ret = settings_parse_stream_read(parser,
 								 istream);
 				if (ret < 0)
-					*error_r = settings_parser_get_error(parser);
+					*error_r = p_strdup(service->set_pool,
+						settings_parser_get_error(parser));
 			}
 			alarm(0);
 			if (ret <= 0)
@@ -498,7 +534,7 @@ int master_service_settings_read(struct master_service *service,
 
 		if (ret != 0) {
 			if (ret > 0) {
-				*error_r = t_strdup_printf(
+				*error_r = p_strdup_printf(service->set_pool,
 					"Timeout reading config from %s", path);
 			}
 			i_close_fd(&fd);
@@ -519,7 +555,8 @@ int master_service_settings_read(struct master_service *service,
 
 	if (use_environment || service->keep_environment) {
 		if (settings_parse_environ(parser) < 0) {
-			*error_r = t_strdup(settings_parser_get_error(parser));
+			*error_r = p_strdup(service->set_pool,
+					settings_parser_get_error(parser));
 			settings_parser_deinit(&parser);
 			return -1;
 		}
@@ -534,7 +571,8 @@ int master_service_settings_read(struct master_service *service,
 	}
 
 	if (!settings_parser_check(parser, service->set_pool, &error)) {
-		*error_r = t_strdup_printf("Invalid settings: %s", error);
+		*error_r = p_strdup_printf(service->set_pool,
+				"Invalid settings: %s", error);
 		settings_parser_deinit(&parser);
 		return -1;
 	}
@@ -547,6 +585,14 @@ int master_service_settings_read(struct master_service *service,
 	    (service->flags & MASTER_SERVICE_FLAG_STANDALONE) != 0) {
 		/* running standalone. we want to ignore plugin versions. */
 		service->version_string = NULL;
+	}
+	if ((service->flags & MASTER_SERVICE_FLAG_SEND_STATS) != 0) {
+		/* When running standalone (e.g. doveadm) try to connect to the
+		   stats socket, but don't log an error if it's not running.
+		   It may be intentional. */
+		bool silent_notfound_errors =
+			(service->flags & MASTER_SERVICE_FLAG_STANDALONE) != 0;
+		master_service_init_stats_client(service, silent_notfound_errors);
 	}
 
 	if (service->set->shutdown_clients)

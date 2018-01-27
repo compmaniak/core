@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -62,11 +62,7 @@ static void dns_client_disconnect(struct dns_client *client, const char *error)
 	timeout_remove(&client->to_idle);
 	io_remove(&client->io);
 	i_stream_destroy(&client->input);
-	if (client->fd != -1) {
-		if (close(client->fd) < 0)
-			i_error("close(%s) failed: %m", client->path);
-		client->fd = -1;
-	}
+	i_close_fd_path(&client->fd, client->path);
 
 	i_zero(&result);
 	result.ret = EAI_FAIL;

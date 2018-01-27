@@ -1,9 +1,8 @@
-/* Copyright (c) 2014-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2014-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
 #include "ioloop.h"
-#include "fd-set-nonblock.h"
 #include "fdpass.h"
 #include "hostpid.h"
 #include "connection.h"

@@ -1,12 +1,10 @@
-/* Copyright (c) 2005-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */
 
 #define _GNU_SOURCE
 #include "lib.h"
 
 #ifdef IOLOOP_NOTIFY_INOTIFY
 
-#include "fd-close-on-exec.h"
-#include "fd-set-nonblock.h"
 #include "ioloop-private.h"
 #include "ioloop-notify-fd.h"
 #include "buffer.h"
@@ -206,11 +204,7 @@ void io_loop_notify_handler_deinit(struct ioloop *ioloop)
 		io_remove(&_io);
 	}
 
-	if (ctx->inotify_fd != -1) {
-		if (close(ctx->inotify_fd) < 0)
-			i_error("close(inotify) failed: %m");
-		ctx->inotify_fd = -1;
-	}
+	i_close_fd(&ctx->inotify_fd);
 	i_free(ctx);
 }
 

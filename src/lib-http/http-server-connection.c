@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "llist.h"
@@ -1167,10 +1167,8 @@ http_server_connection_disconnect(struct http_server_connection *conn,
 
 	http_server_connection_timeout_stop(conn);
 	io_remove(&conn->io_resp_payload);
-	if (conn->conn.output != NULL) {
-		o_stream_nflush(conn->conn.output);
+	if (conn->conn.output != NULL)
 		o_stream_uncork(conn->conn.output);
-	}
 
 	if (conn->http_parser != NULL)
 		http_request_parser_deinit(&conn->http_parser);

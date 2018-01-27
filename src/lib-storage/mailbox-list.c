@@ -1,4 +1,4 @@
-/* Copyright (c) 2006-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2006-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -158,6 +158,9 @@ int mailbox_list_create(const char *driver, struct mail_namespace *ns,
 		list->set.index_pvt_dir = set->index_pvt_dir == NULL ||
 			strcmp(set->index_pvt_dir, set->root_dir) == 0 ? NULL :
 			p_strdup(list->pool, set->index_pvt_dir);
+		list->set.index_cache_dir = set->index_cache_dir == NULL ||
+			strcmp(set->index_cache_dir, set->root_dir) == 0 ? NULL :
+			p_strdup(list->pool, set->index_cache_dir);
 		list->set.control_dir = set->control_dir == NULL ||
 			strcmp(set->control_dir, set->root_dir) == 0 ? NULL :
 			p_strdup(list->pool, set->control_dir);
@@ -329,6 +332,8 @@ mailbox_list_settings_parse_full(struct mail_user *user, const char *data,
 			dest = &set_r->index_dir;
 		else if (strcmp(key, "INDEXPVT") == 0)
 			dest = &set_r->index_pvt_dir;
+		else if (strcmp(key, "INDEXCACHE") == 0)
+			dest = &set_r->index_cache_dir;
 		else if (strcmp(key, "CONTROL") == 0)
 			dest = &set_r->control_dir;
 		else if (strcmp(key, "ALT") == 0)
@@ -1455,6 +1460,13 @@ bool mailbox_list_set_get_root_path(const struct mailbox_list_settings *set,
 			break;
 		}
 		/* fall through - default to index directory */
+	case MAILBOX_LIST_PATH_TYPE_INDEX_CACHE:
+		if (set->index_cache_dir != NULL &&
+		    type == MAILBOX_LIST_PATH_TYPE_INDEX_CACHE) {
+			path = set->index_cache_dir;
+			break;
+		}
+		/* fall through */
 	case MAILBOX_LIST_PATH_TYPE_INDEX:
 		if (set->index_dir != NULL) {
 			if (set->index_dir[0] == '\0') {
@@ -1647,24 +1659,21 @@ static bool mailbox_list_init_changelog(struct mailbox_list *list)
 
 int mailbox_list_mkdir_missing_index_root(struct mailbox_list *list)
 {
-	const char *root_dir, *index_dir;
+	const char *index_dir;
 
 	if (list->index_root_dir_created)
 		return 1;
 
-	/* if index root dir hasn't been created yet, do it now */
+	/* If index root dir hasn't been created yet, do it now.
+	   Do this here even if the index directory is the same as mail root
+	   directory, because it may not have been created elsewhere either. */
 	if (!mailbox_list_get_root_path(list, MAILBOX_LIST_PATH_TYPE_INDEX,
 					&index_dir))
 		return 0;
-	if (!mailbox_list_get_root_path(list, MAILBOX_LIST_PATH_TYPE_MAILBOX,
-					&root_dir))
-		return 0;
 
-	if (strcmp(root_dir, index_dir) != 0) {
-		if (mailbox_list_mkdir_root(list, index_dir,
-					    MAILBOX_LIST_PATH_TYPE_INDEX) < 0)
-			return -1;
-	}
+	if (mailbox_list_mkdir_root(list, index_dir,
+				    MAILBOX_LIST_PATH_TYPE_INDEX) < 0)
+		return -1;
 	list->index_root_dir_created = TRUE;
 	return 1;
 }

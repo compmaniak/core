@@ -34,14 +34,19 @@ struct ostream_private {
 	struct ostream *parent; /* for filter streams */
 
 	int fd;
+	struct timeval last_write_timeval;
+
 	stream_flush_callback_t *callback;
 	void *context;
 
 	bool corked:1;
+	bool finished:1;
 	bool closing:1;
 	bool last_errors_not_checked:1;
 	bool error_handling_disabled:1;
 	bool noverflow:1;
+	bool finish_also_parent:1;
+	bool finish_via_child:1;
 };
 
 struct ostream *
@@ -56,5 +61,11 @@ void o_stream_copy_error_from_parent(struct ostream_private *_stream);
    that the parent stream's output buffer doesn't become too large.
    Returns 1 if more data can be safely added, 0 if not, -1 if error. */
 int o_stream_flush_parent_if_needed(struct ostream_private *_stream);
+
+/* Call this in flush() handler to flush the parent stream. It will call
+   either o_stream_flush() or o_stream_finish() depending on whether this
+   stream is already finished. If the parent fails, its error will be also
+   copied to this stream. */
+int o_stream_flush_parent(struct ostream_private *_stream);
 
 #endif

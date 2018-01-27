@@ -22,9 +22,9 @@
 	(((size) + MEM_ALIGN_SIZE-1) & ~((size_t) MEM_ALIGN_SIZE-1))
 
 #define PTR_OFFSET(ptr, offset) \
-	((void *) (((unsigned char *) (ptr)) + (offset)))
+	((void *) (((uintptr_t) (ptr)) + ((size_t) (offset))))
 #define CONST_PTR_OFFSET(ptr, offset) \
-	((const void *) (((const unsigned char *) (ptr)) + (offset)))
+	((const void *) (((uintptr_t) (ptr)) + ((size_t) (offset))))
 
 #define container_of(ptr, type, name) \
 	(type *)((uintptr_t)(ptr) - (uintptr_t)offsetof(type, name) + \
@@ -39,7 +39,7 @@
    sizeof(size_t) == sizeof(void *) and they're both the largest datatypes
    that are allowed to be used. so, long long isn't safe with these. */
 #define POINTER_CAST(i) \
-	((void *) ((char *) NULL + (i)))
+	((void *) (((uintptr_t)NULL) + (i)))
 #define POINTER_CAST_TO(p, type) \
 	((type) ((const char *) (p) - (const char *) NULL))
 
@@ -208,18 +208,6 @@
 		#expr);			}STMT_END
 
 #endif
-
-/* Close the fd and set it to -1. This assert-crashes if fd == 0, and is a
-   no-op if fd == -1. Normally fd == 0 would happen only if an uninitialized
-   fd is attempted to be closed, which is a bug. */
-#define i_close_fd(fd) STMT_START {  \
-	if (*fd != -1) { \
-		i_assert(*fd > 0); \
-		if (unlikely(close_keep_errno(fd) < 0)) \
-			i_error("close(%d[%s:%d]) failed: %m", \
-				*(fd), __FILE__, __LINE__); \
-	} \
-	} STMT_END
 
 #ifndef STATIC_CHECKER
 #  define i_unreached() \

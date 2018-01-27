@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "safe-memset.h"
@@ -22,9 +22,6 @@ struct ssl_iostream_password_context {
 
 static bool ssl_global_initialized = FALSE;
 int dovecot_ssl_extdata_index;
-
-static int ssl_iostream_init_global(const struct ssl_iostream_settings *set,
-				    const char **error_r);
 
 static RSA *ssl_gen_rsa_key(SSL *ssl ATTR_UNUSED,
 			    int is_export ATTR_UNUSED, int keylength)
@@ -82,7 +79,7 @@ pem_password_callback(char *buf, int size, int rwflag ATTR_UNUSED,
 	return strlen(buf);
 }
 
-int openssl_iostream_load_key(const struct ssl_iostream_settings *set,
+int openssl_iostream_load_key(const struct ssl_iostream_cert *set,
 			      EVP_PKEY **pkey_r, const char **error_r)
 {
 	struct ssl_iostream_password_context ctx;
@@ -146,7 +143,7 @@ int openssl_iostream_load_dh(const struct ssl_iostream_settings *set,
 
 static int
 ssl_iostream_ctx_use_key(struct ssl_iostream_context *ctx,
-			 const struct ssl_iostream_settings *set,
+			 const struct ssl_iostream_cert *set,
 			 const char **error_r)
 {
 	EVP_PKEY *pkey;
@@ -279,11 +276,13 @@ ssl_iostream_ctx_verify_remote_cert(struct ssl_iostream_context *ctx,
 				    STACK_OF(X509_NAME) *ca_names)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x00907000L
-	X509_STORE *store;
+	if (!ctx->set.skip_crl_check) {
+		X509_STORE *store;
 
-	store = SSL_CTX_get_cert_store(ctx->ssl_ctx);
-	X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
-			     X509_V_FLAG_CRL_CHECK_ALL);
+		store = SSL_CTX_get_cert_store(ctx->ssl_ctx);
+		X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
+				     X509_V_FLAG_CRL_CHECK_ALL);
+	}
 #endif
 
 	SSL_CTX_set_client_CA_list(ctx->ssl_ctx, ca_names);
@@ -294,15 +293,23 @@ static int ssl_servername_callback(SSL *ssl, int *al ATTR_UNUSED,
 				   void *context ATTR_UNUSED)
 {
 	struct ssl_iostream *ssl_io;
-	const char *host;
+	const char *host, *error;
 
 	ssl_io = SSL_get_ex_data(ssl, dovecot_ssl_extdata_index);
 	host = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (SSL_get_servername_type(ssl) != -1) {
-		i_free(ssl_io->host);
-		ssl_io->host = i_strdup(host);
+		i_free(ssl_io->sni_host);
+		ssl_io->sni_host = i_strdup(host);
 	} else if (ssl_io->verbose) {
 		i_debug("SSL_get_servername() failed");
+	}
+
+	if (ssl_io->sni_callback != NULL) {
+		if (ssl_io->sni_callback(ssl_io->sni_host, &error,
+					 ssl_io->sni_context) < 0) {
+			openssl_iostream_set_error(ssl_io, error);
+			return SSL_TLSEXT_ERR_ALERT_FATAL;
+		}
 	}
 	return SSL_TLSEXT_ERR_OK;
 }
@@ -356,7 +363,7 @@ ssl_iostream_context_set(struct ssl_iostream_context *ctx,
 			 const struct ssl_iostream_settings *set,
 			 const char **error_r)
 {
-	ctx->set = ssl_iostream_settings_dup(ctx->pool, set);
+	ssl_iostream_settings_init_from(ctx->pool, &ctx->set, set);
 	if (set->cipher_list != NULL &&
 	    SSL_CTX_set_cipher_list(ctx->ssl_ctx, set->cipher_list) == 0) {
 		*error_r = t_strdup_printf("Can't set cipher list to '%s': %s",
@@ -375,19 +382,41 @@ ssl_iostream_context_set(struct ssl_iostream_context *ctx,
 		SSL_CTX_set_options(ctx->ssl_ctx,
 				    SSL_OP_CIPHER_SERVER_PREFERENCE);
 	}
-	if (ctx->set->protocols != NULL) {
-		SSL_CTX_set_options(ctx->ssl_ctx,
-			    openssl_get_protocol_options(ctx->set->protocols));
+	if (ctx->set.min_protocol != NULL) {
+		long opts;
+		int min_protocol;
+		if (openssl_min_protocol_to_options(ctx->set.min_protocol,
+						    &opts, &min_protocol) < 0) {
+			*error_r = t_strdup_printf(
+					"Unknown ssl_min_protocol setting '%s'",
+					set->min_protocol);
+			return -1;
+		}
+#ifdef HAVE_SSL_CTX_SET_MIN_PROTO_VERSION
+		SSL_CTX_set_min_proto_version(ctx->ssl_ctx, min_protocol);
+#else
+		SSL_CTX_set_options(ctx->ssl_ctx, opts);
+#endif
 	}
 
-	if (set->cert != NULL &&
-	    ssl_ctx_use_certificate_chain(ctx->ssl_ctx, set->cert) == 0) {
+	if (set->cert.cert != NULL &&
+	    ssl_ctx_use_certificate_chain(ctx->ssl_ctx, set->cert.cert) == 0) {
 		*error_r = t_strdup_printf("Can't load SSL certificate: %s",
-			openssl_iostream_use_certificate_error(set->cert, NULL));
+			openssl_iostream_use_certificate_error(set->cert.cert, NULL));
 		return -1;
 	}
-	if (set->key != NULL) {
-		if (ssl_iostream_ctx_use_key(ctx, set, error_r) < 0)
+	if (set->cert.key != NULL) {
+		if (ssl_iostream_ctx_use_key(ctx, &set->cert, error_r) < 0)
+			return -1;
+	}
+	if (set->alt_cert.cert != NULL &&
+	    ssl_ctx_use_certificate_chain(ctx->ssl_ctx, set->alt_cert.cert) == 0) {
+		*error_r = t_strdup_printf("Can't load alternative SSL certificate: %s",
+			openssl_iostream_use_certificate_error(set->alt_cert.cert, NULL));
+		return -1;
+	}
+	if (set->alt_cert.key != NULL) {
+		if (ssl_iostream_ctx_use_key(ctx, &set->alt_cert, error_r) < 0)
 			return -1;
 	}
 
@@ -433,8 +462,21 @@ ssl_proxy_ctx_get_pkey_ec_curve_name(const struct ssl_iostream_settings *set,
 	EC_KEY *eckey;
 	const EC_GROUP *ecgrp;
 
-	if (set->key != NULL) {
-		if (openssl_iostream_load_key(set, &pkey, error_r) < 0)
+	if (set->cert.key != NULL) {
+		if (openssl_iostream_load_key(&set->cert, &pkey, error_r) < 0)
+			return -1;
+
+		if ((eckey = EVP_PKEY_get1_EC_KEY(pkey)) != NULL &&
+		    (ecgrp = EC_KEY_get0_group(eckey)) != NULL)
+			nid = EC_GROUP_get_curve_name(ecgrp);
+		else {
+			/* clear errors added by the above calls */
+			openssl_iostream_clear_errors();
+		}
+		EVP_PKEY_free(pkey);
+	}
+	if (nid == 0 && set->alt_cert.key != NULL) {
+		if (openssl_iostream_load_key(&set->alt_cert, &pkey, error_r) < 0)
 			return -1;
 
 		if ((eckey = EVP_PKEY_get1_EC_KEY(pkey)) != NULL &&
@@ -544,15 +586,9 @@ int openssl_iostream_context_init_client(const struct ssl_iostream_settings *set
 					 struct ssl_iostream_context **ctx_r,
 					 const char **error_r)
 {
-	struct ssl_iostream_settings set_copy = *set;
 	struct ssl_iostream_context *ctx;
 	SSL_CTX *ssl_ctx;
 
-	/* ensure this is set to TRUE */
-	set_copy.verify_remote_cert = TRUE;
-
-	if (ssl_iostream_init_global(&set_copy, error_r) < 0)
-		return -1;
 	if ((ssl_ctx = SSL_CTX_new(SSLv23_client_method())) == NULL) {
 		*error_r = t_strdup_printf("SSL_CTX_new() failed: %s",
 					   openssl_iostream_error());
@@ -561,10 +597,11 @@ int openssl_iostream_context_init_client(const struct ssl_iostream_settings *set
 	SSL_CTX_set_mode(ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
 
 	ctx = i_new(struct ssl_iostream_context, 1);
+	ctx->refcount = 1;
 	ctx->ssl_ctx = ssl_ctx;
 	ctx->client_ctx = TRUE;
-	if (ssl_iostream_context_init_common(ctx, &set_copy, error_r) < 0) {
-		ssl_iostream_context_deinit(&ctx);
+	if (ssl_iostream_context_init_common(ctx, set, error_r) < 0) {
+		ssl_iostream_context_unref(&ctx);
 		return -1;
 	}
 	*ctx_r = ctx;
@@ -578,8 +615,6 @@ int openssl_iostream_context_init_server(const struct ssl_iostream_settings *set
 	struct ssl_iostream_context *ctx;
 	SSL_CTX *ssl_ctx;
 
-	if (ssl_iostream_init_global(set, error_r) < 0)
-		return -1;
 	if ((ssl_ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
 		*error_r = t_strdup_printf("SSL_CTX_new() failed: %s",
 					   openssl_iostream_error());
@@ -587,17 +622,28 @@ int openssl_iostream_context_init_server(const struct ssl_iostream_settings *set
 	}
 
 	ctx = i_new(struct ssl_iostream_context, 1);
+	ctx->refcount = 1;
 	ctx->ssl_ctx = ssl_ctx;
 	if (ssl_iostream_context_init_common(ctx, set, error_r) < 0) {
-		ssl_iostream_context_deinit(&ctx);
+		ssl_iostream_context_unref(&ctx);
 		return -1;
 	}
 	*ctx_r = ctx;
 	return 0;
 }
 
-void openssl_iostream_context_deinit(struct ssl_iostream_context *ctx)
+void openssl_iostream_context_ref(struct ssl_iostream_context *ctx)
 {
+	i_assert(ctx->refcount > 0);
+	ctx->refcount++;
+}
+
+void openssl_iostream_context_unref(struct ssl_iostream_context *ctx)
+{
+	i_assert(ctx->refcount > 0);
+	if (--ctx->refcount > 0)
+		return;
+
 	SSL_CTX_free(ctx->ssl_ctx);
 	pool_unref(&ctx->pool);
 	i_free(ctx);
@@ -610,8 +656,8 @@ void openssl_iostream_global_deinit(void)
 	dovecot_openssl_common_global_unref();
 }
 
-static int ssl_iostream_init_global(const struct ssl_iostream_settings *set,
-				    const char **error_r)
+int openssl_iostream_global_init(const struct ssl_iostream_settings *set,
+				 const char **error_r)
 {
 	static char dovecot[] = "dovecot";
 	const char *error;

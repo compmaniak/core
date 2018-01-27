@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -76,6 +76,8 @@ struct mail_storage_service_user {
 	struct mail_storage_service_input input;
 	enum mail_storage_service_flags flags;
 
+	struct event *event;
+	ARRAY(struct event *) event_stack;
 	struct ioloop_context *ioloop_ctx;
 	const char *log_prefix, *auth_token, *auth_user;
 
@@ -660,17 +662,25 @@ mail_storage_service_init_post(struct mail_storage_service_ctx *ctx,
 {
 	const struct mail_storage_settings *mail_set;
 	const char *home = priv->home;
+	struct mail_user_connection_data conn_data;
 	struct mail_user *mail_user;
+
+	i_zero(&conn_data);
+	conn_data.local_ip = &user->input.local_ip;
+	conn_data.remote_ip = &user->input.remote_ip;
+	conn_data.local_port = user->input.local_port;
+	conn_data.remote_port = user->input.remote_port;
+	conn_data.secured = user->input.conn_secured;
+	conn_data.ssl_secured = user->input.conn_ssl_secured;
 
 	/* NOTE: if more user initialization is added, add it also to
 	   mail_user_dup() */
-	mail_user = mail_user_alloc_nodup_set(user->input.username,
+	mail_user = mail_user_alloc_nodup_set(user->event, user->input.username,
 					      user->user_info, user->user_set);
 	mail_user->_service_user = user;
 	mail_storage_service_user_ref(user);
 	mail_user_set_home(mail_user, *home == '\0' ? NULL : home);
-	mail_user_set_vars(mail_user, ctx->service->name,
-			   &user->input.local_ip, &user->input.remote_ip);
+	mail_user_set_vars(mail_user, ctx->service->name, &conn_data);
 	mail_user->uid = priv->uid == (uid_t)-1 ? geteuid() : priv->uid;
 	mail_user->gid = priv->gid == (gid_t)-1 ? getegid() : priv->gid;
 	mail_user->anonymous = user->anonymous;
@@ -698,6 +708,7 @@ mail_storage_service_init_post(struct mail_storage_service_ctx *ctx,
 			p_strdup_printf(mail_user->pool, "%s:%s",
 					user->input.session_id,
 					session_id_suffix);
+	event_add_str(user->event, "session", mail_user->session_id);
 
 	mail_user->userdb_fields = user->input.userdb_fields == NULL ? NULL :
 		p_strarray_dup(mail_user->pool, user->input.userdb_fields);
@@ -764,17 +775,53 @@ mail_storage_service_init_post(struct mail_storage_service_ctx *ctx,
 
 void mail_storage_service_io_activate_user(struct mail_storage_service_user *user)
 {
-	i_set_failure_prefix("%s", user->log_prefix);
+	io_loop_context_activate(user->ioloop_ctx);
 }
 
 void mail_storage_service_io_deactivate_user(struct mail_storage_service_user *user)
 {
-	i_set_failure_prefix("%s", user->service_ctx->default_log_prefix);
+	io_loop_context_deactivate(user->ioloop_ctx);
 }
 
-void mail_storage_service_io_deactivate(struct mail_storage_service_ctx *ctx)
+static void
+mail_storage_service_io_activate_user_cb(struct mail_storage_service_user *user)
 {
-	i_set_failure_prefix("%s", ctx->default_log_prefix);
+	event_push_global(user->event);
+	if (array_is_created(&user->event_stack)) {
+		struct event *const *events;
+		unsigned int i, count;
+
+		/* push the global events from stack in reverse order */
+		events = array_get(&user->event_stack, &count);
+		for (i = count; i > 0; i--)
+			event_push_global(events[i-1]);
+		array_clear(&user->event_stack);
+	}
+	if (user->log_prefix != NULL)
+		i_set_failure_prefix("%s", user->log_prefix);
+}
+
+static void
+mail_storage_service_io_deactivate_user_cb(struct mail_storage_service_user *user)
+{
+	struct event *event;
+
+	/* ioloop context is always global, so we can't push one ioloop context
+	   on top of another one. We'll need to rewind the global event stack
+	   until we've reached the event that started this context. We'll push
+	   these global events back when the user's context is activated
+	   again. (We'll assert-crash if the user is freed before these
+	   global events have been popped.) */
+	while ((event = event_get_global()) != user->event) {
+		i_assert(event != NULL);
+		if (!array_is_created(&user->event_stack))
+			i_array_init(&user->event_stack, 4);
+		array_append(&user->event_stack, &event, 1);
+		event_pop_global(event);
+	}
+	event_pop_global(user->event);
+	if (user->log_prefix != NULL)
+		i_set_failure_prefix("%s", user->service_ctx->default_log_prefix);
 }
 
 static const char *field_get_default(const char *data)
@@ -857,13 +904,11 @@ mail_storage_service_init_log(struct mail_storage_service_ctx *ctx,
 	} T_END;
 
 	master_service_init_log(ctx->service, user->log_prefix);
+	/* replace the whole log prefix with mail_log_prefix */
+	event_replace_log_prefix(user->event, user->log_prefix);
 
 	if (master_service_get_client_limit(master_service) == 1)
 		i_set_failure_send_prefix(user->log_prefix);
-	io_loop_context_add_callbacks(user->ioloop_ctx,
-				      mail_storage_service_io_activate_user,
-				      mail_storage_service_io_deactivate_user,
-				      user);
 }
 
 static void mail_storage_service_time_moved(time_t old_time, time_t new_time)
@@ -1282,6 +1327,32 @@ mail_storage_service_lookup_real(struct mail_storage_service_ctx *ctx,
 	user->user_set = sets[0];
 	user->gid_source = "mail_gid setting";
 	user->uid_source = "mail_uid setting";
+	/* Create an event that will be used as the default event for logging.
+	   This event won't be a parent to any other events - mail_user.event
+	   will be used for that. */
+	user->event = event_create(input->parent_event);
+	event_add_fields(user->event, (const struct event_add_field []){
+		{ .key = "user", .value = user->input.username },
+		{ .key = "service", .value = ctx->service->name },
+		{ .key = "session", .value = user->input.session_id },
+		{ .key = NULL }
+	});
+	if (user->input.local_ip.family != 0) {
+		event_add_str(user->event, "local_ip",
+			      net_ip2addr(&user->input.local_ip));
+	}
+	if (user->input.local_port != 0) {
+		event_add_int(user->event, "local_port",
+			      user->input.local_port);
+	}
+	if (user->input.remote_ip.family != 0) {
+		event_add_str(user->event, "remote_ip",
+			      net_ip2addr(&user->input.remote_ip));
+	}
+	if (user->input.remote_port != 0) {
+		event_add_int(user->event, "remote_port",
+			      user->input.remote_port);
+	}
 
 	if ((flags & MAIL_STORAGE_SERVICE_FLAG_DEBUG) != 0)
 		(void)settings_parse_line(user->set_parser, "mail_debug=yes");
@@ -1445,6 +1516,10 @@ mail_storage_service_next_real(struct mail_storage_service_ctx *ctx,
 	/* create ioloop context regardless of logging. it's also used by
 	   stats plugin. */
 	user->ioloop_ctx = io_loop_context_new(current_ioloop);
+	io_loop_context_add_callbacks(user->ioloop_ctx,
+				      mail_storage_service_io_activate_user_cb,
+				      mail_storage_service_io_deactivate_user_cb,
+				      user);
 
 	if ((user->flags & MAIL_STORAGE_SERVICE_FLAG_NO_LOG_INIT) == 0)
 		mail_storage_service_init_log(ctx, user, &priv);
@@ -1558,16 +1633,20 @@ void mail_storage_service_user_unref(struct mail_storage_service_user **_user)
 		return;
 
 	if (user->ioloop_ctx != NULL) {
-		if ((user->flags & MAIL_STORAGE_SERVICE_FLAG_NO_LOG_INIT) == 0) {
-			io_loop_context_remove_callbacks(user->ioloop_ctx,
-				mail_storage_service_io_activate_user,
-				mail_storage_service_io_deactivate_user, user);
-			if (io_loop_get_current_context(current_ioloop) == user->ioloop_ctx)
-				mail_storage_service_io_deactivate_user(user);
-		}
+		if (io_loop_get_current_context(current_ioloop) == user->ioloop_ctx)
+			mail_storage_service_io_deactivate_user(user);
+		io_loop_context_remove_callbacks(user->ioloop_ctx,
+			mail_storage_service_io_activate_user_cb,
+			mail_storage_service_io_deactivate_user_cb, user);
 		io_loop_context_unref(&user->ioloop_ctx);
 	}
+
+	if (array_is_created(&user->event_stack)) {
+		i_assert(array_count(&user->event_stack) == 0);
+		array_free(&user->event_stack);
+	}
 	settings_parser_deinit(&user->set_parser);
+	event_unref(&user->event);
 	pool_unref(&user->pool);
 }
 

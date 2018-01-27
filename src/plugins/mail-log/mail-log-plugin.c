@@ -1,4 +1,4 @@
-/* Copyright (c) 2007-2017 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2007-2018 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -16,7 +16,7 @@
 #define HEADER_LOG_LEN 80
 
 #define MAIL_LOG_USER_CONTEXT(obj) \
-	MODULE_CONTEXT(obj, mail_log_user_module)
+	MODULE_CONTEXT_REQUIRE(obj, mail_log_user_module)
 
 enum mail_log_field {
 	MAIL_LOG_FIELD_UID	= 0x01,

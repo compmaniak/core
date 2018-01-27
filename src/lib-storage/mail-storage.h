@@ -15,6 +15,9 @@ struct message_size;
 /* If some operation is taking long, call notify_ok every n seconds. */
 #define MAIL_STORAGE_STAYALIVE_SECS 15
 
+#define MAIL_KEYWORD_HAS_ATTACHMENT "$HasAttachment"
+#define MAIL_KEYWORD_HAS_NO_ATTACHMENT "$HasNoAttachment"
+
 enum mail_storage_flags {
 	/* Remember message headers' MD5 sum */
 	MAIL_STORAGE_FLAG_KEEP_HEADER_MD5	= 0x01,
@@ -61,6 +64,10 @@ enum mailbox_flags {
 	   The backend shouldn't treat it as corruption if a mail body isn't
 	   found. */
 	MAILBOX_FLAG_USE_STUBS		= 0x800,
+	/* Mailbox is created implicitly if it does not exist. */
+	MAILBOX_FLAG_AUTO_CREATE	= 0x1000,
+	/* Mailbox is subscribed to implicitly when it is created automatically */
+	MAILBOX_FLAG_AUTO_SUBSCRIBE	= 0x2000
 };
 
 enum mailbox_feature {
@@ -384,6 +391,7 @@ struct mail {
 	/* always set */
 	struct mailbox *box;
 	struct mailbox_transaction_context *transaction;
+	struct event *event;
 	uint32_t seq, uid;
 
 	bool expunged:1;
@@ -506,6 +514,10 @@ struct mailbox *mailbox_alloc(struct mailbox_list *list, const char *vname,
 struct mailbox *mailbox_alloc_guid(struct mailbox_list *list,
 				   const guid_128_t guid,
 				   enum mailbox_flags flags);
+/* Initialize mailbox for delivery without actually opening any files or
+   verifying that it exists. */
+struct mailbox *mailbox_alloc_delivery(struct mail_user *user,
+	const char *name, enum mailbox_flags flags);
 /* Set a human-readable reason for why this mailbox is being accessed.
    This is used for logging purposes. */
 void mailbox_set_reason(struct mailbox *box, const char *reason);
@@ -790,9 +802,6 @@ void mailbox_save_set_pop3_uidl(struct mail_save_context *ctx,
    of the mailbox. Not all backends support this. */
 void mailbox_save_set_pop3_order(struct mail_save_context *ctx,
 				 unsigned int order);
-/* FIXME: Remove in v2.3. Obsolete - use mailbox_save_get_dest_mail() instead */
-void mailbox_save_set_dest_mail(struct mail_save_context *ctx,
-				struct mail *mail);
 /* Returns the destination mail */
 struct mail *mailbox_save_get_dest_mail(struct mail_save_context *ctx);
 /* Begin saving the message. All mail_save_set_*() calls must have been called
