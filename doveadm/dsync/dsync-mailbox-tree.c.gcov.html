@@ -1,0 +1,610 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - doveadm/dsync/dsync-mailbox-tree.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">doveadm/dsync</a> - dsync-mailbox-tree.c<span style="font-size: 80%;"> (source / <a href="dsync-mailbox-tree.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">184</td>
+            <td class="headerCovTableEntry">278</td>
+            <td class="headerCovTableEntryLo">66.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntry">32</td>
+            <td class="headerCovTableEntryLo">65.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;sort.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mailbox-list-private.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;dsync-mailbox-tree-private.h&quot;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : struct dsync_mailbox_tree_iter {
+<span class="lineNum">      13 </span>            :     struct dsync_mailbox_tree *tree;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            :     struct dsync_mailbox_node *cur;
+<span class="lineNum">      16 </span>            :     string_t *name;
+<a name="17"><span class="lineNum">      17 </span>            : };</a>
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span><span class="lineCov">        188 : struct dsync_mailbox_tree *dsync_mailbox_tree_init(char sep, char alt_char)</span>
+<span class="lineNum">      20 </span>            : {
+<span class="lineNum">      21 </span>            :     struct dsync_mailbox_tree *tree;
+<span class="lineNum">      22 </span>            :     pool_t pool;
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span><span class="lineCov">        188 :     i_assert(sep != '\0');</span>
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span><span class="lineCov">        188 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;dsync mailbox tree&quot;, 4096);</span>
+<span class="lineNum">      27 </span><span class="lineCov">        188 :     tree = p_new(pool, struct dsync_mailbox_tree, 1);</span>
+<span class="lineNum">      28 </span><span class="lineCov">        188 :     tree-&gt;pool = pool;</span>
+<span class="lineNum">      29 </span><span class="lineCov">        188 :     tree-&gt;sep = tree-&gt;sep_str[0] = sep;</span>
+<span class="lineNum">      30 </span><span class="lineCov">        188 :     tree-&gt;alt_char = alt_char;</span>
+<span class="lineNum">      31 </span><span class="lineCov">        188 :     tree-&gt;root.name = &quot;&quot;;</span>
+<span class="lineNum">      32 </span><span class="lineCov">        188 :     i_array_init(&amp;tree-&gt;deletes, 32);</span>
+<span class="lineNum">      33 </span><span class="lineCov">        188 :     return tree;</span>
+<a name="34"><span class="lineNum">      34 </span>            : }</a>
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span><span class="lineCov">        188 : void dsync_mailbox_tree_deinit(struct dsync_mailbox_tree **_tree)</span>
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span><span class="lineCov">        188 :     struct dsync_mailbox_tree *tree = *_tree;</span>
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span><span class="lineCov">        188 :     *_tree = NULL;</span>
+<span class="lineNum">      41 </span><span class="lineCov">        188 :     if (hash_table_is_created(tree-&gt;name128_hash))</span>
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :         hash_table_destroy(&amp;tree-&gt;name128_hash);</span>
+<span class="lineNum">      43 </span><span class="lineCov">        188 :     if (hash_table_is_created(tree-&gt;guid_hash))</span>
+<span class="lineNum">      44 </span><span class="lineCov">        188 :         hash_table_destroy(&amp;tree-&gt;guid_hash);</span>
+<span class="lineNum">      45 </span><span class="lineCov">        188 :     array_free(&amp;tree-&gt;deletes);</span>
+<span class="lineNum">      46 </span><span class="lineCov">        188 :     pool_unref(&amp;tree-&gt;pool);</span>
+<span class="lineNum">      47 </span><span class="lineCov">        188 : }</span>
+<a name="48"><span class="lineNum">      48 </span>            : </a>
+<span class="lineNum">      49 </span>            : static struct dsync_mailbox_node *
+<span class="lineNum">      50 </span><span class="lineCov">       3509 : dsync_mailbox_node_find(struct dsync_mailbox_node *nodes, const char *name)</span>
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span><span class="lineCov">       4875 :     for (; nodes != NULL; nodes = nodes-&gt;next) {</span>
+<span class="lineNum">      53 </span><span class="lineCov">       3916 :         if (strcmp(name, nodes-&gt;name) == 0)</span>
+<span class="lineNum">      54 </span><span class="lineCov">       2550 :             return nodes;</span>
+<span class="lineNum">      55 </span>            :     }
+<span class="lineNum">      56 </span><span class="lineCov">        959 :     return NULL;</span>
+<span class="lineNum">      57 </span>            : }
+<a name="58"><span class="lineNum">      58 </span>            : </a>
+<span class="lineNum">      59 </span>            : struct dsync_mailbox_node *
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 : dsync_mailbox_tree_lookup(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">      61 </span>            :               const char *full_name)
+<span class="lineNum">      62 </span>            : {
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     struct dsync_mailbox_node *node = &amp;tree-&gt;root;</span>
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">      66 </span>            :         const char *const *path;
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         path = t_strsplit(full_name, tree-&gt;sep_str);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :         for (; *path != NULL &amp;&amp; node != NULL; path++)</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :             node = dsync_mailbox_node_find(node-&gt;first_child, *path);</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     return node;</span>
+<a name="73"><span class="lineNum">      73 </span>            : }</a>
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">       1021 : void dsync_mailbox_tree_node_attach(struct dsync_mailbox_node *node,</span>
+<span class="lineNum">      76 </span>            :                     struct dsync_mailbox_node *parent)
+<span class="lineNum">      77 </span>            : {
+<span class="lineNum">      78 </span><span class="lineCov">       1021 :     node-&gt;parent = parent;</span>
+<span class="lineNum">      79 </span><span class="lineCov">       1021 :     node-&gt;next = parent-&gt;first_child;</span>
+<span class="lineNum">      80 </span><span class="lineCov">       1021 :     parent-&gt;first_child = node;</span>
+<a name="81"><span class="lineNum">      81 </span><span class="lineCov">       1021 : }</span></a>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">        885 : void dsync_mailbox_tree_node_detach(struct dsync_mailbox_node *node)</span>
+<span class="lineNum">      84 </span>            : {
+<span class="lineNum">      85 </span>            :     struct dsync_mailbox_node **p;
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span><span class="lineCov">       1517 :     for (p = &amp;node-&gt;parent-&gt;first_child;; p = &amp;(*p)-&gt;next) {</span>
+<span class="lineNum">      88 </span><span class="lineCov">       1517 :         if (*p == node) {</span>
+<span class="lineNum">      89 </span><span class="lineCov">        885 :             *p = node-&gt;next;</span>
+<span class="lineNum">      90 </span><span class="lineCov">        885 :             break;</span>
+<span class="lineNum">      91 </span>            :         }
+<span class="lineNum">      92 </span><span class="lineCov">        632 :     }</span>
+<span class="lineNum">      93 </span><span class="lineCov">        885 :     node-&gt;parent = NULL;</span>
+<span class="lineNum">      94 </span><span class="lineCov">        885 : }</span>
+<a name="95"><span class="lineNum">      95 </span>            : </a>
+<span class="lineNum">      96 </span>            : struct dsync_mailbox_node *
+<span class="lineNum">      97 </span><span class="lineCov">       1555 : dsync_mailbox_tree_get(struct dsync_mailbox_tree *tree, const char *full_name)</span>
+<span class="lineNum">      98 </span>            : {
+<span class="lineNum">      99 </span><span class="lineCov">       1555 :     struct dsync_mailbox_node *parent = NULL, *node = &amp;tree-&gt;root;</span>
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineCov">       1555 :     i_assert(tree-&gt;iter_count == 0);</span>
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span><span class="lineCov">       1555 :     T_BEGIN {</span>
+<span class="lineNum">     104 </span>            :         const char *const *path;
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span>            :         /* find the existing part */
+<span class="lineNum">     107 </span><span class="lineCov">       1555 :         path = t_strsplit(full_name, tree-&gt;sep_str);</span>
+<span class="lineNum">     108 </span><span class="lineCov">       4105 :         for (; *path != NULL; path++) {</span>
+<span class="lineNum">     109 </span><span class="lineCov">       3509 :             parent = node;</span>
+<span class="lineNum">     110 </span><span class="lineCov">       3509 :             node = dsync_mailbox_node_find(node-&gt;first_child, *path);</span>
+<span class="lineNum">     111 </span><span class="lineCov">       3509 :             if (node == NULL)</span>
+<span class="lineNum">     112 </span><span class="lineCov">        959 :                 break;</span>
+<span class="lineNum">     113 </span>            :         }
+<span class="lineNum">     114 </span>            :         /* create the rest */
+<span class="lineNum">     115 </span><span class="lineCov">       2575 :         for (; *path != NULL; path++) {</span>
+<span class="lineNum">     116 </span><span class="lineCov">       1020 :             node = p_new(tree-&gt;pool, struct dsync_mailbox_node, 1);</span>
+<span class="lineNum">     117 </span><span class="lineCov">       1020 :             node-&gt;name = p_strdup(tree-&gt;pool, *path);</span>
+<span class="lineNum">     118 </span><span class="lineCov">       1020 :             node-&gt;ns = parent-&gt;ns;</span>
+<span class="lineNum">     119 </span><span class="lineCov">       1020 :             dsync_mailbox_tree_node_attach(node, parent);</span>
+<span class="lineNum">     120 </span><span class="lineCov">       1020 :             parent = node;</span>
+<span class="lineNum">     121 </span>            :         }
+<span class="lineNum">     122 </span><span class="lineCov">       1555 :     } T_END;</span>
+<span class="lineNum">     123 </span><span class="lineCov">       1555 :     return node;</span>
+<span class="lineNum">     124 </span>            : }
+<a name="125"><span class="lineNum">     125 </span>            : </a>
+<span class="lineNum">     126 </span>            : static void
+<span class="lineNum">     127 </span><span class="lineCov">      13601 : node_get_full_name_recurse(const struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     128 </span>            :                const struct dsync_mailbox_node *node, string_t *str)
+<span class="lineNum">     129 </span>            : {
+<span class="lineNum">     130 </span><span class="lineCov">      13601 :     if (node-&gt;parent != &amp;tree-&gt;root)</span>
+<span class="lineNum">     131 </span><span class="lineCov">      10036 :         node_get_full_name_recurse(tree, node-&gt;parent, str);</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineCov">      13601 :     str_append(str, node-&gt;name);</span>
+<span class="lineNum">     134 </span><span class="lineCov">      13601 :     str_append_c(str, tree-&gt;sep);</span>
+<a name="135"><span class="lineNum">     135 </span><span class="lineCov">      13601 : }</span></a>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineCov">       1942 : const char *dsync_mailbox_node_get_full_name(const struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     138 </span>            :                          const struct dsync_mailbox_node *node)
+<span class="lineNum">     139 </span>            : {
+<span class="lineNum">     140 </span><span class="lineCov">       1942 :     string_t *str = t_str_new(128);</span>
+<span class="lineNum">     141 </span><span class="lineCov">       1942 :     dsync_mailbox_node_append_full_name(str, tree, node);</span>
+<span class="lineNum">     142 </span><span class="lineCov">       1942 :     return str_c(str);</span>
+<a name="143"><span class="lineNum">     143 </span>            : }</a>
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">       3565 : void dsync_mailbox_node_append_full_name(string_t *str,</span>
+<span class="lineNum">     146 </span>            :                      const struct dsync_mailbox_tree *tree,
+<span class="lineNum">     147 </span>            :                      const struct dsync_mailbox_node *node)
+<span class="lineNum">     148 </span>            : {
+<span class="lineNum">     149 </span><span class="lineCov">       3565 :     i_assert(node-&gt;parent != NULL);</span>
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineCov">       3565 :     node_get_full_name_recurse(tree, node, str);</span>
+<span class="lineNum">     152 </span>            :     /* remove the trailing separator */
+<span class="lineNum">     153 </span><span class="lineCov">       3565 :     str_truncate(str, str_len(str)-1);</span>
+<a name="154"><span class="lineNum">     154 </span><span class="lineCov">       3565 : }</span></a>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : void dsync_mailbox_node_copy_data(struct dsync_mailbox_node *dest,</span>
+<span class="lineNum">     157 </span>            :                   const struct dsync_mailbox_node *src)
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     memcpy(dest-&gt;mailbox_guid, src-&gt;mailbox_guid,</span>
+<span class="lineNum">     160 </span>            :            sizeof(dest-&gt;mailbox_guid));
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     dest-&gt;uid_validity = src-&gt;uid_validity;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     dest-&gt;uid_next = src-&gt;uid_next;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     dest-&gt;existence = src-&gt;existence;</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     dest-&gt;last_renamed_or_created = src-&gt;last_renamed_or_created;</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     dest-&gt;subscribed = src-&gt;subscribed;</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     dest-&gt;last_subscription_change = src-&gt;last_subscription_change;</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 : }</span>
+<a name="168"><span class="lineNum">     168 </span>            : </a>
+<span class="lineNum">     169 </span>            : struct dsync_mailbox_tree_iter *
+<span class="lineNum">     170 </span><span class="lineCov">        440 : dsync_mailbox_tree_iter_init(struct dsync_mailbox_tree *tree)</span>
+<span class="lineNum">     171 </span>            : {
+<span class="lineNum">     172 </span>            :     struct dsync_mailbox_tree_iter *iter;
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span><span class="lineCov">        440 :     iter = i_new(struct dsync_mailbox_tree_iter, 1);</span>
+<span class="lineNum">     175 </span><span class="lineCov">        440 :     iter-&gt;tree = tree;</span>
+<span class="lineNum">     176 </span><span class="lineCov">        440 :     iter-&gt;name = str_new(default_pool, 128);</span>
+<span class="lineNum">     177 </span><span class="lineCov">        440 :     iter-&gt;cur = &amp;tree-&gt;root;</span>
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span><span class="lineCov">        440 :     tree-&gt;iter_count++;</span>
+<span class="lineNum">     180 </span><span class="lineCov">        440 :     return iter;</span>
+<a name="181"><span class="lineNum">     181 </span>            : }</a>
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span><span class="lineCov">       2961 : static size_t node_get_full_name_length(struct dsync_mailbox_node *node)</span>
+<span class="lineNum">     184 </span>            : {
+<span class="lineNum">     185 </span><span class="lineCov">       2961 :     if (node-&gt;parent-&gt;parent == NULL)</span>
+<span class="lineNum">     186 </span><span class="lineCov">       1201 :         return strlen(node-&gt;name);</span>
+<span class="lineNum">     187 </span>            :     else {
+<span class="lineNum">     188 </span><span class="lineCov">       3520 :         return strlen(node-&gt;name) + 1 +</span>
+<span class="lineNum">     189 </span><span class="lineCov">       1760 :             node_get_full_name_length(node-&gt;parent);</span>
+<span class="lineNum">     190 </span>            :     }
+<a name="191"><span class="lineNum">     191 </span>            : }</a>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineCov">       3768 : bool dsync_mailbox_tree_iter_next(struct dsync_mailbox_tree_iter *iter,</span>
+<span class="lineNum">     194 </span>            :                   const char **full_name_r,
+<span class="lineNum">     195 </span>            :                   struct dsync_mailbox_node **node_r)
+<span class="lineNum">     196 </span>            : {
+<span class="lineNum">     197 </span>            :     size_t len;
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineCov">       3768 :     if (iter-&gt;cur-&gt;first_child != NULL)</span>
+<span class="lineNum">     200 </span><span class="lineCov">       1828 :         iter-&gt;cur = iter-&gt;cur-&gt;first_child;</span>
+<span class="lineNum">     201 </span>            :     else {
+<span class="lineNum">     202 </span><span class="lineCov">       5708 :         while (iter-&gt;cur-&gt;next == NULL) {</span>
+<span class="lineNum">     203 </span><span class="lineCov">       2268 :             if (iter-&gt;cur == &amp;iter-&gt;tree-&gt;root)</span>
+<span class="lineNum">     204 </span><span class="lineCov">        440 :                 return FALSE;</span>
+<span class="lineNum">     205 </span><span class="lineCov">       1828 :             iter-&gt;cur = iter-&gt;cur-&gt;parent;</span>
+<span class="lineNum">     206 </span>            :         }
+<span class="lineNum">     207 </span><span class="lineCov">       1500 :         iter-&gt;cur = iter-&gt;cur-&gt;next;</span>
+<span class="lineNum">     208 </span><span class="lineCov">       2701 :         len = iter-&gt;cur-&gt;parent == &amp;iter-&gt;tree-&gt;root ? 0 :</span>
+<span class="lineNum">     209 </span><span class="lineCov">       1201 :             node_get_full_name_length(iter-&gt;cur-&gt;parent);</span>
+<span class="lineNum">     210 </span><span class="lineCov">       1500 :         str_truncate(iter-&gt;name, len);</span>
+<span class="lineNum">     211 </span>            :     }
+<span class="lineNum">     212 </span><span class="lineCov">       3328 :     if (str_len(iter-&gt;name) &gt; 0)</span>
+<span class="lineNum">     213 </span><span class="lineCov">       2589 :         str_append_c(iter-&gt;name, iter-&gt;tree-&gt;sep);</span>
+<span class="lineNum">     214 </span><span class="lineCov">       3328 :     str_append(iter-&gt;name, iter-&gt;cur-&gt;name);</span>
+<span class="lineNum">     215 </span><span class="lineCov">       3328 :     *full_name_r = str_c(iter-&gt;name);</span>
+<span class="lineNum">     216 </span><span class="lineCov">       3328 :     *node_r = iter-&gt;cur;</span>
+<span class="lineNum">     217 </span><span class="lineCov">       3328 :     return TRUE;</span>
+<a name="218"><span class="lineNum">     218 </span>            : }</a>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineCov">        440 : void dsync_mailbox_tree_iter_deinit(struct dsync_mailbox_tree_iter **_iter)</span>
+<span class="lineNum">     221 </span>            : {
+<span class="lineNum">     222 </span><span class="lineCov">        440 :     struct dsync_mailbox_tree_iter *iter = *_iter;</span>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineCov">        440 :     *_iter = NULL;</span>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineCov">        440 :     i_assert(iter-&gt;tree-&gt;iter_count &gt; 0);</span>
+<span class="lineNum">     227 </span><span class="lineCov">        440 :     iter-&gt;tree-&gt;iter_count--;</span>
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineCov">        440 :     str_free(&amp;iter-&gt;name);</span>
+<span class="lineNum">     230 </span><span class="lineCov">        440 :     i_free(iter);</span>
+<a name="231"><span class="lineNum">     231 </span><span class="lineCov">        440 : }</span></a>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 : void dsync_mailbox_tree_build_name128_hash(struct dsync_mailbox_tree *tree)</span>
+<span class="lineNum">     234 </span>            : {
+<span class="lineNum">     235 </span>            :     struct dsync_mailbox_tree_iter *iter;
+<span class="lineNum">     236 </span>            :     struct dsync_mailbox_node *node;
+<span class="lineNum">     237 </span>            :     const char *name;
+<span class="lineNum">     238 </span>            :     guid_128_t *sha128;
+<span class="lineNum">     239 </span>            :     uint8_t *guid_p;
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     i_assert(!hash_table_is_created(tree-&gt;name128_hash));</span>
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     hash_table_create(&amp;tree-&gt;name128_hash,</span>
+<span class="lineNum">     244 </span>            :               tree-&gt;pool, 0, guid_128_hash, guid_128_cmp);
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     iter = dsync_mailbox_tree_iter_init(tree);</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :     while (dsync_mailbox_tree_iter_next(iter, &amp;name, &amp;node)) {</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         sha128 = p_new(tree-&gt;pool, guid_128_t, 1);</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         mailbox_name_get_sha128(name, *sha128);</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         guid_p = *sha128;</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :         hash_table_insert(tree-&gt;name128_hash, guid_p, node);</span>
+<span class="lineNum">     251 </span>            :     }
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :     dsync_mailbox_tree_iter_deinit(&amp;iter);</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 : }</span>
+<a name="254"><span class="lineNum">     254 </span>            : </a>
+<span class="lineNum">     255 </span>            : static const char *
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 : convert_name_to_remote_sep(struct dsync_mailbox_tree *tree, const char *name)</span>
+<span class="lineNum">     257 </span>            : {
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     string_t *str = t_str_new(128);</span>
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :     for (; *name != '\0'; name++) {</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         if (*name == tree-&gt;sep)</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :             str_append_c(str, tree-&gt;remote_sep);</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :         else if (*name == tree-&gt;remote_sep)</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :             str_append_c(str, tree-&gt;alt_char);</span>
+<span class="lineNum">     265 </span>            :         else
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :             str_append_c(str, *name);</span>
+<span class="lineNum">     267 </span>            :     }
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     return str_c(str);</span>
+<span class="lineNum">     269 </span>            : }
+<a name="270"><span class="lineNum">     270 </span>            : </a>
+<span class="lineNum">     271 </span>            : static void
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 : dsync_mailbox_tree_build_name128_remotesep_hash(struct dsync_mailbox_tree *tree)</span>
+<span class="lineNum">     273 </span>            : {
+<span class="lineNum">     274 </span>            :     struct dsync_mailbox_tree_iter *iter;
+<span class="lineNum">     275 </span>            :     struct dsync_mailbox_node *node;
+<span class="lineNum">     276 </span>            :     const char *name;
+<span class="lineNum">     277 </span>            :     guid_128_t *sha128;
+<span class="lineNum">     278 </span>            :     uint8_t *guid_p;
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     i_assert(tree-&gt;sep != tree-&gt;remote_sep);</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     i_assert(!hash_table_is_created(tree-&gt;name128_remotesep_hash));</span>
+<span class="lineNum">     282 </span>            : 
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :     hash_table_create(&amp;tree-&gt;name128_remotesep_hash, tree-&gt;pool, 0,</span>
+<span class="lineNum">     284 </span>            :               guid_128_hash, guid_128_cmp);
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     iter = dsync_mailbox_tree_iter_init(tree);</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     while (dsync_mailbox_tree_iter_next(iter, &amp;name, &amp;node)) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         sha128 = p_new(tree-&gt;pool, guid_128_t, 1);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :             const char *remote_name =</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :                 convert_name_to_remote_sep(tree, name);</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :             mailbox_name_get_sha128(remote_name, *sha128);</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         guid_p = *sha128;</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         hash_table_insert(tree-&gt;name128_remotesep_hash, guid_p, node);</span>
+<span class="lineNum">     295 </span>            :     }
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     dsync_mailbox_tree_iter_deinit(&amp;iter);</span>
+<a name="297"><span class="lineNum">     297 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineCov">        972 : int dsync_mailbox_tree_guid_hash_add(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     300 </span>            :                      struct dsync_mailbox_node *node,
+<span class="lineNum">     301 </span>            :                      struct dsync_mailbox_node **old_node_r)
+<span class="lineNum">     302 </span>            : {
+<span class="lineNum">     303 </span>            :     struct dsync_mailbox_node *old_node;
+<span class="lineNum">     304 </span><span class="lineCov">        972 :     uint8_t *guid = node-&gt;mailbox_guid;</span>
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span><span class="lineCov">        972 :     if (guid_128_is_empty(node-&gt;mailbox_guid))</span>
+<span class="lineNum">     307 </span><span class="lineCov">        228 :         return 0;</span>
+<span class="lineNum">     308 </span>            : 
+<span class="lineNum">     309 </span><span class="lineCov">        744 :     *old_node_r = old_node = hash_table_lookup(tree-&gt;guid_hash, guid);</span>
+<span class="lineNum">     310 </span><span class="lineCov">        744 :     if (old_node == NULL)</span>
+<span class="lineNum">     311 </span><span class="lineCov">        744 :         hash_table_insert(tree-&gt;guid_hash, guid, node);</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     else if (old_node != node)</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     314 </span><span class="lineCov">        744 :     return 0;</span>
+<a name="315"><span class="lineNum">     315 </span>            : }</a>
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineCov">        188 : int dsync_mailbox_tree_build_guid_hash(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     318 </span>            :                        struct dsync_mailbox_node **dup_node1_r,
+<span class="lineNum">     319 </span>            :                        struct dsync_mailbox_node **dup_node2_r)
+<span class="lineNum">     320 </span>            : {
+<span class="lineNum">     321 </span>            :     struct dsync_mailbox_tree_iter *iter;
+<span class="lineNum">     322 </span>            :     struct dsync_mailbox_node *node, *old_node;
+<span class="lineNum">     323 </span>            :     const char *name;
+<span class="lineNum">     324 </span><span class="lineCov">        188 :     int ret = 0;</span>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineCov">        188 :     if (!hash_table_is_created(tree-&gt;guid_hash)) {</span>
+<span class="lineNum">     327 </span><span class="lineCov">        188 :         hash_table_create(&amp;tree-&gt;guid_hash, tree-&gt;pool, 0,</span>
+<span class="lineNum">     328 </span>            :                   guid_128_hash, guid_128_cmp);
+<span class="lineNum">     329 </span>            :     }
+<span class="lineNum">     330 </span><span class="lineCov">        188 :     iter = dsync_mailbox_tree_iter_init(tree);</span>
+<span class="lineNum">     331 </span><span class="lineCov">       1348 :     while (dsync_mailbox_tree_iter_next(iter, &amp;name, &amp;node)) {</span>
+<span class="lineNum">     332 </span><span class="lineCov">        972 :         if (dsync_mailbox_tree_guid_hash_add(tree, node, &amp;old_node) &lt; 0) {</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :             *dup_node1_r = node;</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :             *dup_node2_r = old_node;</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     336 </span>            :         }
+<span class="lineNum">     337 </span>            :     }
+<span class="lineNum">     338 </span><span class="lineCov">        188 :     dsync_mailbox_tree_iter_deinit(&amp;iter);</span>
+<span class="lineNum">     339 </span><span class="lineCov">        188 :     return ret;</span>
+<span class="lineNum">     340 </span>            : }
+<a name="341"><span class="lineNum">     341 </span>            : </a>
+<span class="lineNum">     342 </span>            : struct dsync_mailbox_node *
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 : dsync_mailbox_tree_lookup_guid(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     344 </span>            :                    const guid_128_t guid)
+<span class="lineNum">     345 </span>            : {
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     const uint8_t *guid_p = guid;</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     return hash_table_lookup(tree-&gt;guid_hash, guid_p);</span>
+<span class="lineNum">     349 </span>            : }
+<a name="350"><span class="lineNum">     350 </span>            : </a>
+<span class="lineNum">     351 </span>            : const struct dsync_mailbox_delete *
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 : dsync_mailbox_tree_get_deletes(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     353 </span>            :                    unsigned int *count_r)
+<span class="lineNum">     354 </span>            : {
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     return array_get(&amp;tree-&gt;deletes, count_r);</span>
+<span class="lineNum">     356 </span>            : }
+<a name="357"><span class="lineNum">     357 </span>            : </a>
+<span class="lineNum">     358 </span>            : struct dsync_mailbox_node *
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 : dsync_mailbox_tree_find_delete(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     360 </span>            :                    const struct dsync_mailbox_delete *del)
+<span class="lineNum">     361 </span>            : {
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     const uint8_t *guid_p = del-&gt;guid;</span>
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     i_assert(hash_table_is_created(tree-&gt;guid_hash));</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     i_assert(tree-&gt;remote_sep != '\0');</span>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     if (del-&gt;type == DSYNC_MAILBOX_DELETE_TYPE_MAILBOX) {</span>
+<span class="lineNum">     368 </span>            :         /* find node by GUID */
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         return hash_table_lookup(tree-&gt;guid_hash, guid_p);</span>
+<span class="lineNum">     370 </span>            :     }
+<span class="lineNum">     371 </span>            : 
+<span class="lineNum">     372 </span>            :     /* find node by name. this is a bit tricky, since the hierarchy
+<span class="lineNum">     373 </span>            :        separator may differ from ours. */
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     if (tree-&gt;sep == tree-&gt;remote_sep) {</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :         if (!hash_table_is_created(tree-&gt;name128_hash))</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             dsync_mailbox_tree_build_name128_hash(tree);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         return hash_table_lookup(tree-&gt;name128_hash, guid_p);</span>
+<span class="lineNum">     378 </span>            :     } else {
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :         if (!hash_table_is_created(tree-&gt;name128_remotesep_hash))</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :             dsync_mailbox_tree_build_name128_remotesep_hash(tree);</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         return hash_table_lookup(tree-&gt;name128_remotesep_hash, guid_p);</span>
+<span class="lineNum">     382 </span>            :     }
+<a name="383"><span class="lineNum">     383 </span>            : }</a>
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 : void dsync_mailbox_tree_set_remote_sep(struct dsync_mailbox_tree *tree,</span>
+<span class="lineNum">     386 </span>            :                        char remote_sep)
+<span class="lineNum">     387 </span>            : {
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :     i_assert(tree-&gt;remote_sep == '\0');</span>
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     tree-&gt;remote_sep = remote_sep;</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 : }</span>
+<a name="392"><span class="lineNum">     392 </span>            : </a>
+<span class="lineNum">     393 </span>            : static void
+<span class="lineNum">     394 </span><span class="lineCov">        626 : dsync_mailbox_tree_dup_nodes(struct dsync_mailbox_tree *dest_tree,</span>
+<span class="lineNum">     395 </span>            :                  const struct dsync_mailbox_node *src,
+<span class="lineNum">     396 </span>            :                  string_t *path)
+<span class="lineNum">     397 </span>            : {
+<span class="lineNum">     398 </span><span class="lineCov">        626 :     size_t prefix_len = str_len(path);</span>
+<span class="lineNum">     399 </span>            :     struct dsync_mailbox_node *node;
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineCov">        626 :     if (prefix_len &gt; 0) {</span>
+<span class="lineNum">     402 </span><span class="lineCov">        340 :         str_append_c(path, dest_tree-&gt;sep);</span>
+<span class="lineNum">     403 </span><span class="lineCov">        340 :         prefix_len++;</span>
+<span class="lineNum">     404 </span>            :     }
+<span class="lineNum">     405 </span><span class="lineCov">       1489 :     for (; src != NULL; src = src-&gt;next) {</span>
+<span class="lineNum">     406 </span><span class="lineCov">        863 :         str_truncate(path, prefix_len);</span>
+<span class="lineNum">     407 </span><span class="lineCov">        863 :         str_append(path, src-&gt;name);</span>
+<span class="lineNum">     408 </span><span class="lineCov">        863 :         node = dsync_mailbox_tree_get(dest_tree, str_c(path));</span>
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineCov">        863 :         node-&gt;ns = src-&gt;ns;</span>
+<span class="lineNum">     411 </span><span class="lineCov">        863 :         memcpy(node-&gt;mailbox_guid, src-&gt;mailbox_guid,</span>
+<span class="lineNum">     412 </span>            :                sizeof(node-&gt;mailbox_guid));
+<span class="lineNum">     413 </span><span class="lineCov">        863 :         node-&gt;uid_validity = src-&gt;uid_validity;</span>
+<span class="lineNum">     414 </span><span class="lineCov">        863 :         node-&gt;uid_next = src-&gt;uid_next;</span>
+<span class="lineNum">     415 </span><span class="lineCov">        863 :         node-&gt;existence = src-&gt;existence;</span>
+<span class="lineNum">     416 </span><span class="lineCov">        863 :         node-&gt;last_renamed_or_created = src-&gt;last_renamed_or_created;</span>
+<span class="lineNum">     417 </span><span class="lineCov">        863 :         node-&gt;subscribed = src-&gt;subscribed;</span>
+<span class="lineNum">     418 </span><span class="lineCov">        863 :         node-&gt;last_subscription_change = src-&gt;last_subscription_change;</span>
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span><span class="lineCov">        863 :         if (src-&gt;first_child != NULL) {</span>
+<span class="lineNum">     421 </span><span class="lineCov">        483 :             dsync_mailbox_tree_dup_nodes(dest_tree,</span>
+<span class="lineNum">     422 </span><span class="lineCov">        483 :                              src-&gt;first_child, path);</span>
+<span class="lineNum">     423 </span>            :         }
+<span class="lineNum">     424 </span>            :     }
+<span class="lineNum">     425 </span><span class="lineCov">        626 : }</span>
+<a name="426"><span class="lineNum">     426 </span>            : </a>
+<span class="lineNum">     427 </span>            : struct dsync_mailbox_tree *
+<span class="lineNum">     428 </span><span class="lineCov">        143 : dsync_mailbox_tree_dup(const struct dsync_mailbox_tree *src)</span>
+<span class="lineNum">     429 </span>            : {
+<span class="lineNum">     430 </span>            :     struct dsync_mailbox_tree *dest;
+<span class="lineNum">     431 </span><span class="lineCov">        143 :     string_t *str = t_str_new(128);</span>
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineCov">        143 :     dest = dsync_mailbox_tree_init(src-&gt;sep, src-&gt;alt_char);</span>
+<span class="lineNum">     434 </span><span class="lineCov">        143 :     dsync_mailbox_tree_dup_nodes(dest, &amp;src-&gt;root, str);</span>
+<span class="lineNum">     435 </span><span class="lineCov">        143 :     return dest;</span>
+<a name="436"><span class="lineNum">     436 </span>            : }</a>
+<span class="lineNum">     437 </span>            : 
+<span class="lineNum">     438 </span><span class="lineCov">       2398 : int dsync_mailbox_node_name_cmp(struct dsync_mailbox_node *const *n1,</span>
+<span class="lineNum">     439 </span>            :                 struct dsync_mailbox_node *const *n2)
+<span class="lineNum">     440 </span>            : {
+<span class="lineNum">     441 </span><span class="lineCov">       2398 :     return strcmp((*n1)-&gt;name, (*n2)-&gt;name);</span>
+<span class="lineNum">     442 </span>            : }
+<a name="443"><span class="lineNum">     443 </span>            : </a>
+<span class="lineNum">     444 </span>            : static bool
+<span class="lineNum">     445 </span><span class="lineCov">       1059 : dsync_mailbox_nodes_equal(const struct dsync_mailbox_node *node1,</span>
+<span class="lineNum">     446 </span>            :               const struct dsync_mailbox_node *node2)
+<span class="lineNum">     447 </span>            : {
+<span class="lineNum">     448 </span><span class="lineCov">       3177 :     return strcmp(node1-&gt;name, node2-&gt;name) == 0 &amp;&amp;</span>
+<span class="lineNum">     449 </span><span class="lineCov">       2118 :         node1-&gt;ns == node2-&gt;ns &amp;&amp;</span>
+<span class="lineNum">     450 </span><span class="lineCov">       1059 :         memcmp(node1-&gt;mailbox_guid, node2-&gt;mailbox_guid,</span>
+<span class="lineNum">     451 </span><span class="lineCov">       1059 :                sizeof(node1-&gt;mailbox_guid)) == 0 &amp;&amp;</span>
+<span class="lineNum">     452 </span><span class="lineCov">       2118 :         node1-&gt;uid_validity == node2-&gt;uid_validity &amp;&amp;</span>
+<span class="lineNum">     453 </span><span class="lineCov">       3177 :         node1-&gt;existence == node2-&gt;existence &amp;&amp;</span>
+<span class="lineNum">     454 </span><span class="lineCov">       1059 :         node1-&gt;subscribed == node2-&gt;subscribed;</span>
+<span class="lineNum">     455 </span>            : }
+<a name="456"><span class="lineNum">     456 </span>            : </a>
+<span class="lineNum">     457 </span>            : static bool
+<span class="lineNum">     458 </span><span class="lineCov">       1200 : dsync_mailbox_branches_equal(struct dsync_mailbox_node *node1,</span>
+<span class="lineNum">     459 </span>            :                  struct dsync_mailbox_node *node2)
+<span class="lineNum">     460 </span>            : {
+<span class="lineNum">     461 </span>            :     /* this function is used only for unit tests, so performance doesn't
+<span class="lineNum">     462 </span>            :        really matter */
+<span class="lineNum">     463 </span>            :     struct dsync_mailbox_node *n, **snodes1, **snodes2;
+<span class="lineNum">     464 </span>            :     unsigned int i, count;
+<span class="lineNum">     465 </span>            : 
+<span class="lineNum">     466 </span><span class="lineCov">       1200 :     for (n = node1, count = 0; n != NULL; n = n-&gt;next) count++;</span>
+<span class="lineNum">     467 </span><span class="lineCov">       1200 :     for (n = node2, i = 0; n != NULL; n = n-&gt;next) i++;</span>
+<span class="lineNum">     468 </span><span class="lineCov">       1200 :     if (i != count)</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     470 </span><span class="lineCov">       1200 :     if (count == 0)</span>
+<span class="lineNum">     471 </span><span class="lineCov">        471 :         return TRUE;</span>
+<span class="lineNum">     472 </span>            : 
+<span class="lineNum">     473 </span>            :     /* sort the trees by name */
+<span class="lineNum">     474 </span><span class="lineCov">        729 :     snodes1 = t_new(struct dsync_mailbox_node *, count);</span>
+<span class="lineNum">     475 </span><span class="lineCov">        729 :     snodes2 = t_new(struct dsync_mailbox_node *, count);</span>
+<span class="lineNum">     476 </span><span class="lineCov">       1788 :     for (n = node1, i = 0; n != NULL; n = n-&gt;next, i++)</span>
+<span class="lineNum">     477 </span><span class="lineCov">       1059 :         snodes1[i] = n;</span>
+<span class="lineNum">     478 </span><span class="lineCov">       1788 :     for (n = node2, i = 0; n != NULL; n = n-&gt;next, i++)</span>
+<span class="lineNum">     479 </span><span class="lineCov">       1059 :         snodes2[i] = n;</span>
+<span class="lineNum">     480 </span><span class="lineCov">        729 :     i_qsort(snodes1, count, sizeof(*snodes1), dsync_mailbox_node_name_cmp);</span>
+<span class="lineNum">     481 </span><span class="lineCov">        729 :     i_qsort(snodes2, count, sizeof(*snodes2), dsync_mailbox_node_name_cmp);</span>
+<span class="lineNum">     482 </span>            : 
+<span class="lineNum">     483 </span><span class="lineCov">       1788 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     484 </span><span class="lineCov">       1059 :         if (!dsync_mailbox_nodes_equal(snodes1[i], snodes2[i]))</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     486 </span><span class="lineCov">       1059 :         if (!dsync_mailbox_branches_equal(snodes1[i]-&gt;first_child,</span>
+<span class="lineNum">     487 </span><span class="lineCov">       1059 :                           snodes2[i]-&gt;first_child))</span>
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     489 </span>            :     }
+<span class="lineNum">     490 </span><span class="lineCov">        729 :     return TRUE;</span>
+<a name="491"><span class="lineNum">     491 </span>            : }</a>
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineCov">        141 : bool dsync_mailbox_trees_equal(struct dsync_mailbox_tree *tree1,</span>
+<span class="lineNum">     494 </span>            :                    struct dsync_mailbox_tree *tree2)
+<span class="lineNum">     495 </span>            : {
+<span class="lineNum">     496 </span>            :     bool ret;
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span><span class="lineCov">        141 :     T_BEGIN {</span>
+<span class="lineNum">     499 </span><span class="lineCov">        141 :         ret = dsync_mailbox_branches_equal(&amp;tree1-&gt;root, &amp;tree2-&gt;root);</span>
+<span class="lineNum">     500 </span><span class="lineCov">        141 :     } T_END;</span>
+<span class="lineNum">     501 </span><span class="lineCov">        141 :     return ret;</span>
+<a name="502"><span class="lineNum">     502 </span>            : }</a>
+<span class="lineNum">     503 </span>            : 
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 : const char *dsync_mailbox_node_to_string(const struct dsync_mailbox_node *node)</span>
+<span class="lineNum">     505 </span>            : {
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;guid=%s uid_validity=%u uid_next=%u subs=%s last_change=%ld last_subs=%ld&quot;,</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :                    guid_128_to_string(node-&gt;mailbox_guid),</span>
+<span class="lineNum">     508 </span>            :                    node-&gt;uid_validity, node-&gt;uid_next,
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :                    node-&gt;subscribed ? &quot;yes&quot; : &quot;no&quot;,</span>
+<span class="lineNum">     510 </span>            :                    (long)node-&gt;last_renamed_or_created,
+<span class="lineNum">     511 </span>            :                    (long)node-&gt;last_subscription_change);
+<span class="lineNum">     512 </span>            : }
+<a name="513"><span class="lineNum">     513 </span>            : </a>
+<span class="lineNum">     514 </span>            : const char *
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 : dsync_mailbox_delete_type_to_string(enum dsync_mailbox_delete_type type)</span>
+<span class="lineNum">     516 </span>            : {
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :     switch (type) {</span>
+<span class="lineNum">     518 </span>            :     case DSYNC_MAILBOX_DELETE_TYPE_MAILBOX:
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :         return &quot;mailbox&quot;;</span>
+<span class="lineNum">     520 </span>            :     case DSYNC_MAILBOX_DELETE_TYPE_DIR:
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         return &quot;dir&quot;;</span>
+<span class="lineNum">     522 </span>            :     case DSYNC_MAILBOX_DELETE_TYPE_UNSUBSCRIBE:
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :         return &quot;unsubscribe&quot;;</span>
+<span class="lineNum">     524 </span>            :     }
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<span class="lineNum">     526 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

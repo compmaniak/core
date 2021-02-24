@@ -1,0 +1,906 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/failures.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - failures.c<span style="font-size: 80%;"> (source / <a href="failures.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">117</td>
+            <td class="headerCovTableEntry">414</td>
+            <td class="headerCovTableEntryLo">28.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntry">48</td>
+            <td class="headerCovTableEntryLo">39.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hostpid.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;process-title.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;lib-signals.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;backtrace-string.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;printf-format-fix.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      15 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      16 </span>            : #include &lt;syslog.h&gt;
+<span class="lineNum">      17 </span>            : #include &lt;time.h&gt;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define LOG_TYPE_FLAG_DISABLE_LOG_PREFIX 0x80
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : const char *failure_log_type_prefixes[LOG_TYPE_COUNT] = {
+<span class="lineNum">      22 </span>            :     &quot;Debug: &quot;,
+<span class="lineNum">      23 </span>            :     &quot;Info: &quot;,
+<span class="lineNum">      24 </span>            :     &quot;Warning: &quot;,
+<span class="lineNum">      25 </span>            :     &quot;Error: &quot;,
+<span class="lineNum">      26 </span>            :     &quot;Fatal: &quot;,
+<span class="lineNum">      27 </span>            :     &quot;Panic: &quot;
+<span class="lineNum">      28 </span>            : };
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : const char *failure_log_type_names[LOG_TYPE_COUNT] = {
+<span class="lineNum">      31 </span>            :     &quot;debug&quot;, &quot;info&quot;, &quot;warning&quot;, &quot;error&quot;, &quot;fatal&quot;, &quot;panic&quot;
+<span class="lineNum">      32 </span>            : };
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            : /* Initialize working defaults */
+<span class="lineNum">      35 </span>            : static failure_callback_t *fatal_handler ATTR_NORETURN =
+<span class="lineNum">      36 </span>            :     default_fatal_handler;
+<span class="lineNum">      37 </span>            : static failure_callback_t *error_handler = default_error_handler;
+<span class="lineNum">      38 </span>            : static failure_callback_t *info_handler = default_error_handler;
+<span class="lineNum">      39 </span>            : static failure_callback_t *debug_handler = default_error_handler;
+<span class="lineNum">      40 </span>            : static void (*failure_exit_callback)(int *) = NULL;
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : static struct failure_context failure_ctx_debug = { .type = LOG_TYPE_DEBUG };
+<span class="lineNum">      43 </span>            : static struct failure_context failure_ctx_info = { .type = LOG_TYPE_INFO };
+<span class="lineNum">      44 </span>            : static struct failure_context failure_ctx_warning = { .type = LOG_TYPE_WARNING };
+<span class="lineNum">      45 </span>            : static struct failure_context failure_ctx_error = { .type = LOG_TYPE_ERROR };
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            : static int log_fd = STDERR_FILENO, log_info_fd = STDERR_FILENO,
+<span class="lineNum">      48 </span>            :        log_debug_fd = STDERR_FILENO;
+<span class="lineNum">      49 </span>            : static char *log_prefix = NULL;
+<span class="lineNum">      50 </span>            : static char *log_stamp_format = NULL, *log_stamp_format_suffix = NULL;
+<span class="lineNum">      51 </span>            : static bool failure_ignore_errors = FALSE, log_prefix_sent = FALSE;
+<span class="lineNum">      52 </span>            : static bool coredump_on_error = FALSE;
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            : static void ATTR_FORMAT(2, 0)
+<span class="lineNum">      55 </span>            : i_internal_error_handler(const struct failure_context *ctx,
+<span class="lineNum">      56 </span>            :              const char *format, va_list args);
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span>            : /* kludgy .. we want to trust log_stamp_format with -Wformat-nonliteral */
+<span class="lineNum">      59 </span>            : static const char *
+<span class="lineNum">      60 </span>            : get_log_stamp_format(const char *format_arg, unsigned int timestamp_usecs)
+<a name="61"><span class="lineNum">      61 </span>            :     ATTR_FORMAT_ARG(1);</a>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 : static const char *get_log_stamp_format(const char *format_arg ATTR_UNUSED,</span>
+<span class="lineNum">      64 </span>            :                     unsigned int timestamp_usecs)
+<span class="lineNum">      65 </span>            : {
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     if (log_stamp_format_suffix == NULL)</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :         return log_stamp_format;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;%s%06u%s&quot;, log_stamp_format,</span>
+<span class="lineNum">      69 </span>            :                    timestamp_usecs, log_stamp_format_suffix);
+<a name="70"><span class="lineNum">      70 </span>            : }</a>
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 : void failure_exit(int status)</span>
+<span class="lineNum">      73 </span>            : {
+<span class="lineNum">      74 </span>            :     static bool recursed = FALSE;
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     if (failure_exit_callback != NULL &amp;&amp; !recursed) {</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         recursed = TRUE;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         failure_exit_callback(&amp;status);</span>
+<span class="lineNum">      79 </span>            :     }
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     exit(status);</span>
+<a name="81"><span class="lineNum">      81 </span>            : }</a>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">       2047 : static void log_prefix_add(const struct failure_context *ctx, string_t *str)</span>
+<span class="lineNum">      84 </span>            : {
+<span class="lineNum">      85 </span><span class="lineCov">       2047 :     const struct tm *tm = ctx-&gt;timestamp;</span>
+<span class="lineNum">      86 </span>            :     char buf[256];
+<span class="lineNum">      87 </span>            :     struct timeval now;
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">       2047 :     if (log_stamp_format != NULL) {</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :         if (tm == NULL) {</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :             if (gettimeofday(&amp;now, NULL) &lt; 0)</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :                 i_panic(&quot;gettimeofday() failed: %m&quot;);</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :             tm = localtime(&amp;now.tv_sec);</span>
+<span class="lineNum">      94 </span>            :         } else {
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :             now.tv_usec = ctx-&gt;timestamp_usecs;</span>
+<span class="lineNum">      96 </span>            :         }
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         if (strftime(buf, sizeof(buf),</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :                  get_log_stamp_format(&quot;unused&quot;, now.tv_usec), tm) &gt; 0)</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :             str_append(str, buf);</span>
+<span class="lineNum">     101 </span>            :     }
+<span class="lineNum">     102 </span><span class="lineCov">       2047 :     if (ctx-&gt;log_prefix != NULL)</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         str_append(str, ctx-&gt;log_prefix);</span>
+<span class="lineNum">     104 </span><span class="lineCov">       2047 :     else if (log_prefix != NULL)</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         str_append(str, log_prefix);</span>
+<a name="106"><span class="lineNum">     106 </span><span class="lineCov">       2047 : }</span></a>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 : static void log_fd_flush_stop(struct ioloop *ioloop)</span>
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     io_loop_stop(ioloop);</span>
+<a name="111"><span class="lineNum">     111 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineCov">       2047 : static int log_fd_write(int fd, const unsigned char *data, size_t len)</span>
+<span class="lineNum">     114 </span>            : {
+<span class="lineNum">     115 </span>            :     struct ioloop *ioloop;
+<span class="lineNum">     116 </span>            :     struct io *io;
+<span class="lineNum">     117 </span>            :     ssize_t ret;
+<span class="lineNum">     118 </span><span class="lineCov">       2047 :     unsigned int prev_signal_term_counter = signal_term_counter;</span>
+<span class="lineNum">     119 </span><span class="lineCov">       2047 :     unsigned int terminal_eintr_count = 0;</span>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineCov">       4094 :     while ((ret = write(fd, data, len)) != (ssize_t)len) {</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :         if (ret &gt; 0) {</span>
+<span class="lineNum">     123 </span>            :             /* some was written, continue.. */
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :             data += ret;</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :             len -= ret;</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     127 </span>            :         }
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     129 </span>            :             /* out of disk space? */
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :             errno = ENOSPC;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     132 </span>            :         }
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         switch (errno) {</span>
+<span class="lineNum">     134 </span>            :         case EAGAIN: {
+<span class="lineNum">     135 </span>            :             /* wait until we can write more. this can happen at
+<span class="lineNum">     136 </span>            :                least when writing to terminal, even if fd is
+<span class="lineNum">     137 </span>            :                blocking. Internal logging fd is also now
+<span class="lineNum">     138 </span>            :                non-blocking, so we can show warnings about blocking
+<span class="lineNum">     139 </span>            :                on a log write. */
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :             const char *title, *old_title =</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :                 t_strdup(process_title_get());</span>
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :             if (old_title == NULL)</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :                 title = &quot;[blocking on log write]&quot;;</span>
+<span class="lineNum">     145 </span>            :             else
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :                 title = t_strdup_printf(&quot;%s - [blocking on log write]&quot;,</span>
+<span class="lineNum">     147 </span>            :                             old_title);
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :             process_title_set(title);</span>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :             ioloop = io_loop_create();</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :             io = io_add(fd, IO_WRITE, log_fd_flush_stop, ioloop);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :             io_loop_run(ioloop);</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :             io_remove(&amp;io);</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :             io_loop_destroy(&amp;ioloop);</span>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :             process_title_set(old_title);</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     158 </span>            :         }
+<span class="lineNum">     159 </span>            :         case EINTR:
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :             if (prev_signal_term_counter == signal_term_counter) {</span>
+<span class="lineNum">     161 </span>            :                 /* non-terminal signal. ignore. */
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :             } else if (terminal_eintr_count++ == 0) {</span>
+<span class="lineNum">     163 </span>            :                 /* we'd rather not die in the middle of
+<span class="lineNum">     164 </span>            :                    writing to log. try again once more */
+<span class="lineNum">     165 </span>            :             } else {
+<span class="lineNum">     166 </span>            :                 /* received two terminal signals.
+<span class="lineNum">     167 </span>            :                    someone wants us dead. */
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     169 </span>            :             }
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     171 </span>            :         default:
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     173 </span>            :         }
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         prev_signal_term_counter = signal_term_counter;</span>
+<span class="lineNum">     175 </span>            :     }
+<span class="lineNum">     176 </span><span class="lineCov">       2047 :     return 0;</span>
+<span class="lineNum">     177 </span>            : }
+<a name="178"><span class="lineNum">     178 </span>            : </a>
+<span class="lineNum">     179 </span>            : static int ATTR_FORMAT(3, 0)
+<span class="lineNum">     180 </span><span class="lineCov">       2047 : default_handler(const struct failure_context *ctx, int fd,</span>
+<span class="lineNum">     181 </span>            :         const char *format, va_list args)
+<span class="lineNum">     182 </span>            : {
+<span class="lineNum">     183 </span>            :     static int recursed = 0;
+<span class="lineNum">     184 </span>            :     int ret;
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineCov">       2047 :     if (recursed &gt;= 2) {</span>
+<span class="lineNum">     187 </span>            :         /* we're being called from some signal handler or we ran
+<span class="lineNum">     188 </span>            :            out of memory */
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     190 </span>            :     }
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineCov">       2047 :     recursed++;</span>
+<span class="lineNum">     193 </span><span class="lineCov">       2047 :     T_BEGIN {</span>
+<span class="lineNum">     194 </span><span class="lineCov">       2047 :         string_t *str = t_str_new(256);</span>
+<span class="lineNum">     195 </span><span class="lineCov">       2047 :         log_prefix_add(ctx, str);</span>
+<span class="lineNum">     196 </span><span class="lineCov">       2047 :         str_append(str, failure_log_type_prefixes[ctx-&gt;type]);</span>
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span>            :         /* make sure there's no %n in there and fix %m */
+<span class="lineNum">     199 </span><span class="lineCov">       2047 :         str_vprintfa(str, printf_format_fix(format), args);</span>
+<span class="lineNum">     200 </span><span class="lineCov">       2047 :         str_append_c(str, '\n');</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineCov">       2047 :         ret = log_fd_write(fd, str_data(str), str_len(str));</span>
+<span class="lineNum">     203 </span><span class="lineCov">       2047 :     } T_END;</span>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span><span class="lineCov">       2047 :     if (ret &lt; 0 &amp;&amp; failure_ignore_errors)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         ret = 0;</span>
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineCov">       2047 :     recursed--;</span>
+<span class="lineNum">     209 </span><span class="lineCov">       2047 :     return ret;</span>
+<span class="lineNum">     210 </span>            : }
+<a name="211"><span class="lineNum">     211 </span>            : </a>
+<span class="lineNum">     212 </span>            : static void ATTR_NORETURN
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 : default_fatal_finish(enum log_type type, int status)</span>
+<span class="lineNum">     214 </span>            : {
+<span class="lineNum">     215 </span>            :     const char *backtrace;
+<span class="lineNum">     216 </span>            :     static int recursed = 0;
+<span class="lineNum">     217 </span>            : 
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     recursed++;</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     if ((type == LOG_TYPE_PANIC || status == FATAL_OUTOFMEM) &amp;&amp;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         recursed == 1) {</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         if (backtrace_get(&amp;backtrace) == 0)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             i_error(&quot;Raw backtrace: %s&quot;, backtrace);</span>
+<span class="lineNum">     223 </span>            :     }
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     recursed--;</span>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     if (type == LOG_TYPE_PANIC || getenv(&quot;CORE_ERROR&quot;) != NULL ||</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         (status == FATAL_OUTOFMEM &amp;&amp; getenv(&quot;CORE_OUTOFMEM&quot;) != NULL))</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         abort();</span>
+<span class="lineNum">     229 </span>            :     else
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         failure_exit(status);</span>
+<a name="231"><span class="lineNum">     231 </span>            : }</a>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 : void default_fatal_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     234 </span>            :                const char *format, va_list args)
+<span class="lineNum">     235 </span>            : {
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     int status = ctx-&gt;exit_status;</span>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     if (default_handler(ctx, log_fd, format, args) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     239 </span>            :         status == FATAL_DEFAULT)
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         status = FATAL_LOGWRITE;</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     default_fatal_finish(ctx-&gt;type, status);</span>
+<a name="243"><span class="lineNum">     243 </span>            : }</a>
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineCov">       2047 : void default_error_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     246 </span>            :                const char *format, va_list args)
+<span class="lineNum">     247 </span>            : {
+<span class="lineNum">     248 </span>            :     int fd;
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineCov">       2047 :     switch (ctx-&gt;type) {</span>
+<span class="lineNum">     251 </span>            :     case LOG_TYPE_DEBUG:
+<span class="lineNum">     252 </span><span class="lineCov">       2028 :         fd = log_debug_fd;</span>
+<span class="lineNum">     253 </span><span class="lineCov">       2028 :         break;</span>
+<span class="lineNum">     254 </span>            :     case LOG_TYPE_INFO:
+<span class="lineNum">     255 </span><span class="lineCov">         19 :         fd = log_info_fd;</span>
+<span class="lineNum">     256 </span><span class="lineCov">         19 :         break;</span>
+<span class="lineNum">     257 </span>            :     default:
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         fd = log_fd;</span>
+<span class="lineNum">     259 </span>            :     }
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineCov">       2047 :     if (default_handler(ctx, fd, format, args) &lt; 0) {</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         if (fd == log_fd)</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :             failure_exit(FATAL_LOGWRITE);</span>
+<span class="lineNum">     264 </span>            :         /* we failed to log to info/debug log, try to log the
+<span class="lineNum">     265 </span>            :            write error to error log - maybe that'll work. */
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         i_fatal_status(FATAL_LOGWRITE, &quot;write() failed to %s log: %m&quot;,</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :                    fd == log_info_fd ? &quot;info&quot; : &quot;debug&quot;);</span>
+<span class="lineNum">     268 </span>            :     }
+<span class="lineNum">     269 </span><span class="lineCov">       2047 :     if (ctx-&gt;type == LOG_TYPE_ERROR &amp;&amp; coredump_on_error)</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :         abort();</span>
+<a name="271"><span class="lineNum">     271 </span><span class="lineCov">       2047 : }</span></a>
+<span class="lineNum">     272 </span>            : 
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 : void i_log_type(const struct failure_context *ctx, const char *format, ...)</span>
+<span class="lineNum">     274 </span>            : {
+<span class="lineNum">     275 </span>            :     va_list args;
+<span class="lineNum">     276 </span>            : 
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     va_start(args, format);</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     i_log_typev(ctx, format, args);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<a name="280"><span class="lineNum">     280 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineCov">          8 : void i_log_typev(const struct failure_context *ctx, const char *format,</span>
+<span class="lineNum">     283 </span>            :          va_list args)
+<span class="lineNum">     284 </span>            : {
+<span class="lineNum">     285 </span><span class="lineCov">          8 :     switch (ctx-&gt;type) {</span>
+<span class="lineNum">     286 </span>            :     case LOG_TYPE_DEBUG:
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         debug_handler(ctx, format, args);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     289 </span>            :     case LOG_TYPE_INFO:
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         info_handler(ctx, format, args);</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     292 </span>            :     default:
+<span class="lineNum">     293 </span><span class="lineCov">          8 :         error_handler(ctx, format, args);</span>
+<span class="lineNum">     294 </span>            :     }
+<a name="295"><span class="lineNum">     295 </span><span class="lineCov">          8 : }</span></a>
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span><span class="lineCov">         37 : void i_panic(const char *format, ...)</span>
+<span class="lineNum">     298 </span>            : {
+<span class="lineNum">     299 </span>            :     struct failure_context ctx;
+<span class="lineNum">     300 </span>            :     va_list args;
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">         37 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     303 </span><span class="lineCov">         37 :     ctx.type = LOG_TYPE_PANIC;</span>
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span><span class="lineCov">         37 :     va_start(args, format);</span>
+<span class="lineNum">     306 </span><span class="lineCov">         37 :     fatal_handler(&amp;ctx, format, args);</span>
+<span class="lineNum">     307 </span>            :     i_unreached();
+<span class="lineNum">     308 </span>            :     /*va_end(args);*/
+<a name="309"><span class="lineNum">     309 </span>            : }</a>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 : void i_fatal(const char *format, ...)</span>
+<span class="lineNum">     312 </span>            : {
+<span class="lineNum">     313 </span>            :     struct failure_context ctx;
+<span class="lineNum">     314 </span>            :     va_list args;
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     ctx.type = LOG_TYPE_FATAL;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     ctx.exit_status = FATAL_DEFAULT;</span>
+<span class="lineNum">     319 </span>            : 
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     va_start(args, format);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     fatal_handler(&amp;ctx, format, args);</span>
+<span class="lineNum">     322 </span>            :     i_unreached();
+<span class="lineNum">     323 </span>            :     /*va_end(args);*/
+<a name="324"><span class="lineNum">     324 </span>            : }</a>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineCov">          2 : void i_fatal_status(int status, const char *format, ...)</span>
+<span class="lineNum">     327 </span>            : {
+<span class="lineNum">     328 </span>            :     struct failure_context ctx;
+<span class="lineNum">     329 </span>            :     va_list args;
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span><span class="lineCov">          2 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     332 </span><span class="lineCov">          2 :     ctx.type = LOG_TYPE_FATAL;</span>
+<span class="lineNum">     333 </span><span class="lineCov">          2 :     ctx.exit_status = status;</span>
+<span class="lineNum">     334 </span>            : 
+<span class="lineNum">     335 </span><span class="lineCov">          2 :     va_start(args, format);</span>
+<span class="lineNum">     336 </span><span class="lineCov">          2 :     fatal_handler(&amp;ctx, format, args);</span>
+<span class="lineNum">     337 </span>            :     i_unreached();
+<span class="lineNum">     338 </span>            :     /*va_end(args);*/
+<a name="339"><span class="lineNum">     339 </span>            : }</a>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineCov">         17 : void i_error(const char *format, ...)</span>
+<span class="lineNum">     342 </span>            : {
+<span class="lineNum">     343 </span><span class="lineCov">         17 :     int old_errno = errno;</span>
+<span class="lineNum">     344 </span>            :     va_list args;
+<span class="lineNum">     345 </span>            : 
+<span class="lineNum">     346 </span><span class="lineCov">         17 :     va_start(args, format);</span>
+<span class="lineNum">     347 </span><span class="lineCov">         17 :     error_handler(&amp;failure_ctx_error, format, args);</span>
+<span class="lineNum">     348 </span><span class="lineCov">         17 :     va_end(args);</span>
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineCov">         17 :     errno = old_errno;</span>
+<a name="351"><span class="lineNum">     351 </span><span class="lineCov">         17 : }</span></a>
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineCov">         12 : void i_warning(const char *format, ...)</span>
+<span class="lineNum">     354 </span>            : {
+<span class="lineNum">     355 </span><span class="lineCov">         12 :     int old_errno = errno;</span>
+<span class="lineNum">     356 </span>            :     va_list args;
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span><span class="lineCov">         12 :     va_start(args, format);</span>
+<span class="lineNum">     359 </span><span class="lineCov">         12 :     error_handler(&amp;failure_ctx_warning, format, args);</span>
+<span class="lineNum">     360 </span><span class="lineCov">         12 :     va_end(args);</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineCov">         12 :     errno = old_errno;</span>
+<a name="363"><span class="lineNum">     363 </span><span class="lineCov">         12 : }</span></a>
+<span class="lineNum">     364 </span>            : 
+<span class="lineNum">     365 </span><span class="lineCov">         20 : void i_info(const char *format, ...)</span>
+<span class="lineNum">     366 </span>            : {
+<span class="lineNum">     367 </span><span class="lineCov">         20 :     int old_errno = errno;</span>
+<span class="lineNum">     368 </span>            :     va_list args;
+<span class="lineNum">     369 </span>            : 
+<span class="lineNum">     370 </span><span class="lineCov">         20 :     va_start(args, format);</span>
+<span class="lineNum">     371 </span><span class="lineCov">         20 :     info_handler(&amp;failure_ctx_info, format, args);</span>
+<span class="lineNum">     372 </span><span class="lineCov">         20 :     va_end(args);</span>
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineCov">         20 :     errno = old_errno;</span>
+<a name="375"><span class="lineNum">     375 </span><span class="lineCov">         20 : }</span></a>
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span><span class="lineCov">       2029 : void i_debug(const char *format, ...)</span>
+<span class="lineNum">     378 </span>            : {
+<span class="lineNum">     379 </span><span class="lineCov">       2029 :     int old_errno = errno;</span>
+<span class="lineNum">     380 </span>            :     va_list args;
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span><span class="lineCov">       2029 :     va_start(args, format);</span>
+<span class="lineNum">     383 </span><span class="lineCov">       2029 :     debug_handler(&amp;failure_ctx_debug, format, args);</span>
+<span class="lineNum">     384 </span><span class="lineCov">       2029 :     va_end(args);</span>
+<span class="lineNum">     385 </span>            : 
+<span class="lineNum">     386 </span><span class="lineCov">       2029 :     errno = old_errno;</span>
+<a name="387"><span class="lineNum">     387 </span><span class="lineCov">       2029 : }</span></a>
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span><span class="lineCov">         79 : void i_set_fatal_handler(failure_callback_t *callback ATTR_NORETURN)</span>
+<span class="lineNum">     390 </span>            : {
+<span class="lineNum">     391 </span><span class="lineCov">         79 :         fatal_handler = callback;</span>
+<a name="392"><span class="lineNum">     392 </span><span class="lineCov">         79 : }</span></a>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineCov">         90 : void i_set_error_handler(failure_callback_t *callback)</span>
+<span class="lineNum">     395 </span>            : {
+<span class="lineNum">     396 </span><span class="lineCov">         90 :     coredump_on_error = getenv(&quot;CORE_ERROR&quot;) != NULL;</span>
+<span class="lineNum">     397 </span><span class="lineCov">         90 :     error_handler = callback;</span>
+<a name="398"><span class="lineNum">     398 </span><span class="lineCov">         90 : }</span></a>
+<span class="lineNum">     399 </span>            : 
+<span class="lineNum">     400 </span><span class="lineCov">          2 : void i_set_info_handler(failure_callback_t *callback)</span>
+<span class="lineNum">     401 </span>            : {
+<span class="lineNum">     402 </span><span class="lineCov">          2 :     info_handler = callback;</span>
+<a name="403"><span class="lineNum">     403 </span><span class="lineCov">          2 : }</span></a>
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span><span class="lineCov">          2 : void i_set_debug_handler(failure_callback_t *callback)</span>
+<span class="lineNum">     406 </span>            : {
+<span class="lineNum">     407 </span><span class="lineCov">          2 :     debug_handler = callback;</span>
+<a name="408"><span class="lineNum">     408 </span><span class="lineCov">          2 : }</span></a>
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineCov">          1 : void i_get_failure_handlers(failure_callback_t **fatal_callback_r,</span>
+<span class="lineNum">     411 </span>            :                 failure_callback_t **error_callback_r,
+<span class="lineNum">     412 </span>            :                 failure_callback_t **info_callback_r,
+<span class="lineNum">     413 </span>            :                 failure_callback_t **debug_callback_r)
+<span class="lineNum">     414 </span>            : {
+<span class="lineNum">     415 </span><span class="lineCov">          1 :     *fatal_callback_r = fatal_handler;</span>
+<span class="lineNum">     416 </span><span class="lineCov">          1 :     *error_callback_r = error_handler;</span>
+<span class="lineNum">     417 </span><span class="lineCov">          1 :     *info_callback_r = info_handler;</span>
+<span class="lineNum">     418 </span><span class="lineCov">          1 :     *debug_callback_r = debug_handler;</span>
+<span class="lineNum">     419 </span><span class="lineCov">          1 : }</span>
+<a name="420"><span class="lineNum">     420 </span>            : </a>
+<span class="lineNum">     421 </span>            : static int ATTR_FORMAT(4, 0)
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 : syslog_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     423 </span>            :            int level, enum log_type type, const char *format, va_list args)
+<span class="lineNum">     424 </span>            : {
+<span class="lineNum">     425 </span>            :     static int recursed = 0;
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     if (recursed &gt;= 2)</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     recursed++;</span>
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span>            :     /* syslogs don't generally bother to log the level in any way,
+<span class="lineNum">     432 </span>            :        so make sure errors are shown clearly */
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         const char *cur_log_prefix = ctx-&gt;log_prefix != NULL ?</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :             ctx-&gt;log_prefix : log_prefix;</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :         syslog(level, &quot;%s%s%s&quot;,</span>
+<span class="lineNum">     437 </span>            :                cur_log_prefix == NULL ? &quot;&quot; : cur_log_prefix,
+<span class="lineNum">     438 </span>            :                type != LOG_TYPE_INFO ?
+<span class="lineNum">     439 </span>            :                failure_log_type_prefixes[type] : &quot;&quot;,
+<span class="lineNum">     440 </span>            :                t_strdup_vprintf(format, args));
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     recursed--;</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="444"><span class="lineNum">     444 </span>            : }</a>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 : void i_syslog_fatal_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     447 </span>            :                 const char *format, va_list args)
+<span class="lineNum">     448 </span>            : {
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     int status = ctx-&gt;exit_status;</span>
+<span class="lineNum">     450 </span>            : 
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     if (syslog_handler(ctx, LOG_CRIT, ctx-&gt;type, format, args) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     452 </span>            :         status == FATAL_DEFAULT)
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         status = FATAL_LOGERROR;</span>
+<span class="lineNum">     454 </span>            : 
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :     default_fatal_finish(ctx-&gt;type, status);</span>
+<a name="456"><span class="lineNum">     456 </span>            : }</a>
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 : void i_syslog_error_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     459 </span>            :                 const char *format, va_list args)
+<span class="lineNum">     460 </span>            : {
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     int level = LOG_ERR;</span>
+<span class="lineNum">     462 </span>            : 
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     switch (ctx-&gt;type) {</span>
+<span class="lineNum">     464 </span>            :     case LOG_TYPE_DEBUG:
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         level = LOG_DEBUG;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     467 </span>            :     case LOG_TYPE_INFO:
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         level = LOG_INFO;</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     470 </span>            :     case LOG_TYPE_WARNING:
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :         level = LOG_WARNING;</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     473 </span>            :     case LOG_TYPE_ERROR:
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         level = LOG_ERR;</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     476 </span>            :     case LOG_TYPE_FATAL:
+<span class="lineNum">     477 </span>            :     case LOG_TYPE_PANIC:
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         level = LOG_CRIT;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     480 </span>            :     case LOG_TYPE_COUNT:
+<span class="lineNum">     481 </span>            :     case LOG_TYPE_OPTION:
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     483 </span>            :     }
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :     if (syslog_handler(ctx, level, ctx-&gt;type, format, args) &lt; 0)</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         failure_exit(FATAL_LOGERROR);</span>
+<a name="487"><span class="lineNum">     487 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 : void i_set_failure_syslog(const char *ident, int options, int facility)</span>
+<span class="lineNum">     490 </span>            : {
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     openlog(ident, options, facility);</span>
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :     i_set_fatal_handler(i_syslog_fatal_handler);</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :     i_set_error_handler(i_syslog_error_handler);</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :     i_set_info_handler(i_syslog_error_handler);</span>
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     i_set_debug_handler(i_syslog_error_handler);</span>
+<a name="497"><span class="lineNum">     497 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 : static void open_log_file(int *fd, const char *path)</span>
+<span class="lineNum">     500 </span>            : {
+<span class="lineNum">     501 </span>            :     const char *str;
+<span class="lineNum">     502 </span>            : 
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     if (*fd != STDERR_FILENO) {</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         if (close(*fd) &lt; 0) {</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :             str = t_strdup_printf(&quot;close(%d) failed: %m\n&quot;, *fd);</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :             (void)write_full(STDERR_FILENO, str, strlen(str));</span>
+<span class="lineNum">     507 </span>            :         }
+<span class="lineNum">     508 </span>            :     }
+<span class="lineNum">     509 </span>            : 
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     if (path == NULL || strcmp(path, &quot;/dev/stderr&quot;) == 0)</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :         *fd = STDERR_FILENO;</span>
+<span class="lineNum">     512 </span>            :     else {
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :         *fd = open(path, O_CREAT | O_APPEND | O_WRONLY, 0600);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :         if (*fd == -1) {</span>
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :             *fd = STDERR_FILENO;</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :             str = t_strdup_printf(&quot;Can't open log file %s: %m\n&quot;,</span>
+<span class="lineNum">     517 </span>            :                           path);
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :             (void)write_full(STDERR_FILENO, str, strlen(str));</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :             if (fd == &amp;log_fd)</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :                 failure_exit(FATAL_LOGOPEN);</span>
+<span class="lineNum">     521 </span>            :             else
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :                 i_fatal_status(FATAL_LOGOPEN, &quot;%s&quot;, str);</span>
+<span class="lineNum">     523 </span>            :         }
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         fd_close_on_exec(*fd, TRUE);</span>
+<span class="lineNum">     525 </span>            :     }
+<a name="526"><span class="lineNum">     526 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 : void i_set_failure_file(const char *path, const char *prefix)</span>
+<span class="lineNum">     529 </span>            : {
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :     i_set_failure_prefix(&quot;%s&quot;, prefix);</span>
+<span class="lineNum">     531 </span>            : 
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :     if (log_info_fd != STDERR_FILENO &amp;&amp; log_info_fd != log_fd) {</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         if (close(log_info_fd) &lt; 0)</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :             i_error(&quot;close(%d) failed: %m&quot;, log_info_fd);</span>
+<span class="lineNum">     535 </span>            :     }
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :     if (log_debug_fd != STDERR_FILENO &amp;&amp; log_debug_fd != log_info_fd &amp;&amp;</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :         log_debug_fd != log_fd) {</span>
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :         if (close(log_debug_fd) &lt; 0)</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :             i_error(&quot;close(%d) failed: %m&quot;, log_debug_fd);</span>
+<span class="lineNum">     541 </span>            :     }
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     open_log_file(&amp;log_fd, path);</span>
+<span class="lineNum">     544 </span>            :     /* if info/debug logs are elsewhere, i_set_info/debug_file()
+<span class="lineNum">     545 </span>            :        overrides these later. */
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :     log_info_fd = log_fd;</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :     log_debug_fd = log_fd;</span>
+<span class="lineNum">     548 </span>            : 
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :     i_set_fatal_handler(default_fatal_handler);</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :     i_set_error_handler(default_error_handler);</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :     i_set_info_handler(default_error_handler);</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :     i_set_debug_handler(default_error_handler);</span>
+<a name="553"><span class="lineNum">     553 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     554 </span>            : 
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 : static void i_failure_send_option(const char *key, const char *value)</span>
+<span class="lineNum">     556 </span>            : {
+<span class="lineNum">     557 </span>            :     const char *str;
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     if (error_handler != i_internal_error_handler)</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     561 </span>            : 
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     str = t_strdup_printf(&quot;\001%c%s %s=%s\n&quot;, LOG_TYPE_OPTION+1,</span>
+<span class="lineNum">     563 </span>            :                   my_pid, key, value);
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :     (void)write_full(STDERR_FILENO, str, strlen(str));</span>
+<a name="565"><span class="lineNum">     565 </span>            : }</a>
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineCov">          8 : void i_set_failure_prefix(const char *prefix_fmt, ...)</span>
+<span class="lineNum">     568 </span>            : {
+<span class="lineNum">     569 </span>            :     va_list args;
+<span class="lineNum">     570 </span>            : 
+<span class="lineNum">     571 </span><span class="lineCov">          8 :     va_start(args, prefix_fmt);</span>
+<span class="lineNum">     572 </span><span class="lineCov">          8 :     i_free(log_prefix);</span>
+<span class="lineNum">     573 </span><span class="lineCov">          8 :     log_prefix = i_strdup_vprintf(prefix_fmt, args);</span>
+<span class="lineNum">     574 </span><span class="lineCov">          8 :     va_end(args);</span>
+<span class="lineNum">     575 </span>            : 
+<span class="lineNum">     576 </span><span class="lineCov">          8 :     log_prefix_sent = FALSE;</span>
+<a name="577"><span class="lineNum">     577 </span><span class="lineCov">          8 : }</span></a>
+<span class="lineNum">     578 </span>            : 
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 : void i_unset_failure_prefix(void)</span>
+<span class="lineNum">     580 </span>            : {
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :     i_free(log_prefix);</span>
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :     log_prefix = i_strdup(&quot;&quot;);</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :     log_prefix_sent = FALSE;</span>
+<a name="584"><span class="lineNum">     584 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     585 </span>            : 
+<span class="lineNum">     586 </span><span class="lineCov">          2 : const char *i_get_failure_prefix(void)</span>
+<span class="lineNum">     587 </span>            : {
+<span class="lineNum">     588 </span><span class="lineCov">          2 :     return log_prefix != NULL ? log_prefix : &quot;&quot;;</span>
+<a name="589"><span class="lineNum">     589 </span>            : }</a>
+<span class="lineNum">     590 </span>            : 
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 : static int internal_send_split(string_t *full_str, size_t prefix_len)</span>
+<span class="lineNum">     592 </span>            : {
+<span class="lineNum">     593 </span>            :     string_t *str;
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :     size_t max_text_len, pos = prefix_len;</span>
+<span class="lineNum">     595 </span>            : 
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :     str = t_str_new(PIPE_BUF);</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :     str_append_n(str, str_c(full_str), prefix_len);</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :     max_text_len = PIPE_BUF - prefix_len - 1;</span>
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :     while (pos &lt; str_len(full_str)) {</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         str_truncate(str, prefix_len);</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         str_append_n(str, str_c(full_str) + pos, max_text_len);</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         str_append_c(str, '\n');</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :         if (log_fd_write(STDERR_FILENO,</span>
+<span class="lineNum">     605 </span>            :                  str_data(str), str_len(str)) &lt; 0)
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :         pos += max_text_len;</span>
+<span class="lineNum">     608 </span>            :     }
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     610 </span>            : }
+<a name="611"><span class="lineNum">     611 </span>            : </a>
+<span class="lineNum">     612 </span>            : static int ATTR_FORMAT(2, 0)
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 : internal_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     614 </span>            :          const char *format, va_list args)
+<span class="lineNum">     615 </span>            : {
+<span class="lineNum">     616 </span>            :     static int recursed = 0;
+<span class="lineNum">     617 </span>            :     int ret;
+<span class="lineNum">     618 </span>            : 
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :     if (recursed &gt;= 2) {</span>
+<span class="lineNum">     620 </span>            :         /* we're being called from some signal handler or we ran
+<span class="lineNum">     621 </span>            :            out of memory */
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     623 </span>            :     }
+<span class="lineNum">     624 </span>            : 
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :     recursed++;</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     627 </span>            :         string_t *str;
+<span class="lineNum">     628 </span>            :         size_t prefix_len;
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :         unsigned char log_type = ctx-&gt;type + 1;</span>
+<span class="lineNum">     630 </span>            : 
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :         if (ctx-&gt;log_prefix != NULL) {</span>
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :             log_type |= LOG_TYPE_FLAG_DISABLE_LOG_PREFIX;</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :         } else if (!log_prefix_sent &amp;&amp; log_prefix != NULL) {</span>
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :             log_prefix_sent = TRUE;</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :             i_failure_send_option(&quot;prefix&quot;, log_prefix);</span>
+<span class="lineNum">     636 </span>            :         }
+<span class="lineNum">     637 </span>            : 
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :         str = t_str_new(128);</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\001%c%s &quot;, log_type, my_pid);</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :         if (ctx-&gt;log_prefix != NULL)</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :             str_append(str, ctx-&gt;log_prefix);</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :         prefix_len = str_len(str);</span>
+<span class="lineNum">     643 </span>            : 
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :         str_vprintfa(str, format, args);</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :         if (str_len(str)+1 &lt;= PIPE_BUF) {</span>
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :             str_append_c(str, '\n');</span>
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :             ret = log_fd_write(STDERR_FILENO,</span>
+<span class="lineNum">     648 </span>            :                        str_data(str), str_len(str));
+<span class="lineNum">     649 </span>            :         } else {
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :             ret = internal_send_split(str, prefix_len);</span>
+<span class="lineNum">     651 </span>            :         }
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     653 </span>            : 
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :     if (ret &lt; 0 &amp;&amp; failure_ignore_errors)</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         ret = 0;</span>
+<span class="lineNum">     656 </span>            : 
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :     recursed--;</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="659"><span class="lineNum">     659 </span>            : }</a>
+<span class="lineNum">     660 </span>            : 
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 : static bool line_parse_prefix(const char *line, enum log_type *log_type_r,</span>
+<span class="lineNum">     662 </span>            :                   bool *replace_prefix_r)
+<span class="lineNum">     663 </span>            : {
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :     if (*line != 1)</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     666 </span>            : 
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     unsigned char log_type = (line[1] &amp; 0x7f);</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :     if (log_type == '\0') {</span>
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :         i_warning(&quot;Broken log line follows (type=NUL)&quot;);</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     671 </span>            :     }
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :     log_type--;</span>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :     if (log_type &gt; LOG_TYPE_OPTION) {</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :         i_warning(&quot;Broken log line follows (type=%d)&quot;, log_type);</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     677 </span>            :     }
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :     *log_type_r = log_type;</span>
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     *replace_prefix_r = (line[1] &amp; LOG_TYPE_FLAG_DISABLE_LOG_PREFIX) != 0;</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="681"><span class="lineNum">     681 </span>            : }</a>
+<span class="lineNum">     682 </span>            : 
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 : void i_failure_parse_line(const char *line, struct failure_line *failure)</span>
+<span class="lineNum">     684 </span>            : {
+<span class="lineNum">     685 </span>            : 
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :     i_zero(failure);</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :     if (!line_parse_prefix(line, &amp;failure-&gt;log_type,</span>
+<span class="lineNum">     688 </span>            :                    &amp;failure-&gt;disable_log_prefix)) {
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :         failure-&gt;log_type = LOG_TYPE_ERROR;</span>
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :         failure-&gt;text = line;</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     692 </span>            :     }
+<span class="lineNum">     693 </span>            : 
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :     line += 2;</span>
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :     failure-&gt;text = line;</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :     while (*line &gt;= '0' &amp;&amp; *line &lt;= '9') {</span>
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :         failure-&gt;pid = failure-&gt;pid*10 + (*line - '0');</span>
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :         line++;</span>
+<span class="lineNum">     699 </span>            :     }
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :     if (*line != ' ') {</span>
+<span class="lineNum">     701 </span>            :         /* some old protocol? */
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :         failure-&gt;pid = 0;</span>
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     704 </span>            :     }
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     failure-&gt;text = line + 1;</span>
+<span class="lineNum">     706 </span>            : }
+<a name="707"><span class="lineNum">     707 </span>            : </a>
+<span class="lineNum">     708 </span>            : static void ATTR_NORETURN ATTR_FORMAT(2, 0)
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 : i_internal_fatal_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     710 </span>            :              const char *format, va_list args)
+<span class="lineNum">     711 </span>            : {
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :     int status = ctx-&gt;exit_status;</span>
+<span class="lineNum">     713 </span>            : 
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     if (internal_handler(ctx, format, args) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     715 </span>            :         status == FATAL_DEFAULT)
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :         status = FATAL_LOGERROR;</span>
+<span class="lineNum">     717 </span>            : 
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     default_fatal_finish(ctx-&gt;type, status);</span>
+<span class="lineNum">     719 </span>            : }
+<a name="720"><span class="lineNum">     720 </span>            : </a>
+<span class="lineNum">     721 </span>            : static void
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 : i_internal_error_handler(const struct failure_context *ctx,</span>
+<span class="lineNum">     723 </span>            :              const char *format, va_list args)
+<span class="lineNum">     724 </span>            : {
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     if (internal_handler(ctx, format, args) &lt; 0)</span>
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :         failure_exit(FATAL_LOGERROR);</span>
+<a name="727"><span class="lineNum">     727 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     728 </span>            : 
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 : void i_set_failure_internal(void)</span>
+<span class="lineNum">     730 </span>            : {
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :     fd_set_nonblock(STDERR_FILENO, TRUE);</span>
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :     i_set_fatal_handler(i_internal_fatal_handler);</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :     i_set_error_handler(i_internal_error_handler);</span>
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :     i_set_info_handler(i_internal_error_handler);</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     i_set_debug_handler(i_internal_error_handler);</span>
+<a name="736"><span class="lineNum">     736 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     737 </span>            : 
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 : void i_set_failure_ignore_errors(bool ignore)</span>
+<span class="lineNum">     739 </span>            : {
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :     failure_ignore_errors = ignore;</span>
+<a name="741"><span class="lineNum">     741 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     742 </span>            : 
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 : void i_set_info_file(const char *path)</span>
+<span class="lineNum">     744 </span>            : {
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :     if (log_info_fd == log_fd)</span>
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :         log_info_fd = STDERR_FILENO;</span>
+<span class="lineNum">     747 </span>            : 
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     open_log_file(&amp;log_info_fd, path);</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :         info_handler = default_error_handler;</span>
+<span class="lineNum">     750 </span>            :     /* write debug-level messages to the info_log_path,
+<span class="lineNum">     751 </span>            :       until i_set_debug_file() was called */
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :     log_debug_fd = log_info_fd;</span>
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :     i_set_debug_handler(default_error_handler);</span>
+<a name="754"><span class="lineNum">     754 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     755 </span>            : 
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 : void i_set_debug_file(const char *path)</span>
+<span class="lineNum">     757 </span>            : {
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :     if (log_debug_fd == log_fd || log_debug_fd == log_info_fd)</span>
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :         log_debug_fd = STDERR_FILENO;</span>
+<span class="lineNum">     760 </span>            : 
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :     open_log_file(&amp;log_debug_fd, path);</span>
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :     debug_handler = default_error_handler;</span>
+<a name="763"><span class="lineNum">     763 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     764 </span>            : 
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 : void i_set_failure_timestamp_format(const char *fmt)</span>
+<span class="lineNum">     766 </span>            : {
+<span class="lineNum">     767 </span>            :     const char *p;
+<span class="lineNum">     768 </span>            : 
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 :     i_free(log_stamp_format);</span>
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :     i_free_and_null(log_stamp_format_suffix);</span>
+<span class="lineNum">     771 </span>            : 
+<span class="lineNum">     772 </span><span class="lineNoCov">          0 :     p = strstr(fmt, &quot;%{usecs}&quot;);</span>
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :     if (p == NULL)</span>
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :         log_stamp_format = i_strdup(fmt);</span>
+<span class="lineNum">     775 </span>            :     else {
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :         log_stamp_format = i_strdup_until(fmt, p);</span>
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :         log_stamp_format_suffix = i_strdup(p + 8);</span>
+<span class="lineNum">     778 </span>            :     }
+<a name="779"><span class="lineNum">     779 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     780 </span>            : 
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 : void i_set_failure_send_ip(const struct ip_addr *ip)</span>
+<span class="lineNum">     782 </span>            : {
+<span class="lineNum">     783 </span><span class="lineNoCov">          0 :     i_failure_send_option(&quot;ip&quot;, net_ip2addr(ip));</span>
+<a name="784"><span class="lineNum">     784 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     785 </span>            : 
+<span class="lineNum">     786 </span><span class="lineNoCov">          0 : void i_set_failure_send_prefix(const char *prefix)</span>
+<span class="lineNum">     787 </span>            : {
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 :     i_failure_send_option(&quot;prefix&quot;, prefix);</span>
+<a name="789"><span class="lineNum">     789 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     790 </span>            : 
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 : void i_set_failure_exit_callback(void (*callback)(int *status))</span>
+<span class="lineNum">     792 </span>            : {
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :     failure_exit_callback = callback;</span>
+<a name="794"><span class="lineNum">     794 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     795 </span>            : 
+<span class="lineNum">     796 </span><span class="lineCov">         88 : void failures_deinit(void)</span>
+<span class="lineNum">     797 </span>            : {
+<span class="lineNum">     798 </span><span class="lineCov">         88 :     if (log_debug_fd == log_info_fd || log_debug_fd == log_fd)</span>
+<span class="lineNum">     799 </span><span class="lineCov">         88 :         log_debug_fd = STDERR_FILENO;</span>
+<span class="lineNum">     800 </span>            : 
+<span class="lineNum">     801 </span><span class="lineCov">         88 :     if (log_info_fd == log_fd)</span>
+<span class="lineNum">     802 </span><span class="lineCov">         88 :         log_info_fd = STDERR_FILENO;</span>
+<span class="lineNum">     803 </span>            : 
+<span class="lineNum">     804 </span><span class="lineCov">         88 :     if (log_fd != STDERR_FILENO) {</span>
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;log_fd);</span>
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 :         log_fd = STDERR_FILENO;</span>
+<span class="lineNum">     807 </span>            :     }
+<span class="lineNum">     808 </span>            : 
+<span class="lineNum">     809 </span><span class="lineCov">         88 :     if (log_info_fd != STDERR_FILENO) {</span>
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;log_info_fd);</span>
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 :         log_info_fd = STDERR_FILENO;</span>
+<span class="lineNum">     812 </span>            :     }
+<span class="lineNum">     813 </span>            : 
+<span class="lineNum">     814 </span><span class="lineCov">         88 :     if (log_debug_fd != STDERR_FILENO) {</span>
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;log_debug_fd);</span>
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :         log_debug_fd = STDERR_FILENO;</span>
+<span class="lineNum">     817 </span>            :     }
+<span class="lineNum">     818 </span>            : 
+<span class="lineNum">     819 </span><span class="lineCov">         88 :     i_free_and_null(log_prefix);</span>
+<span class="lineNum">     820 </span><span class="lineCov">         88 :     i_free_and_null(log_stamp_format);</span>
+<span class="lineNum">     821 </span><span class="lineCov">         88 :     i_free_and_null(log_stamp_format_suffix);</span>
+<span class="lineNum">     822 </span><span class="lineCov">         88 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

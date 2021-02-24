@@ -1,0 +1,834 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-fts/fts-tokenizer-generic.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-fts</a> - fts-tokenizer-generic.c<span style="font-size: 80%;"> (source / <a href="fts-tokenizer-generic.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">266</td>
+            <td class="headerCovTableEntry">355</td>
+            <td class="headerCovTableEntryLo">74.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntry">35</td>
+            <td class="headerCovTableEntryLo">74.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2014-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;unichar.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;bsearch-insert-pos.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;fts-common.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;fts-tokenizer-private.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;fts-tokenizer-generic-private.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;fts-tokenizer-common.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;word-boundary-data.c&quot;
+<span class="lineNum">      13 </span>            : #include &quot;word-break-data.c&quot;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #define FTS_DEFAULT_TOKEN_MAX_LENGTH 30
+<span class="lineNum">      16 </span>            : #define FTS_WB5A_PREFIX_MAX_LENGTH 3 /* Including apostrophe */
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : static unsigned char fts_ascii_word_breaks[128] = {
+<span class="lineNum">      19 </span>            :     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 0-15 */
+<span class="lineNum">      20 </span>            :     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 16-31 */
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            :     1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, /* 32-47:  !&quot;#$%&amp;()*+,-./ */
+<span class="lineNum">      23 </span>            :     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, /* 48-63: :;&lt;=&gt;? */
+<span class="lineNum">      24 </span>            :     1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 64-79: @ */
+<span class="lineNum">      25 </span>            :     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, /* 80-95: [\]^ */
+<span class="lineNum">      26 </span>            :     1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 96-111: ` */
+<span class="lineNum">      27 </span>            :     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0  /* 112-127: {|}~ */
+<span class="lineNum">      28 </span>            : };
+<a name="29"><span class="lineNum">      29 </span>            : </a>
+<span class="lineNum">      30 </span>            : static int
+<span class="lineNum">      31 </span><span class="lineCov">          7 : fts_tokenizer_generic_create(const char *const *settings,</span>
+<span class="lineNum">      32 </span>            :                  struct fts_tokenizer **tokenizer_r,
+<span class="lineNum">      33 </span>            :                  const char **error_r)
+<span class="lineNum">      34 </span>            : {
+<span class="lineNum">      35 </span>            :     struct generic_fts_tokenizer *tok;
+<span class="lineNum">      36 </span><span class="lineCov">          7 :     unsigned int max_length = FTS_DEFAULT_TOKEN_MAX_LENGTH;</span>
+<span class="lineNum">      37 </span><span class="lineCov">          7 :     enum boundary_algorithm algo = BOUNDARY_ALGORITHM_SIMPLE;</span>
+<span class="lineNum">      38 </span><span class="lineCov">          7 :     bool wb5a = FALSE;</span>
+<span class="lineNum">      39 </span>            :     unsigned int i;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineCov">         13 :     for (i = 0; settings[i] != NULL; i += 2) {</span>
+<span class="lineNum">      42 </span><span class="lineCov">          6 :         const char *key = settings[i], *value = settings[i+1];</span>
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineCov">          6 :         if (strcmp(key, &quot;maxlen&quot;) == 0) {</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :             if (str_to_uint(value, &amp;max_length) &lt; 0 ||</span>
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :                 max_length == 0) {</span>
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :                 *error_r = t_strdup_printf(</span>
+<span class="lineNum">      48 </span>            :                     &quot;Invalid maxlen setting: %s&quot;, value);
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      50 </span>            :             }
+<span class="lineNum">      51 </span><span class="lineCov">          6 :         } else if (strcmp(key, &quot;algorithm&quot;) == 0) {</span>
+<span class="lineNum">      52 </span><span class="lineCov">          5 :             if (strcmp(value, ALGORITHM_TR29_NAME) == 0)</span>
+<span class="lineNum">      53 </span><span class="lineCov">          3 :                 algo = BOUNDARY_ALGORITHM_TR29;</span>
+<span class="lineNum">      54 </span><span class="lineCov">          2 :             else if (strcmp(value, ALGORITHM_SIMPLE_NAME) == 0)</span>
+<span class="lineNum">      55 </span>            :                 ;
+<span class="lineNum">      56 </span>            :             else {
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :                 *error_r = t_strdup_printf(</span>
+<span class="lineNum">      58 </span>            :                         &quot;Invalid algorithm: %s&quot;, value);
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      60 </span>            :             }
+<span class="lineNum">      61 </span><span class="lineCov">          1 :         } else if (strcmp(key, &quot;search&quot;) == 0) {</span>
+<span class="lineNum">      62 </span>            :             /* tokenizing a search string -
+<span class="lineNum">      63 </span>            :                makes no difference to us */
+<span class="lineNum">      64 </span><span class="lineCov">          1 :         } else if (strcasecmp(key, &quot;wb5a&quot;) == 0) {</span>
+<span class="lineNum">      65 </span><span class="lineCov">          1 :             if (strcasecmp(value, &quot;no&quot;) == 0)</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :                 wb5a = FALSE;</span>
+<span class="lineNum">      67 </span>            :             else
+<span class="lineNum">      68 </span><span class="lineCov">          1 :                 wb5a = TRUE;</span>
+<span class="lineNum">      69 </span>            :         } else {
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;Unknown setting: %s&quot;, key);</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">      72 </span>            :         }
+<span class="lineNum">      73 </span>            :     }
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">          7 :     if (wb5a &amp;&amp; algo != BOUNDARY_ALGORITHM_TR29) {</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         *error_r = &quot;Can not use WB5a for algorithms other than TR29.&quot;;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      78 </span>            :     }
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineCov">          7 :     tok = i_new(struct generic_fts_tokenizer, 1);</span>
+<span class="lineNum">      81 </span><span class="lineCov">          7 :     if (algo == BOUNDARY_ALGORITHM_TR29)</span>
+<span class="lineNum">      82 </span><span class="lineCov">          3 :         tok-&gt;tokenizer.v = &amp;generic_tokenizer_vfuncs_tr29;</span>
+<span class="lineNum">      83 </span>            :     else
+<span class="lineNum">      84 </span><span class="lineCov">          4 :         tok-&gt;tokenizer.v = &amp;generic_tokenizer_vfuncs_simple;</span>
+<span class="lineNum">      85 </span><span class="lineCov">          7 :     tok-&gt;max_length = max_length;</span>
+<span class="lineNum">      86 </span><span class="lineCov">          7 :     tok-&gt;algorithm = algo;</span>
+<span class="lineNum">      87 </span><span class="lineCov">          7 :     tok-&gt;wb5a = wb5a;</span>
+<span class="lineNum">      88 </span><span class="lineCov">          7 :     tok-&gt;token = buffer_create_dynamic(default_pool, 64);</span>
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span><span class="lineCov">          7 :     *tokenizer_r = &amp;tok-&gt;tokenizer;</span>
+<span class="lineNum">      91 </span><span class="lineCov">          7 :     return 0;</span>
+<span class="lineNum">      92 </span>            : }
+<a name="93"><span class="lineNum">      93 </span>            : </a>
+<span class="lineNum">      94 </span>            : static void
+<span class="lineNum">      95 </span><span class="lineCov">          7 : fts_tokenizer_generic_destroy(struct fts_tokenizer *_tok)</span>
+<span class="lineNum">      96 </span>            : {
+<span class="lineNum">      97 </span><span class="lineCov">          7 :     struct generic_fts_tokenizer *tok =</span>
+<span class="lineNum">      98 </span>            :         (struct generic_fts_tokenizer *)_tok;
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineCov">          7 :     buffer_free(&amp;tok-&gt;token);</span>
+<span class="lineNum">     101 </span><span class="lineCov">          7 :     i_free(tok);</span>
+<span class="lineNum">     102 </span><span class="lineCov">          7 : }</span>
+<a name="103"><span class="lineNum">     103 </span>            : </a>
+<span class="lineNum">     104 </span>            : static bool
+<span class="lineNum">     105 </span><span class="lineCov">      52080 : fts_tokenizer_generic_simple_current_token(struct generic_fts_tokenizer *tok,</span>
+<span class="lineNum">     106 </span>            :                                            const char **token_r)
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span><span class="lineCov">      52080 :     const unsigned char *data = tok-&gt;token-&gt;data;</span>
+<span class="lineNum">     109 </span><span class="lineCov">      52080 :     size_t len = tok-&gt;token-&gt;used;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">      52080 :     if (tok-&gt;untruncated_length &lt;= tok-&gt;max_length) {</span>
+<span class="lineNum">     112 </span>            :         /* Remove the trailing apostrophe - it was made
+<span class="lineNum">     113 </span>            :            into U+0027 earlier. There can be only a single such
+<span class="lineNum">     114 </span>            :            apostrophe, because otherwise the token would have already
+<span class="lineNum">     115 </span>            :            been split. We also want to remove the trailing apostrophe
+<span class="lineNum">     116 </span>            :            only if it's the the last character in the nontruncated
+<span class="lineNum">     117 </span>            :            token - a truncated token may end with apostrophe. */
+<span class="lineNum">     118 </span><span class="lineCov">      52047 :         if (len &gt; 0 &amp;&amp; data[len-1] == '\'') {</span>
+<span class="lineNum">     119 </span><span class="lineCov">         39 :             len--;</span>
+<span class="lineNum">     120 </span><span class="lineCov">         39 :             i_assert(len &gt; 0 &amp;&amp; data[len-1] != '\'');</span>
+<span class="lineNum">     121 </span>            :         }
+<span class="lineNum">     122 </span>            :     } else {
+<span class="lineNum">     123 </span><span class="lineCov">         33 :         fts_tokenizer_delete_trailing_partial_char(data, &amp;len);</span>
+<span class="lineNum">     124 </span>            :     }
+<span class="lineNum">     125 </span><span class="lineCov">      52080 :     i_assert(len &lt;= tok-&gt;max_length);</span>
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineCov">      74651 :     *token_r = len == 0 ? &quot;&quot; :</span>
+<span class="lineNum">     128 </span><span class="lineCov">      22571 :         t_strndup(tok-&gt;token-&gt;data, len);</span>
+<span class="lineNum">     129 </span><span class="lineCov">      52080 :     buffer_set_used_size(tok-&gt;token, 0);</span>
+<span class="lineNum">     130 </span><span class="lineCov">      52080 :     tok-&gt;untruncated_length = 0;</span>
+<span class="lineNum">     131 </span><span class="lineCov">      52080 :     tok-&gt;prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     132 </span><span class="lineCov">      52080 :     return len &gt; 0;</span>
+<a name="133"><span class="lineNum">     133 </span>            : }</a>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineCov">     175473 : static bool uint32_find(const uint32_t *data, unsigned int count,</span>
+<span class="lineNum">     136 </span>            :             uint32_t value, unsigned int *idx_r)
+<span class="lineNum">     137 </span>            : {
+<span class="lineNum">     138 </span><span class="lineCov">     175473 :     BINARY_NUMBER_SEARCH(data, count, value, idx_r);</span>
+<a name="139"><span class="lineNum">     139 </span>            : }</a>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineCov">      16452 : static bool fts_uni_word_break(unichar_t c)</span>
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span>            :     unsigned int idx;
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span>            :     /* Unicode General Punctuation, including deprecated characters. */
+<span class="lineNum">     146 </span><span class="lineCov">      16452 :     if (c &gt;= 0x2000 &amp;&amp; c &lt;= 0x206f)</span>
+<span class="lineNum">     147 </span><span class="lineCov">         12 :         return TRUE;</span>
+<span class="lineNum">     148 </span>            :     /* From word-break-data.c, which is generated from PropList.txt. */
+<span class="lineNum">     149 </span><span class="lineCov">      16440 :     if (uint32_find(White_Space, N_ELEMENTS(White_Space), c, &amp;idx))</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     151 </span><span class="lineCov">      16440 :     if (uint32_find(Dash, N_ELEMENTS(Dash), c, &amp;idx))</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     153 </span><span class="lineCov">      16440 :     if (uint32_find(Quotation_Mark, N_ELEMENTS(Quotation_Mark), c, &amp;idx))</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     155 </span><span class="lineCov">      16440 :     if (uint32_find(Terminal_Punctuation, N_ELEMENTS(Terminal_Punctuation), c, &amp;idx))</span>
+<span class="lineNum">     156 </span><span class="lineCov">          6 :         return TRUE;</span>
+<span class="lineNum">     157 </span><span class="lineCov">      16434 :     if (uint32_find(STerm, N_ELEMENTS(STerm), c, &amp;idx))</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     159 </span><span class="lineCov">      16434 :     if (uint32_find(Pattern_White_Space, N_ELEMENTS(Pattern_White_Space), c, &amp;idx))</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     161 </span><span class="lineCov">      16434 :     return FALSE;</span>
+<span class="lineNum">     162 </span>            : }
+<a name="163"><span class="lineNum">     163 </span>            : </a>
+<span class="lineNum">     164 </span>            : static inline bool
+<span class="lineNum">     165 </span><span class="lineCov">      78805 : fts_simple_is_word_break(struct generic_fts_tokenizer *tok,</span>
+<span class="lineNum">     166 </span>            :              unichar_t c, bool apostrophe)
+<span class="lineNum">     167 </span>            : {
+<span class="lineNum">     168 </span><span class="lineCov">      78805 :     if (apostrophe)</span>
+<span class="lineNum">     169 </span><span class="lineCov">        198 :         return tok-&gt;prev_letter == LETTER_TYPE_SINGLE_QUOTE;</span>
+<span class="lineNum">     170 </span><span class="lineCov">      78607 :     else if (c &lt; 0x80)</span>
+<span class="lineNum">     171 </span><span class="lineCov">      62155 :         return fts_ascii_word_breaks[c] != 0;</span>
+<span class="lineNum">     172 </span>            :     else
+<span class="lineNum">     173 </span><span class="lineCov">      16452 :         return fts_uni_word_break(c);</span>
+<a name="174"><span class="lineNum">     174 </span>            : }</a>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 : static void fts_tokenizer_generic_reset(struct fts_tokenizer *_tok)</span>
+<span class="lineNum">     177 </span>            : {
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     struct generic_fts_tokenizer *tok =</span>
+<span class="lineNum">     179 </span>            :         (struct generic_fts_tokenizer *)_tok;
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     tok-&gt;prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     tok-&gt;prev_prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :     tok-&gt;untruncated_length = 0;</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     buffer_set_used_size(tok-&gt;token, 0);</span>
+<a name="185"><span class="lineNum">     185 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineCov">      64438 : static void tok_append_truncated(struct generic_fts_tokenizer *tok,</span>
+<span class="lineNum">     188 </span>            :                  const unsigned char *data, size_t size)
+<span class="lineNum">     189 </span>            : {
+<span class="lineNum">     190 </span><span class="lineCov">      64438 :     buffer_append(tok-&gt;token, data,</span>
+<span class="lineNum">     191 </span><span class="lineCov">      64438 :               I_MIN(size, tok-&gt;max_length - tok-&gt;token-&gt;used));</span>
+<span class="lineNum">     192 </span><span class="lineCov">      64438 :     tok-&gt;untruncated_length += size;</span>
+<span class="lineNum">     193 </span><span class="lineCov">      64438 : }</span>
+<a name="194"><span class="lineNum">     194 </span>            : </a>
+<span class="lineNum">     195 </span>            : static int
+<span class="lineNum">     196 </span><span class="lineCov">      44569 : fts_tokenizer_generic_simple_next(struct fts_tokenizer *_tok,</span>
+<span class="lineNum">     197 </span>            :                                   const unsigned char *data, size_t size,
+<span class="lineNum">     198 </span>            :                   size_t *skip_r, const char **token_r,
+<span class="lineNum">     199 </span>            :                   const char **error_r ATTR_UNUSED)
+<span class="lineNum">     200 </span>            : {
+<span class="lineNum">     201 </span><span class="lineCov">      44569 :     struct generic_fts_tokenizer *tok =</span>
+<span class="lineNum">     202 </span>            :         (struct generic_fts_tokenizer *)_tok;
+<span class="lineNum">     203 </span><span class="lineCov">      44569 :     size_t i, start = 0;</span>
+<span class="lineNum">     204 </span>            :     int char_size;
+<span class="lineNum">     205 </span>            :     unichar_t c;
+<span class="lineNum">     206 </span>            :     bool apostrophe;
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineCov">     107154 :     for (i = 0; i &lt; size; i += char_size) {</span>
+<span class="lineNum">     209 </span><span class="lineCov">      78805 :         char_size = uni_utf8_get_char_n(data + i, size - i, &amp;c);</span>
+<span class="lineNum">     210 </span><span class="lineCov">      78805 :         i_assert(char_size &gt; 0);</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineCov">      78805 :         apostrophe = IS_APOSTROPHE(c);</span>
+<span class="lineNum">     213 </span><span class="lineCov">      78805 :         if (fts_simple_is_word_break(tok, c, apostrophe)) {</span>
+<span class="lineNum">     214 </span><span class="lineCov">      32927 :             tok_append_truncated(tok, data + start, i - start);</span>
+<span class="lineNum">     215 </span><span class="lineCov">      32927 :             if (fts_tokenizer_generic_simple_current_token(tok, token_r)) {</span>
+<span class="lineNum">     216 </span><span class="lineCov">      16220 :                 *skip_r = i + char_size;</span>
+<span class="lineNum">     217 </span><span class="lineCov">      16220 :                 return 1;</span>
+<span class="lineNum">     218 </span>            :             }
+<span class="lineNum">     219 </span><span class="lineCov">      16707 :             start = i + char_size;</span>
+<span class="lineNum">     220 </span>            :             /* it doesn't actually matter at this point how whether
+<span class="lineNum">     221 </span>            :                subsequent apostrophes are handled by prefix
+<span class="lineNum">     222 </span>            :                skipping or by ignoring empty tokens - they will be
+<span class="lineNum">     223 </span>            :                dropped in any case. */
+<span class="lineNum">     224 </span><span class="lineCov">      16707 :             tok-&gt;prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     225 </span><span class="lineCov">      45878 :         } else if (apostrophe) {</span>
+<span class="lineNum">     226 </span>            :             /* all apostrophes require special handling */
+<span class="lineNum">     227 </span><span class="lineCov">        156 :             const unsigned char apostrophe_char = '\'';</span>
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineCov">        156 :             tok_append_truncated(tok, data + start, i - start);</span>
+<span class="lineNum">     230 </span><span class="lineCov">        156 :             if (tok-&gt;token-&gt;used &gt; 0)</span>
+<span class="lineNum">     231 </span><span class="lineCov">         87 :                 tok_append_truncated(tok, &amp;apostrophe_char, 1);</span>
+<span class="lineNum">     232 </span><span class="lineCov">        156 :             start = i + char_size;</span>
+<span class="lineNum">     233 </span><span class="lineCov">        156 :             tok-&gt;prev_letter = LETTER_TYPE_SINGLE_QUOTE;</span>
+<span class="lineNum">     234 </span>            :         } else {
+<span class="lineNum">     235 </span><span class="lineCov">      45722 :             tok-&gt;prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     236 </span>            :         }
+<span class="lineNum">     237 </span>            :     }
+<span class="lineNum">     238 </span>            :     /* word boundary not found yet */
+<span class="lineNum">     239 </span><span class="lineCov">      28349 :     tok_append_truncated(tok, data + start, i - start);</span>
+<span class="lineNum">     240 </span><span class="lineCov">      28349 :     *skip_r = i;</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span>            :     /* return the last token */
+<span class="lineNum">     243 </span><span class="lineCov">      28349 :     if (size == 0) {</span>
+<span class="lineNum">     244 </span><span class="lineCov">      19153 :         if (fts_tokenizer_generic_simple_current_token(tok, token_r))</span>
+<span class="lineNum">     245 </span><span class="lineCov">       6351 :             return 1;</span>
+<span class="lineNum">     246 </span>            :     }
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span><span class="lineCov">      21998 :     return 0;</span>
+<span class="lineNum">     249 </span>            : }
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span>            : /* TODO: Arrange array searches roughly in order of likelihood of a match.
+<span class="lineNum">     252 </span>            :    TODO: Make some array of the arrays, so this can be a foreach loop.
+<span class="lineNum">     253 </span>            :    TODO: Check for Hangul.
+<span class="lineNum">     254 </span>            :    TODO: Add Hyphens U+002D HYPHEN-MINUS, U+2010 HYPHEN, possibly also
+<span class="lineNum">     255 </span>            :    U+058A ( ֊ ) ARMENIAN HYPHEN, and U+30A0 KATAKANA-HIRAGANA DOUBLE
+<span class="lineNum">     256 </span>            :    HYPHEN.
+<a name="257"><span class="lineNum">     257 </span>            :    TODO</a>
+<span class="lineNum">     258 </span>            : */
+<span class="lineNum">     259 </span><span class="lineCov">       6987 : static enum letter_type letter_type(unichar_t c)</span>
+<span class="lineNum">     260 </span>            : {
+<span class="lineNum">     261 </span>            :     unsigned int idx;
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span><span class="lineCov">       6987 :     if (IS_APOSTROPHE(c))</span>
+<span class="lineNum">     264 </span><span class="lineCov">        396 :         return LETTER_TYPE_APOSTROPHE;</span>
+<span class="lineNum">     265 </span><span class="lineCov">       6591 :     if (uint32_find(CR, N_ELEMENTS(CR), c, &amp;idx))</span>
+<span class="lineNum">     266 </span><span class="lineCov">         12 :         return LETTER_TYPE_CR;</span>
+<span class="lineNum">     267 </span><span class="lineCov">       6579 :     if (uint32_find(LF, N_ELEMENTS(LF), c, &amp;idx))</span>
+<span class="lineNum">     268 </span><span class="lineCov">         42 :         return LETTER_TYPE_LF;</span>
+<span class="lineNum">     269 </span><span class="lineCov">       6537 :     if (uint32_find(Newline, N_ELEMENTS(Newline), c, &amp;idx))</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_NEWLINE;</span>
+<span class="lineNum">     271 </span><span class="lineCov">       6537 :     if (uint32_find(Extend, N_ELEMENTS(Extend), c, &amp;idx))</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_EXTEND;</span>
+<span class="lineNum">     273 </span><span class="lineCov">       6537 :     if (uint32_find(Regional_Indicator, N_ELEMENTS(Regional_Indicator), c, &amp;idx))</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_REGIONAL_INDICATOR;</span>
+<span class="lineNum">     275 </span><span class="lineCov">       6537 :     if (uint32_find(Format, N_ELEMENTS(Format), c, &amp;idx))</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_FORMAT;</span>
+<span class="lineNum">     277 </span><span class="lineCov">       6537 :     if (uint32_find(Katakana, N_ELEMENTS(Katakana), c, &amp;idx))</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_KATAKANA;</span>
+<span class="lineNum">     279 </span><span class="lineCov">       6537 :     if (uint32_find(Hebrew_Letter, N_ELEMENTS(Hebrew_Letter), c, &amp;idx))</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_HEBREW_LETTER;</span>
+<span class="lineNum">     281 </span><span class="lineCov">       6537 :     if (uint32_find(ALetter, N_ELEMENTS(ALetter), c, &amp;idx))</span>
+<span class="lineNum">     282 </span><span class="lineCov">       3537 :         return LETTER_TYPE_ALETTER;</span>
+<span class="lineNum">     283 </span><span class="lineCov">       3000 :     if (uint32_find(Single_Quote, N_ELEMENTS(Single_Quote), c, &amp;idx))</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_SINGLE_QUOTE;</span>
+<span class="lineNum">     285 </span><span class="lineCov">       3000 :     if (uint32_find(Double_Quote, N_ELEMENTS(Double_Quote), c, &amp;idx))</span>
+<span class="lineNum">     286 </span><span class="lineCov">         12 :         return LETTER_TYPE_DOUBLE_QUOTE;</span>
+<span class="lineNum">     287 </span><span class="lineCov">       2988 :     if (uint32_find(MidNumLet, N_ELEMENTS(MidNumLet), c, &amp;idx))</span>
+<span class="lineNum">     288 </span><span class="lineCov">        126 :         return LETTER_TYPE_MIDNUMLET;</span>
+<span class="lineNum">     289 </span><span class="lineCov">       2862 :     if (uint32_find(MidLetter, N_ELEMENTS(MidLetter), c, &amp;idx))</span>
+<span class="lineNum">     290 </span><span class="lineCov">         18 :         return LETTER_TYPE_MIDLETTER;</span>
+<span class="lineNum">     291 </span><span class="lineCov">       2844 :     if (uint32_find(MidNum, N_ELEMENTS(MidNum), c, &amp;idx))</span>
+<span class="lineNum">     292 </span><span class="lineCov">        102 :         return LETTER_TYPE_MIDNUM;</span>
+<span class="lineNum">     293 </span><span class="lineCov">       2742 :     if (uint32_find(Numeric, N_ELEMENTS(Numeric), c, &amp;idx))</span>
+<span class="lineNum">     294 </span><span class="lineCov">       2262 :         return LETTER_TYPE_NUMERIC;</span>
+<span class="lineNum">     295 </span><span class="lineCov">        480 :     if (uint32_find(ExtendNumLet, N_ELEMENTS(ExtendNumLet), c, &amp;idx))</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         return LETTER_TYPE_EXTENDNUMLET;</span>
+<span class="lineNum">     297 </span><span class="lineCov">        480 :     return LETTER_TYPE_OTHER;</span>
+<a name="298"><span class="lineNum">     298 </span>            : }</a>
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 : static bool letter_panic(struct generic_fts_tokenizer *tok ATTR_UNUSED)</span>
+<span class="lineNum">     301 </span>            : {
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     i_panic(&quot;Letter type should not be used.&quot;);</span>
+<span class="lineNum">     303 </span>            : }
+<span class="lineNum">     304 </span>            : 
+<a name="305"><span class="lineNum">     305 </span>            : /* WB3, WB3a and WB3b, but really different since we try to eat</a>
+<span class="lineNum">     306 </span>            :    whitespace between words. */
+<span class="lineNum">     307 </span><span class="lineCov">         12 : static bool letter_cr_lf_newline(struct generic_fts_tokenizer *tok ATTR_UNUSED)</span>
+<span class="lineNum">     308 </span>            : {
+<span class="lineNum">     309 </span><span class="lineCov">         12 :     return TRUE;</span>
+<a name="310"><span class="lineNum">     310 </span>            : }</a>
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 : static bool letter_extend_format(struct generic_fts_tokenizer *tok ATTR_UNUSED)</span>
+<span class="lineNum">     313 </span>            : {
+<span class="lineNum">     314 </span>            :     /* WB4 */
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="316"><span class="lineNum">     316 </span>            : }</a>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 : static bool letter_regional_indicator(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     319 </span>            : {
+<span class="lineNum">     320 </span>            :     /* WB13c */
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_REGIONAL_INDICATOR)</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="325"><span class="lineNum">     325 </span>            : }</a>
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 : static bool letter_katakana(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     328 </span>            : {
+<span class="lineNum">     329 </span>            :     /* WB13 */
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_KATAKANA)</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span>            :     /* WB13b */
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_EXTENDNUMLET)</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="338"><span class="lineNum">     338 </span>            : }</a>
+<span class="lineNum">     339 </span>            : 
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 : static bool letter_hebrew(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     341 </span>            : {
+<span class="lineNum">     342 </span>            :     /* WB5 */
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_HEBREW_LETTER)</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     345 </span>            : 
+<span class="lineNum">     346 </span>            :     /* WB7 WB7c, except MidNumLet */
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_prev_letter == LETTER_TYPE_HEBREW_LETTER &amp;&amp;</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :         (tok-&gt;prev_letter == LETTER_TYPE_SINGLE_QUOTE ||</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :          tok-&gt;prev_letter == LETTER_TYPE_APOSTROPHE ||</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :          tok-&gt;prev_letter == LETTER_TYPE_MIDLETTER ||</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :          tok-&gt;prev_letter == LETTER_TYPE_DOUBLE_QUOTE))</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span>            :     /* WB10 */
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_NUMERIC)</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span>            :     /* WB13b */
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_EXTENDNUMLET)</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="363"><span class="lineNum">     363 </span>            : }</a>
+<span class="lineNum">     364 </span>            : 
+<span class="lineNum">     365 </span><span class="lineCov">       2988 : static bool letter_aletter(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     366 </span>            : {
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span>            :     /* WB5a */
+<span class="lineNum">     369 </span><span class="lineCov">       2988 :     if (tok-&gt;wb5a &amp;&amp; tok-&gt;token-&gt;used &lt;= FTS_WB5A_PREFIX_MAX_LENGTH)</span>
+<span class="lineNum">     370 </span><span class="lineCov">        652 :         if (IS_WB5A_APOSTROPHE(tok-&gt;prev_letter_c) &amp;&amp; IS_VOWEL(tok-&gt;letter_c)) {</span>
+<span class="lineNum">     371 </span><span class="lineCov">         12 :             tok-&gt;seen_wb5a = TRUE;</span>
+<span class="lineNum">     372 </span><span class="lineCov">         12 :             return TRUE;</span>
+<span class="lineNum">     373 </span>            :         }
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span>            :     /* WB5 */
+<span class="lineNum">     376 </span><span class="lineCov">       2976 :     if (tok-&gt;prev_letter == LETTER_TYPE_ALETTER)</span>
+<span class="lineNum">     377 </span><span class="lineCov">       2844 :         return FALSE;</span>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span>            :     /* WB7, except MidNumLet */
+<span class="lineNum">     380 </span><span class="lineCov">        192 :     if (tok-&gt;prev_prev_letter == LETTER_TYPE_ALETTER &amp;&amp;</span>
+<span class="lineNum">     381 </span><span class="lineCov">        120 :         (tok-&gt;prev_letter == LETTER_TYPE_SINGLE_QUOTE ||</span>
+<span class="lineNum">     382 </span><span class="lineCov">         60 :          tok-&gt;prev_letter == LETTER_TYPE_APOSTROPHE ||</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :          tok-&gt;prev_letter == LETTER_TYPE_MIDLETTER))</span>
+<span class="lineNum">     384 </span><span class="lineCov">         60 :         return FALSE;</span>
+<span class="lineNum">     385 </span>            : 
+<span class="lineNum">     386 </span>            :     /* WB10 */
+<span class="lineNum">     387 </span><span class="lineCov">         72 :     if (tok-&gt;prev_letter == LETTER_TYPE_NUMERIC)</span>
+<span class="lineNum">     388 </span><span class="lineCov">         72 :         return FALSE;</span>
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span>            :     /* WB13b */
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_EXTENDNUMLET)</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="396"><span class="lineNum">     396 </span>            : }</a>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 : static bool letter_single_quote(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     399 </span>            : {
+<span class="lineNum">     400 </span>            :     /* WB6 */
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_ALETTER ||</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_HEBREW_LETTER)</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span>            :     /* WB12 */
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_NUMERIC)</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="410"><span class="lineNum">     410 </span>            : }</a>
+<span class="lineNum">     411 </span>            : 
+<span class="lineNum">     412 </span><span class="lineCov">          6 : static bool letter_double_quote(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     413 </span>            : {
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineCov">          6 :     if (tok-&gt;prev_letter == LETTER_TYPE_DOUBLE_QUOTE)</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span><span class="lineCov">          6 :     return TRUE; /* Any / Any */</span>
+<a name="419"><span class="lineNum">     419 </span>            : }</a>
+<span class="lineNum">     420 </span>            : 
+<span class="lineNum">     421 </span><span class="lineCov">        114 : static bool letter_midnumlet(struct generic_fts_tokenizer *tok ATTR_UNUSED)</span>
+<span class="lineNum">     422 </span>            : {
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span>            :     /* Break at MidNumLet, non-conformant with WB6/WB7 */
+<span class="lineNum">     425 </span><span class="lineCov">        114 :     return TRUE;</span>
+<a name="426"><span class="lineNum">     426 </span>            : }</a>
+<span class="lineNum">     427 </span>            : 
+<span class="lineNum">     428 </span><span class="lineCov">         18 : static bool letter_midletter(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     429 </span>            : {
+<span class="lineNum">     430 </span>            :     /* WB6 */
+<span class="lineNum">     431 </span><span class="lineCov">         18 :     if (tok-&gt;prev_letter == LETTER_TYPE_ALETTER ||</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_HEBREW_LETTER)</span>
+<span class="lineNum">     433 </span><span class="lineCov">         18 :         return FALSE;</span>
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="436"><span class="lineNum">     436 </span>            : }</a>
+<span class="lineNum">     437 </span>            : 
+<span class="lineNum">     438 </span><span class="lineCov">         75 : static bool letter_midnum(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     439 </span>            : {
+<span class="lineNum">     440 </span>            :     /* WB12 */
+<span class="lineNum">     441 </span><span class="lineCov">         75 :     if (tok-&gt;prev_letter == LETTER_TYPE_NUMERIC)</span>
+<span class="lineNum">     442 </span><span class="lineCov">          6 :         return FALSE;</span>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineCov">         69 :     return TRUE; /* Any / Any */</span>
+<a name="445"><span class="lineNum">     445 </span>            : }</a>
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineCov">       2166 : static bool letter_numeric(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     448 </span>            : {
+<span class="lineNum">     449 </span>            :     /* WB8 */
+<span class="lineNum">     450 </span><span class="lineCov">       2166 :     if (tok-&gt;prev_letter == LETTER_TYPE_NUMERIC)</span>
+<span class="lineNum">     451 </span><span class="lineCov">       2154 :         return FALSE;</span>
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span>            :     /* WB9 */
+<span class="lineNum">     454 </span><span class="lineCov">         18 :     if (tok-&gt;prev_letter == LETTER_TYPE_ALETTER ||</span>
+<span class="lineNum">     455 </span><span class="lineCov">          6 :         tok-&gt;prev_letter == LETTER_TYPE_HEBREW_LETTER)</span>
+<span class="lineNum">     456 </span><span class="lineCov">          6 :         return FALSE;</span>
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span>            :     /* WB11 */
+<span class="lineNum">     459 </span><span class="lineCov">         12 :     if(tok-&gt;prev_prev_letter == LETTER_TYPE_NUMERIC &amp;&amp;</span>
+<span class="lineNum">     460 </span><span class="lineCov">          6 :        (tok-&gt;prev_letter == LETTER_TYPE_MIDNUM ||</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_MIDNUMLET ||</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_SINGLE_QUOTE))</span>
+<span class="lineNum">     463 </span><span class="lineCov">          6 :         return FALSE;</span>
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span>            :     /* WB13b */
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_EXTENDNUMLET)</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     468 </span>            : 
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="470"><span class="lineNum">     470 </span>            : }</a>
+<span class="lineNum">     471 </span>            : 
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 : static bool letter_extendnumlet(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     473 </span>            : {
+<span class="lineNum">     474 </span>            : 
+<span class="lineNum">     475 </span>            :     /* WB13a */
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     if (tok-&gt;prev_letter == LETTER_TYPE_ALETTER ||</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_HEBREW_LETTER ||</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_NUMERIC ||</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_KATAKANA ||</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :         tok-&gt;prev_letter == LETTER_TYPE_EXTENDNUMLET)</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     482 </span>            : 
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     return TRUE; /* Any / Any */</span>
+<a name="484"><span class="lineNum">     484 </span>            : }</a>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineCov">        228 : static bool letter_apostrophe(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     487 </span>            : {
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineCov">        282 :        if (tok-&gt;prev_letter == LETTER_TYPE_ALETTER ||</span>
+<span class="lineNum">     490 </span><span class="lineCov">         54 :            tok-&gt;prev_letter == LETTER_TYPE_HEBREW_LETTER)</span>
+<span class="lineNum">     491 </span><span class="lineCov">        174 :                return FALSE;</span>
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineCov">         54 :        return TRUE; /* Any / Any */</span>
+<a name="494"><span class="lineNum">     494 </span>            : }</a>
+<span class="lineNum">     495 </span>            : 
+<span class="lineNum">     496 </span><span class="lineCov">        339 : static bool letter_other(struct generic_fts_tokenizer *tok ATTR_UNUSED)</span>
+<span class="lineNum">     497 </span>            : {
+<span class="lineNum">     498 </span><span class="lineCov">        339 :     return TRUE; /* Any / Any */</span>
+<span class="lineNum">     499 </span>            : }
+<a name="500"><span class="lineNum">     500 </span>            : </a>
+<span class="lineNum">     501 </span>            : static void
+<span class="lineNum">     502 </span><span class="lineCov">       5973 : add_prev_letter(struct generic_fts_tokenizer *tok, enum letter_type lt)</span>
+<span class="lineNum">     503 </span>            : {
+<span class="lineNum">     504 </span><span class="lineCov">       5973 :     if(tok-&gt;prev_letter != LETTER_TYPE_NONE)</span>
+<span class="lineNum">     505 </span><span class="lineCov">       5340 :         tok-&gt;prev_prev_letter = tok-&gt;prev_letter;</span>
+<span class="lineNum">     506 </span><span class="lineCov">       5973 :     tok-&gt;prev_letter = lt;</span>
+<span class="lineNum">     507 </span><span class="lineCov">       5973 : }</span>
+<a name="508"><span class="lineNum">     508 </span>            : </a>
+<span class="lineNum">     509 </span>            : static void
+<span class="lineNum">     510 </span><span class="lineCov">       1780 : add_letter_c(struct generic_fts_tokenizer *tok, unichar_t c)</span>
+<span class="lineNum">     511 </span>            : {
+<span class="lineNum">     512 </span><span class="lineCov">       1780 :     if(tok-&gt;letter_c != 0)</span>
+<span class="lineNum">     513 </span><span class="lineCov">       1767 :         tok-&gt;prev_letter_c = tok-&gt;letter_c;</span>
+<span class="lineNum">     514 </span><span class="lineCov">       1780 :     tok-&gt;letter_c = c;</span>
+<span class="lineNum">     515 </span><span class="lineCov">       1780 : }</span>
+<span class="lineNum">     516 </span>            : 
+<span class="lineNum">     517 </span>            : /*
+<span class="lineNum">     518 </span>            :    TODO: Define what to skip between words.
+<span class="lineNum">     519 </span>            :    TODO: Include double quotation marks? Messes up parsing?
+<span class="lineNum">     520 </span>            :    TODO: Does this &quot;reverse approach&quot; include too much in &quot;whitespace&quot;?
+<a name="521"><span class="lineNum">     521 </span>            :    TODO: Possibly use is_word_break()?</a>
+<span class="lineNum">     522 </span>            :  */
+<span class="lineNum">     523 </span><span class="lineCov">       1029 : static bool is_nontoken(enum letter_type lt)</span>
+<span class="lineNum">     524 </span>            : {
+<span class="lineNum">     525 </span><span class="lineCov">       1029 :     if (lt == LETTER_TYPE_REGIONAL_INDICATOR || lt == LETTER_TYPE_KATAKANA ||</span>
+<span class="lineNum">     526 </span><span class="lineCov">       1029 :         lt == LETTER_TYPE_HEBREW_LETTER || lt == LETTER_TYPE_ALETTER ||</span>
+<span class="lineNum">     527 </span>            :         lt == LETTER_TYPE_NUMERIC)
+<span class="lineNum">     528 </span><span class="lineCov">        633 :         return FALSE;</span>
+<span class="lineNum">     529 </span>            : 
+<span class="lineNum">     530 </span><span class="lineCov">        396 :     return TRUE;</span>
+<span class="lineNum">     531 </span>            : }
+<span class="lineNum">     532 </span>            : 
+<span class="lineNum">     533 </span>            : /* The way things are done WB6/7 and WB11/12 &quot;false positives&quot; can
+<span class="lineNum">     534 </span>            :    leave trailing unwanted chars. They are searched for here. This is
+<span class="lineNum">     535 </span>            :    very kludgy and should be coded into the rules themselves
+<a name="536"><span class="lineNum">     536 </span>            :    somehow.</a>
+<span class="lineNum">     537 </span>            : */
+<span class="lineNum">     538 </span><span class="lineCov">        645 : static bool is_one_past_end(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     539 </span>            : {
+<span class="lineNum">     540 </span>            :     /* WB6/7 false positive detected at one past end. */
+<span class="lineNum">     541 </span><span class="lineCov">       1272 :     if (tok-&gt;prev_letter == LETTER_TYPE_MIDLETTER ||</span>
+<span class="lineNum">     542 </span><span class="lineCov">       1254 :         tok-&gt;prev_letter == LETTER_TYPE_MIDNUMLET ||</span>
+<span class="lineNum">     543 </span><span class="lineCov">       1140 :         tok-&gt;prev_letter == LETTER_TYPE_APOSTROPHE ||</span>
+<span class="lineNum">     544 </span><span class="lineCov">        513 :         tok-&gt;prev_letter == LETTER_TYPE_SINGLE_QUOTE )</span>
+<span class="lineNum">     545 </span><span class="lineCov">        132 :         return TRUE;</span>
+<span class="lineNum">     546 </span>            : 
+<span class="lineNum">     547 </span>            :     /* WB11/12 false positive detected at one past end. */
+<span class="lineNum">     548 </span><span class="lineCov">       1026 :     if (tok-&gt;prev_letter == LETTER_TYPE_MIDNUM ||</span>
+<span class="lineNum">     549 </span><span class="lineCov">       1026 :         tok-&gt;prev_letter == LETTER_TYPE_MIDNUMLET ||</span>
+<span class="lineNum">     550 </span><span class="lineCov">       1026 :         tok-&gt;prev_letter == LETTER_TYPE_APOSTROPHE ||</span>
+<span class="lineNum">     551 </span><span class="lineCov">        513 :         tok-&gt;prev_letter == LETTER_TYPE_SINGLE_QUOTE)</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     553 </span>            : 
+<span class="lineNum">     554 </span><span class="lineCov">        513 :     return FALSE;</span>
+<span class="lineNum">     555 </span>            : }
+<a name="556"><span class="lineNum">     556 </span>            : </a>
+<span class="lineNum">     557 </span>            : static void
+<span class="lineNum">     558 </span><span class="lineCov">        645 : fts_tokenizer_generic_tr29_current_token(struct generic_fts_tokenizer *tok,</span>
+<span class="lineNum">     559 </span>            :                                          const char **token_r)
+<span class="lineNum">     560 </span>            : {
+<span class="lineNum">     561 </span><span class="lineCov">        645 :     const unsigned char *data = tok-&gt;token-&gt;data;</span>
+<span class="lineNum">     562 </span><span class="lineCov">        645 :     size_t len = tok-&gt;token-&gt;used;</span>
+<span class="lineNum">     563 </span>            : 
+<span class="lineNum">     564 </span><span class="lineCov">        777 :     if (is_one_past_end(tok) &amp;&amp;</span>
+<span class="lineNum">     565 </span><span class="lineCov">        132 :         tok-&gt;untruncated_length &lt;= tok-&gt;max_length) {</span>
+<span class="lineNum">     566 </span>            :         /* delete the last character */
+<span class="lineNum">     567 </span><span class="lineCov">        228 :         while (!UTF8_IS_START_SEQ(data[len-1]))</span>
+<span class="lineNum">     568 </span><span class="lineCov">         12 :             len--;</span>
+<span class="lineNum">     569 </span><span class="lineCov">        108 :         i_assert(len &gt; 0);</span>
+<span class="lineNum">     570 </span><span class="lineCov">        108 :         len--;</span>
+<span class="lineNum">     571 </span><span class="lineCov">        537 :     } else if (tok-&gt;untruncated_length &gt; tok-&gt;max_length) {</span>
+<span class="lineNum">     572 </span><span class="lineCov">         63 :         fts_tokenizer_delete_trailing_partial_char(data, &amp;len);</span>
+<span class="lineNum">     573 </span>            :     }
+<span class="lineNum">     574 </span>            :     /* we're skipping all non-token chars at the beginning of the word,
+<span class="lineNum">     575 </span>            :        so by this point we must have something here - even if we just
+<span class="lineNum">     576 </span>            :        deleted the last character */
+<span class="lineNum">     577 </span><span class="lineCov">        645 :     i_assert(len &gt; 0);</span>
+<span class="lineNum">     578 </span><span class="lineCov">        645 :     i_assert(len &lt;= tok-&gt;max_length);</span>
+<span class="lineNum">     579 </span>            : 
+<span class="lineNum">     580 </span><span class="lineCov">        645 :     tok-&gt;prev_prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     581 </span><span class="lineCov">        645 :     tok-&gt;prev_letter = LETTER_TYPE_NONE;</span>
+<span class="lineNum">     582 </span><span class="lineCov">        645 :     *token_r = t_strndup(data, len);</span>
+<span class="lineNum">     583 </span><span class="lineCov">        645 :     buffer_set_used_size(tok-&gt;token, 0);</span>
+<span class="lineNum">     584 </span><span class="lineCov">        645 :     tok-&gt;untruncated_length = 0;</span>
+<a name="585"><span class="lineNum">     585 </span><span class="lineCov">        645 : }</span></a>
+<span class="lineNum">     586 </span>            : 
+<span class="lineNum">     587 </span><span class="lineCov">         12 : static void wb5a_reinsert(struct generic_fts_tokenizer *tok)</span>
+<span class="lineNum">     588 </span>            : {
+<span class="lineNum">     589 </span><span class="lineCov">         12 :     string_t *utf8_str = t_str_new(6);</span>
+<span class="lineNum">     590 </span>            : 
+<span class="lineNum">     591 </span><span class="lineCov">         12 :     uni_ucs4_to_utf8_c(tok-&gt;letter_c, utf8_str);</span>
+<span class="lineNum">     592 </span><span class="lineCov">         12 :     buffer_insert(tok-&gt;token, 0, str_data(utf8_str), str_len(utf8_str));</span>
+<span class="lineNum">     593 </span><span class="lineCov">         12 :     tok-&gt;prev_letter = letter_type(tok-&gt;letter_c);</span>
+<span class="lineNum">     594 </span><span class="lineCov">         12 :     tok-&gt;letter_c = 0;</span>
+<span class="lineNum">     595 </span><span class="lineCov">         12 :     tok-&gt;prev_letter_c = 0;</span>
+<span class="lineNum">     596 </span><span class="lineCov">         12 :     tok-&gt;seen_wb5a = FALSE;</span>
+<span class="lineNum">     597 </span><span class="lineCov">         12 : }</span>
+<span class="lineNum">     598 </span>            : 
+<span class="lineNum">     599 </span>            : struct letter_fn {
+<span class="lineNum">     600 </span>            :     bool (*fn)(struct generic_fts_tokenizer *tok);
+<span class="lineNum">     601 </span>            : };
+<span class="lineNum">     602 </span>            : static struct letter_fn letter_fns[] = {
+<span class="lineNum">     603 </span>            :     {letter_panic}, {letter_cr_lf_newline}, {letter_cr_lf_newline},
+<span class="lineNum">     604 </span>            :     {letter_cr_lf_newline}, {letter_extend_format},
+<span class="lineNum">     605 </span>            :     {letter_regional_indicator}, {letter_extend_format},
+<span class="lineNum">     606 </span>            :     {letter_katakana}, {letter_hebrew}, {letter_aletter},
+<span class="lineNum">     607 </span>            :     {letter_single_quote}, {letter_double_quote},
+<span class="lineNum">     608 </span>            :     {letter_midnumlet}, {letter_midletter}, {letter_midnum},
+<span class="lineNum">     609 </span>            :     {letter_numeric}, {letter_extendnumlet}, {letter_panic},
+<span class="lineNum">     610 </span>            :     {letter_panic}, {letter_apostrophe}, {letter_other}
+<span class="lineNum">     611 </span>            : };
+<span class="lineNum">     612 </span>            : 
+<span class="lineNum">     613 </span>            : /*
+<span class="lineNum">     614 </span>            :   Find word boundaries in input text. Based on Unicode standard annex
+<span class="lineNum">     615 </span>            :   #29, but tailored for FTS purposes.
+<span class="lineNum">     616 </span>            :   http://www.unicode.org/reports/tr29/
+<span class="lineNum">     617 </span>            : 
+<span class="lineNum">     618 </span>            :   Note: The text of tr29 is a living standard, so it keeps
+<span class="lineNum">     619 </span>            :   changing. In newer specs some characters are combined, like AHLetter
+<span class="lineNum">     620 </span>            :   (ALetter | Hebrew_Letter) and MidNumLetQ (MidNumLet | Single_Quote).
+<span class="lineNum">     621 </span>            : 
+<span class="lineNum">     622 </span>            :   Adaptions:
+<span class="lineNum">     623 </span>            :   * Added optional WB5a as a configurable option. The cut of prefix is
+<span class="lineNum">     624 </span>            :    max FTS_WB5A_PREFIX chars.
+<span class="lineNum">     625 </span>            :   * No word boundary at Start-Of-Text or End-of-Text (Wb1 and WB2).
+<span class="lineNum">     626 </span>            :   * Break just once, not before and after.
+<span class="lineNum">     627 </span>            :   * Break at MidNumLet, except apostrophes (diverging from WB6/WB7).
+<span class="lineNum">     628 </span>            :   * Other things also (e.g. is_nontoken(), not really pure tr29. Meant
+<span class="lineNum">     629 </span>            :   to assist in finding individual words.
+<a name="630"><span class="lineNum">     630 </span>            : */</a>
+<span class="lineNum">     631 </span>            : static bool
+<span class="lineNum">     632 </span><span class="lineCov">       6579 : uni_found_word_boundary(struct generic_fts_tokenizer *tok, enum letter_type lt)</span>
+<span class="lineNum">     633 </span>            : {
+<span class="lineNum">     634 </span>            :     /* No rule knows what to do with just one char, except the linebreaks
+<span class="lineNum">     635 </span>            :        we eat away (above) anyway. */
+<span class="lineNum">     636 </span><span class="lineCov">       6579 :     if (tok-&gt;prev_letter != LETTER_TYPE_NONE) {</span>
+<span class="lineNum">     637 </span><span class="lineCov">       5946 :         if (letter_fns[lt].fn(tok))</span>
+<span class="lineNum">     638 </span><span class="lineCov">        606 :             return TRUE;</span>
+<span class="lineNum">     639 </span>            :     }
+<span class="lineNum">     640 </span>            : 
+<span class="lineNum">     641 </span><span class="lineCov">       5973 :     if (lt == LETTER_TYPE_EXTEND || lt == LETTER_TYPE_FORMAT) {</span>
+<span class="lineNum">     642 </span>            :         /* These types are completely ignored. */
+<span class="lineNum">     643 </span>            :     } else {
+<span class="lineNum">     644 </span><span class="lineCov">       5973 :         add_prev_letter(tok,lt);</span>
+<span class="lineNum">     645 </span>            :     }
+<span class="lineNum">     646 </span><span class="lineCov">       5973 :     return FALSE;</span>
+<span class="lineNum">     647 </span>            : }
+<a name="648"><span class="lineNum">     648 </span>            : </a>
+<span class="lineNum">     649 </span>            : static int
+<span class="lineNum">     650 </span><span class="lineCov">       2571 : fts_tokenizer_generic_tr29_next(struct fts_tokenizer *_tok,</span>
+<span class="lineNum">     651 </span>            :                 const unsigned char *data, size_t size,
+<span class="lineNum">     652 </span>            :                 size_t *skip_r, const char **token_r,
+<span class="lineNum">     653 </span>            :                 const char **error_r ATTR_UNUSED)
+<span class="lineNum">     654 </span>            : {
+<span class="lineNum">     655 </span><span class="lineCov">       2571 :     struct generic_fts_tokenizer *tok =</span>
+<span class="lineNum">     656 </span>            :         (struct generic_fts_tokenizer *)_tok;
+<span class="lineNum">     657 </span>            :     unichar_t c;
+<span class="lineNum">     658 </span><span class="lineCov">       2571 :     size_t i, char_start_i, start_pos = 0;</span>
+<span class="lineNum">     659 </span>            :     enum letter_type lt;
+<span class="lineNum">     660 </span>            :     int char_size;
+<span class="lineNum">     661 </span>            : 
+<span class="lineNum">     662 </span><span class="lineCov">      11511 :     for (i = 0; i &lt; size; ) {</span>
+<span class="lineNum">     663 </span><span class="lineCov">       6975 :         char_start_i = i;</span>
+<span class="lineNum">     664 </span><span class="lineCov">       6975 :         char_size = uni_utf8_get_char_n(data + i, size - i, &amp;c);</span>
+<span class="lineNum">     665 </span><span class="lineCov">       6975 :         i_assert(char_size &gt; 0);</span>
+<span class="lineNum">     666 </span><span class="lineCov">       6975 :         i += char_size;</span>
+<span class="lineNum">     667 </span><span class="lineCov">       6975 :         lt = letter_type(c);</span>
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span>            :         /* The WB5a break is detected only when the &quot;after
+<span class="lineNum">     670 </span>            :            break&quot; char is inspected. That char needs to be
+<span class="lineNum">     671 </span>            :            reinserted as the &quot;previous char&quot;. */
+<span class="lineNum">     672 </span><span class="lineCov">       6975 :         if (tok-&gt;seen_wb5a)</span>
+<span class="lineNum">     673 </span><span class="lineCov">         12 :             wb5a_reinsert(tok);</span>
+<span class="lineNum">     674 </span>            : 
+<span class="lineNum">     675 </span><span class="lineCov">       6975 :         if (tok-&gt;prev_letter == LETTER_TYPE_NONE &amp;&amp; is_nontoken(lt)) {</span>
+<span class="lineNum">     676 </span>            :             /* Skip non-token chars at the beginning of token */
+<span class="lineNum">     677 </span><span class="lineCov">        396 :             i_assert(tok-&gt;token-&gt;used == 0);</span>
+<span class="lineNum">     678 </span><span class="lineCov">        396 :             start_pos = i;</span>
+<span class="lineNum">     679 </span><span class="lineCov">        396 :             continue;</span>
+<span class="lineNum">     680 </span>            :         }
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineCov">       6579 :         if (tok-&gt;wb5a &amp;&amp;  tok-&gt;token-&gt;used &lt;= FTS_WB5A_PREFIX_MAX_LENGTH)</span>
+<span class="lineNum">     683 </span><span class="lineCov">       1780 :             add_letter_c(tok, c);</span>
+<span class="lineNum">     684 </span>            : 
+<span class="lineNum">     685 </span><span class="lineCov">       6579 :         if (uni_found_word_boundary(tok, lt)) {</span>
+<span class="lineNum">     686 </span><span class="lineCov">        606 :             i_assert(char_start_i &gt;= start_pos &amp;&amp; size &gt;= start_pos);</span>
+<span class="lineNum">     687 </span><span class="lineCov">        606 :             tok_append_truncated(tok, data + start_pos,</span>
+<span class="lineNum">     688 </span>            :                          char_start_i - start_pos);
+<span class="lineNum">     689 </span><span class="lineCov">        606 :             *skip_r = i;</span>
+<span class="lineNum">     690 </span><span class="lineCov">        606 :             fts_tokenizer_generic_tr29_current_token(tok, token_r);</span>
+<span class="lineNum">     691 </span><span class="lineCov">        606 :             return 1;</span>
+<span class="lineNum">     692 </span><span class="lineCov">       5973 :         } else if (lt == LETTER_TYPE_APOSTROPHE ||</span>
+<span class="lineNum">     693 </span>            :                lt == LETTER_TYPE_SINGLE_QUOTE) {
+<span class="lineNum">     694 </span>            :             /* all apostrophes require special handling */
+<span class="lineNum">     695 </span><span class="lineCov">        174 :             const unsigned char apostrophe_char = '\'';</span>
+<span class="lineNum">     696 </span><span class="lineCov">        174 :             tok_append_truncated(tok, data + start_pos,</span>
+<span class="lineNum">     697 </span>            :                          char_start_i - start_pos);
+<span class="lineNum">     698 </span><span class="lineCov">        174 :             tok_append_truncated(tok, &amp;apostrophe_char, 1);</span>
+<span class="lineNum">     699 </span><span class="lineCov">        174 :             start_pos = i;</span>
+<span class="lineNum">     700 </span>            :         }
+<span class="lineNum">     701 </span>            :     }
+<span class="lineNum">     702 </span><span class="lineCov">       1965 :     i_assert(i &gt;= start_pos &amp;&amp; size &gt;= start_pos);</span>
+<span class="lineNum">     703 </span><span class="lineCov">       1965 :     tok_append_truncated(tok, data + start_pos, i - start_pos);</span>
+<span class="lineNum">     704 </span><span class="lineCov">       1965 :     *skip_r = i;</span>
+<span class="lineNum">     705 </span>            : 
+<span class="lineNum">     706 </span><span class="lineCov">       1965 :     if (size == 0 &amp;&amp; tok-&gt;token-&gt;used &gt; 0) {</span>
+<span class="lineNum">     707 </span>            :         /* return the last token */
+<span class="lineNum">     708 </span><span class="lineCov">         39 :         *skip_r = 0;</span>
+<span class="lineNum">     709 </span><span class="lineCov">         39 :         fts_tokenizer_generic_tr29_current_token(tok, token_r);</span>
+<span class="lineNum">     710 </span><span class="lineCov">         39 :         return 1;</span>
+<span class="lineNum">     711 </span>            :     }
+<span class="lineNum">     712 </span><span class="lineCov">       1926 :     return 0;</span>
+<span class="lineNum">     713 </span>            : }
+<a name="714"><span class="lineNum">     714 </span>            : </a>
+<span class="lineNum">     715 </span>            : static int
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 : fts_tokenizer_generic_next(struct fts_tokenizer *_tok ATTR_UNUSED,</span>
+<span class="lineNum">     717 </span>            :                const unsigned char *data ATTR_UNUSED,
+<span class="lineNum">     718 </span>            :                            size_t size ATTR_UNUSED,
+<span class="lineNum">     719 </span>            :                            size_t *skip_r ATTR_UNUSED,
+<span class="lineNum">     720 </span>            :                const char **token_r ATTR_UNUSED,
+<span class="lineNum">     721 </span>            :                const char **error_r ATTR_UNUSED)
+<span class="lineNum">     722 </span>            : {
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<span class="lineNum">     724 </span>            : }
+<span class="lineNum">     725 </span>            : 
+<span class="lineNum">     726 </span>            : static const struct fts_tokenizer_vfuncs generic_tokenizer_vfuncs = {
+<span class="lineNum">     727 </span>            :     fts_tokenizer_generic_create,
+<span class="lineNum">     728 </span>            :     fts_tokenizer_generic_destroy,
+<span class="lineNum">     729 </span>            :     fts_tokenizer_generic_reset,
+<span class="lineNum">     730 </span>            :     fts_tokenizer_generic_next
+<span class="lineNum">     731 </span>            : };
+<span class="lineNum">     732 </span>            : 
+<span class="lineNum">     733 </span>            : static const struct fts_tokenizer fts_tokenizer_generic_real = {
+<span class="lineNum">     734 </span>            :     .name = &quot;generic&quot;,
+<span class="lineNum">     735 </span>            :     .v = &amp;generic_tokenizer_vfuncs
+<span class="lineNum">     736 </span>            : };
+<span class="lineNum">     737 </span>            : const struct fts_tokenizer *fts_tokenizer_generic = &amp;fts_tokenizer_generic_real;
+<span class="lineNum">     738 </span>            : 
+<span class="lineNum">     739 </span>            : const struct fts_tokenizer_vfuncs generic_tokenizer_vfuncs_simple = {
+<span class="lineNum">     740 </span>            :     fts_tokenizer_generic_create,
+<span class="lineNum">     741 </span>            :     fts_tokenizer_generic_destroy,
+<span class="lineNum">     742 </span>            :     fts_tokenizer_generic_reset,
+<span class="lineNum">     743 </span>            :     fts_tokenizer_generic_simple_next
+<span class="lineNum">     744 </span>            : };
+<span class="lineNum">     745 </span>            : const struct fts_tokenizer_vfuncs generic_tokenizer_vfuncs_tr29 = {
+<span class="lineNum">     746 </span>            :     fts_tokenizer_generic_create,
+<span class="lineNum">     747 </span>            :     fts_tokenizer_generic_destroy,
+<span class="lineNum">     748 </span>            :     fts_tokenizer_generic_reset,
+<span class="lineNum">     749 </span>            :     fts_tokenizer_generic_tr29_next
+<span class="lineNum">     750 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/ioloop-epoll.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - ioloop-epoll.c<span style="font-size: 80%;"> (source / <a href="ioloop-epoll.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">91</td>
+            <td class="headerCovTableEntry">107</td>
+            <td class="headerCovTableEntryMed">85.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2004-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ioloop-private.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;ioloop-iolist.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #ifdef IOLOOP_EPOLL
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #include &lt;sys/epoll.h&gt;
+<span class="lineNum">      11 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : struct ioloop_handler_context {
+<span class="lineNum">      14 </span>            :     int epfd;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            :     unsigned int deleted_count;
+<span class="lineNum">      17 </span>            :     ARRAY(struct io_list *) fd_index;
+<span class="lineNum">      18 </span>            :     ARRAY(struct epoll_event) events;
+<a name="19"><span class="lineNum">      19 </span>            : };</a>
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span><span class="lineCov">         67 : void io_loop_handler_init(struct ioloop *ioloop, unsigned int initial_fd_count)</span>
+<span class="lineNum">      22 </span>            : {
+<span class="lineNum">      23 </span>            :     struct ioloop_handler_context *ctx;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span><span class="lineCov">         67 :     ioloop-&gt;handler_context = ctx = i_new(struct ioloop_handler_context, 1);</span>
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span><span class="lineCov">         67 :     i_array_init(&amp;ctx-&gt;events, initial_fd_count);</span>
+<span class="lineNum">      28 </span><span class="lineCov">         67 :     i_array_init(&amp;ctx-&gt;fd_index, initial_fd_count);</span>
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span><span class="lineCov">         67 :     ctx-&gt;epfd = epoll_create(initial_fd_count);</span>
+<span class="lineNum">      31 </span><span class="lineCov">         67 :     if (ctx-&gt;epfd &lt; 0) {</span>
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :         if (errno != EMFILE)</span>
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 :             i_fatal(&quot;epoll_create(): %m&quot;);</span>
+<span class="lineNum">      34 </span>            :         else {
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 :             i_fatal(&quot;epoll_create(): %m (you may need to increase &quot;</span>
+<span class="lineNum">      36 </span>            :                 &quot;/proc/sys/fs/epoll/max_user_instances)&quot;);
+<span class="lineNum">      37 </span>            :         }
+<span class="lineNum">      38 </span>            :     }
+<span class="lineNum">      39 </span><span class="lineCov">         67 :     fd_close_on_exec(ctx-&gt;epfd, TRUE);</span>
+<a name="40"><span class="lineNum">      40 </span><span class="lineCov">         67 : }</span></a>
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span><span class="lineCov">         67 : void io_loop_handler_deinit(struct ioloop *ioloop)</span>
+<span class="lineNum">      43 </span>            : {
+<span class="lineNum">      44 </span><span class="lineCov">         67 :     struct ioloop_handler_context *ctx = ioloop-&gt;handler_context;</span>
+<span class="lineNum">      45 </span>            :     struct io_list **list;
+<span class="lineNum">      46 </span>            :     unsigned int i, count;
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span><span class="lineCov">         67 :     list = array_get_modifiable(&amp;ctx-&gt;fd_index, &amp;count);</span>
+<span class="lineNum">      49 </span><span class="lineCov">        553 :     for (i = 0; i &lt; count; i++)</span>
+<span class="lineNum">      50 </span><span class="lineCov">        486 :         i_free(list[i]);</span>
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineCov">         67 :     if (close(ctx-&gt;epfd) &lt; 0)</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         i_error(&quot;close(epoll) failed: %m&quot;);</span>
+<span class="lineNum">      54 </span><span class="lineCov">         67 :     array_free(&amp;ioloop-&gt;handler_context-&gt;fd_index);</span>
+<span class="lineNum">      55 </span><span class="lineCov">         67 :     array_free(&amp;ioloop-&gt;handler_context-&gt;events);</span>
+<span class="lineNum">      56 </span><span class="lineCov">         67 :     i_free(ioloop-&gt;handler_context);</span>
+<span class="lineNum">      57 </span><span class="lineCov">         67 : }</span>
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span>            : #define IO_EPOLL_ERROR (EPOLLERR | EPOLLHUP)
+<span class="lineNum">      60 </span>            : #define IO_EPOLL_INPUT (EPOLLIN | EPOLLPRI | IO_EPOLL_ERROR)
+<a name="61"><span class="lineNum">      61 </span>            : #define IO_EPOLL_OUTPUT (EPOLLOUT | IO_EPOLL_ERROR)</a>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">        306 : static int epoll_event_mask(struct io_list *list)</span>
+<span class="lineNum">      64 </span>            : {
+<span class="lineNum">      65 </span><span class="lineCov">        306 :     int events = 0, i;</span>
+<span class="lineNum">      66 </span>            :     struct io_file *io;
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineCov">       1224 :     for (i = 0; i &lt; IOLOOP_IOLIST_IOS_PER_FD; i++) {</span>
+<span class="lineNum">      69 </span><span class="lineCov">        918 :         io = list-&gt;ios[i];</span>
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineCov">        918 :         if (io == NULL)</span>
+<span class="lineNum">      72 </span><span class="lineCov">        763 :             continue;</span>
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineCov">        155 :         if ((io-&gt;io.condition &amp; IO_READ) != 0)</span>
+<span class="lineNum">      75 </span><span class="lineCov">         98 :             events |= IO_EPOLL_INPUT;</span>
+<span class="lineNum">      76 </span><span class="lineCov">        155 :         if ((io-&gt;io.condition &amp; IO_WRITE) != 0)</span>
+<span class="lineNum">      77 </span><span class="lineCov">         57 :             events |= IO_EPOLL_OUTPUT;</span>
+<span class="lineNum">      78 </span><span class="lineCov">        155 :         if ((io-&gt;io.condition &amp; IO_ERROR) != 0)</span>
+<span class="lineNum">      79 </span><span class="lineCov">          1 :             events |= IO_EPOLL_ERROR;</span>
+<span class="lineNum">      80 </span>            :     }
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineCov">        306 :     return events;</span>
+<a name="83"><span class="lineNum">      83 </span>            : }</a>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineCov">        153 : void io_loop_handle_add(struct io_file *io)</span>
+<span class="lineNum">      86 </span>            : {
+<span class="lineNum">      87 </span><span class="lineCov">        153 :     struct ioloop_handler_context *ctx = io-&gt;io.ioloop-&gt;handler_context;</span>
+<span class="lineNum">      88 </span>            :     struct io_list **list;
+<span class="lineNum">      89 </span>            :     struct epoll_event event;
+<span class="lineNum">      90 </span>            :     int op;
+<span class="lineNum">      91 </span>            :     bool first;
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineCov">        153 :     list = array_idx_get_space(&amp;ctx-&gt;fd_index, io-&gt;fd);</span>
+<span class="lineNum">      94 </span><span class="lineCov">        153 :     if (*list == NULL)</span>
+<span class="lineNum">      95 </span><span class="lineCov">         71 :         *list = i_new(struct io_list, 1);</span>
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineCov">        153 :     first = ioloop_iolist_add(*list, io);</span>
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineCov">        153 :     i_zero(&amp;event);</span>
+<span class="lineNum">     100 </span><span class="lineCov">        153 :     event.data.ptr = *list;</span>
+<span class="lineNum">     101 </span><span class="lineCov">        153 :     event.events = epoll_event_mask(*list);</span>
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span><span class="lineCov">        153 :     op = first ? EPOLL_CTL_ADD : EPOLL_CTL_MOD;</span>
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineCov">        153 :     if (epoll_ctl(ctx-&gt;epfd, op, io-&gt;fd, &amp;event) &lt; 0) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         if (errno == EPERM &amp;&amp; op == EPOLL_CTL_ADD) {</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :             i_panic(&quot;epoll_ctl(add, %d) failed: %m &quot;</span>
+<span class="lineNum">     108 </span>            :                 &quot;(fd doesn't support epoll%s)&quot;, io-&gt;fd,
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :                 io-&gt;fd != STDIN_FILENO ? &quot;&quot; :</span>
+<span class="lineNum">     110 </span>            :                 &quot; - instead of '&lt;file', try 'cat file|'&quot;);
+<span class="lineNum">     111 </span>            :         }
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         i_panic(&quot;epoll_ctl(%s, %d) failed: %m&quot;,</span>
+<span class="lineNum">     113 </span>            :             op == EPOLL_CTL_ADD ? &quot;add&quot; : &quot;mod&quot;, io-&gt;fd);
+<span class="lineNum">     114 </span>            :     }
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineCov">        153 :     if (first) {</span>
+<span class="lineNum">     117 </span>            :         /* allow epoll_wait() to return the maximum number of events
+<span class="lineNum">     118 </span>            :            by keeping space allocated for each file descriptor */
+<span class="lineNum">     119 </span><span class="lineCov">        152 :         if (ctx-&gt;deleted_count &gt; 0)</span>
+<span class="lineNum">     120 </span><span class="lineCov">         82 :             ctx-&gt;deleted_count--;</span>
+<span class="lineNum">     121 </span>            :         else
+<span class="lineNum">     122 </span><span class="lineCov">         70 :             array_append_zero(&amp;ctx-&gt;events);</span>
+<span class="lineNum">     123 </span>            :     }
+<a name="124"><span class="lineNum">     124 </span><span class="lineCov">        153 : }</span></a>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">        153 : void io_loop_handle_remove(struct io_file *io, bool closed)</span>
+<span class="lineNum">     127 </span>            : {
+<span class="lineNum">     128 </span><span class="lineCov">        153 :     struct ioloop_handler_context *ctx = io-&gt;io.ioloop-&gt;handler_context;</span>
+<span class="lineNum">     129 </span>            :     struct io_list **list;
+<span class="lineNum">     130 </span>            :     struct epoll_event event;
+<span class="lineNum">     131 </span>            :     int op;
+<span class="lineNum">     132 </span>            :     bool last;
+<span class="lineNum">     133 </span>            : 
+<span class="lineNum">     134 </span><span class="lineCov">        153 :     list = array_idx_modifiable(&amp;ctx-&gt;fd_index, io-&gt;fd);</span>
+<span class="lineNum">     135 </span><span class="lineCov">        153 :     last = ioloop_iolist_del(*list, io);</span>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineCov">        153 :     if (!closed) {</span>
+<span class="lineNum">     138 </span><span class="lineCov">        153 :         i_zero(&amp;event);</span>
+<span class="lineNum">     139 </span><span class="lineCov">        153 :         event.data.ptr = *list;</span>
+<span class="lineNum">     140 </span><span class="lineCov">        153 :         event.events = epoll_event_mask(*list);</span>
+<span class="lineNum">     141 </span>            : 
+<span class="lineNum">     142 </span><span class="lineCov">        153 :         op = last ? EPOLL_CTL_DEL : EPOLL_CTL_MOD;</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineCov">        153 :         if (epoll_ctl(ctx-&gt;epfd, op, io-&gt;fd, &amp;event) &lt; 0) {</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :             const char *errstr = t_strdup_printf(</span>
+<span class="lineNum">     146 </span>            :                 &quot;epoll_ctl(%s, %d) failed: %m&quot;,
+<span class="lineNum">     147 </span>            :                 op == EPOLL_CTL_DEL ? &quot;del&quot; : &quot;mod&quot;, io-&gt;fd);
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :             if (errno == EBADF)</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :                 i_panic(&quot;%s&quot;, errstr);</span>
+<span class="lineNum">     150 </span>            :             else
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :                 i_error(&quot;%s&quot;, errstr);</span>
+<span class="lineNum">     152 </span>            :         }
+<span class="lineNum">     153 </span>            :     }
+<span class="lineNum">     154 </span><span class="lineCov">        153 :     if (last) {</span>
+<span class="lineNum">     155 </span>            :         /* since we're not freeing memory in any case, just increase
+<span class="lineNum">     156 </span>            :            deleted counter so next handle_add() can just decrease it
+<span class="lineNum">     157 </span>            :            instead of appending to the events array */
+<span class="lineNum">     158 </span><span class="lineCov">        152 :         ctx-&gt;deleted_count++;</span>
+<span class="lineNum">     159 </span>            :     }
+<span class="lineNum">     160 </span><span class="lineCov">        153 :     i_free(io);</span>
+<a name="161"><span class="lineNum">     161 </span><span class="lineCov">        153 : }</span></a>
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">        476 : void io_loop_handler_run_internal(struct ioloop *ioloop)</span>
+<span class="lineNum">     164 </span>            : {
+<span class="lineNum">     165 </span><span class="lineCov">        476 :     struct ioloop_handler_context *ctx = ioloop-&gt;handler_context;</span>
+<span class="lineNum">     166 </span>            :     struct epoll_event *events;
+<span class="lineNum">     167 </span>            :     const struct epoll_event *event;
+<span class="lineNum">     168 </span>            :     struct io_list *list;
+<span class="lineNum">     169 </span>            :     struct io_file *io;
+<span class="lineNum">     170 </span>            :     struct timeval tv;
+<span class="lineNum">     171 </span>            :     unsigned int events_count;
+<span class="lineNum">     172 </span>            :     int msecs, ret, i, j;
+<span class="lineNum">     173 </span>            :     bool call;
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">        476 :     i_assert(ctx != NULL);</span>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span>            :         /* get the time left for next timeout task */
+<span class="lineNum">     178 </span><span class="lineCov">        476 :     msecs = io_loop_get_wait_time(ioloop, &amp;tv);</span>
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineCov">        476 :     events = array_get_modifiable(&amp;ctx-&gt;events, &amp;events_count);</span>
+<span class="lineNum">     181 </span><span class="lineCov">        476 :     if (ioloop-&gt;io_files != NULL &amp;&amp; events_count &gt; ctx-&gt;deleted_count) {</span>
+<span class="lineNum">     182 </span><span class="lineCov">        297 :         ret = epoll_wait(ctx-&gt;epfd, events, events_count, msecs);</span>
+<span class="lineNum">     183 </span><span class="lineCov">        594 :         if (ret &lt; 0 &amp;&amp; errno != EINTR)</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :             i_fatal(&quot;epoll_wait(): %m&quot;);</span>
+<span class="lineNum">     185 </span>            :     } else {
+<span class="lineNum">     186 </span>            :         /* no I/Os, but we should have some timeouts.
+<span class="lineNum">     187 </span>            :            just wait for them. */
+<span class="lineNum">     188 </span><span class="lineCov">        179 :         if (msecs &lt; 0)</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :             i_panic(&quot;BUG: No IOs or timeouts set. Not waiting for infinity.&quot;);</span>
+<span class="lineNum">     190 </span><span class="lineCov">        179 :         usleep(msecs*1000);</span>
+<span class="lineNum">     191 </span><span class="lineCov">        179 :         ret = 0;</span>
+<span class="lineNum">     192 </span>            :     }
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span>            :     /* execute timeout handlers */
+<span class="lineNum">     195 </span><span class="lineCov">        476 :         io_loop_handle_timeouts(ioloop);</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineCov">        476 :     if (!ioloop-&gt;running)</span>
+<span class="lineNum">     198 </span><span class="lineCov">        489 :         return;</span>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineCov">        887 :     for (i = 0; i &lt; ret; i++) {</span>
+<span class="lineNum">     201 </span>            :         /* io_loop_handle_add() may cause events array reallocation,
+<span class="lineNum">     202 </span>            :            so we have use array_idx() */
+<span class="lineNum">     203 </span><span class="lineCov">        424 :         event = array_idx(&amp;ctx-&gt;events, i);</span>
+<span class="lineNum">     204 </span><span class="lineCov">        424 :         list = event-&gt;data.ptr;</span>
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span><span class="lineCov">       1696 :         for (j = 0; j &lt; IOLOOP_IOLIST_IOS_PER_FD; j++) {</span>
+<span class="lineNum">     207 </span><span class="lineCov">       1272 :             io = list-&gt;ios[j];</span>
+<span class="lineNum">     208 </span><span class="lineCov">       1272 :             if (io == NULL)</span>
+<span class="lineNum">     209 </span><span class="lineCov">        842 :                 continue;</span>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineCov">        430 :             call = FALSE;</span>
+<span class="lineNum">     212 </span><span class="lineCov">        430 :             if ((event-&gt;events &amp; (EPOLLHUP | EPOLLERR)) != 0)</span>
+<span class="lineNum">     213 </span><span class="lineCov">         15 :                 call = TRUE;</span>
+<span class="lineNum">     214 </span><span class="lineCov">        415 :             else if ((io-&gt;io.condition &amp; IO_READ) != 0)</span>
+<span class="lineNum">     215 </span><span class="lineCov">        217 :                 call = (event-&gt;events &amp; EPOLLIN) != 0;</span>
+<span class="lineNum">     216 </span><span class="lineCov">        198 :             else if ((io-&gt;io.condition &amp; IO_WRITE) != 0)</span>
+<span class="lineNum">     217 </span><span class="lineCov">        198 :                 call = (event-&gt;events &amp; EPOLLOUT) != 0;</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             else if ((io-&gt;io.condition &amp; IO_ERROR) != 0)</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :                 call = (event-&gt;events &amp; IO_EPOLL_ERROR) != 0;</span>
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineCov">        430 :             if (call)</span>
+<span class="lineNum">     222 </span><span class="lineCov">        426 :                 io_loop_call_io(&amp;io-&gt;io);</span>
+<span class="lineNum">     223 </span>            :         }
+<span class="lineNum">     224 </span>            :     }
+<span class="lineNum">     225 </span>            : }
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span>            : #endif  /* IOLOOP_EPOLL */
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

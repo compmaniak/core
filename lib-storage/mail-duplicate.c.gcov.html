@@ -1,0 +1,455 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/mail-duplicate.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-storage</a> - mail-duplicate.c<span style="font-size: 80%;"> (source / <a href="mail-duplicate.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">171</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;home-expand.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;file-dotlock.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;mail-user.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;mail-storage-settings.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;mail-duplicate.h&quot;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      15 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : #define COMPRESS_PERCENTAGE 10
+<span class="lineNum">      18 </span>            : #define DUPLICATE_BUFSIZE 4096
+<span class="lineNum">      19 </span>            : #define DUPLICATE_VERSION 2
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : struct mail_duplicate {
+<span class="lineNum">      22 </span>            :     const void *id;
+<span class="lineNum">      23 </span>            :     unsigned int id_size;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            :     const char *user;
+<span class="lineNum">      26 </span>            :     time_t time;
+<span class="lineNum">      27 </span>            : };
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : struct mail_duplicate_file_header {
+<span class="lineNum">      30 </span>            :     uint32_t version;
+<span class="lineNum">      31 </span>            : };
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : struct mail_duplicate_record_header {
+<span class="lineNum">      34 </span>            :     uint32_t stamp;
+<span class="lineNum">      35 </span>            :     uint32_t id_size;
+<span class="lineNum">      36 </span>            :     uint32_t user_size;
+<span class="lineNum">      37 </span>            : };
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : struct mail_duplicate_file {
+<span class="lineNum">      40 </span>            :     pool_t pool;
+<span class="lineNum">      41 </span>            :     HASH_TABLE(struct mail_duplicate *, struct mail_duplicate *) hash;
+<span class="lineNum">      42 </span>            :     const char *path;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     int new_fd;
+<span class="lineNum">      45 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">      46 </span>            :     bool changed:1;
+<span class="lineNum">      47 </span>            : };
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            : struct mail_duplicate_db {
+<span class="lineNum">      50 </span>            :     char *path;
+<span class="lineNum">      51 </span>            :     struct dotlock_settings dotlock_set;
+<span class="lineNum">      52 </span>            :     struct mail_duplicate_file *file;
+<span class="lineNum">      53 </span>            : };
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            : static const struct dotlock_settings default_mail_duplicate_dotlock_set = {
+<span class="lineNum">      56 </span>            :     .timeout = 20,
+<span class="lineNum">      57 </span>            :     .stale_timeout = 10,
+<span class="lineNum">      58 </span>            : };
+<a name="59"><span class="lineNum">      59 </span>            : </a>
+<span class="lineNum">      60 </span>            : static int
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 : mail_duplicate_cmp(const struct mail_duplicate *d1,</span>
+<span class="lineNum">      62 </span>            :            const struct mail_duplicate *d2)
+<span class="lineNum">      63 </span>            : {
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     return (d1-&gt;id_size == d2-&gt;id_size &amp;&amp;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :         memcmp(d1-&gt;id, d2-&gt;id, d1-&gt;id_size) == 0 &amp;&amp;</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         strcasecmp(d1-&gt;user, d2-&gt;user) == 0) ? 0 : 1;</span>
+<a name="67"><span class="lineNum">      67 </span>            : }</a>
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 : static unsigned int mail_duplicate_hash(const struct mail_duplicate *d)</span>
+<span class="lineNum">      70 </span>            : {
+<span class="lineNum">      71 </span>            :     /* a char* hash function from ASU -- from glib */
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :         const unsigned char *s = d-&gt;id, *end = s + d-&gt;id_size;</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     unsigned int g, h = 0;</span>
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     while (s != end) {</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         h = (h &lt;&lt; 4) + *s;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         if ((g = h &amp; 0xf0000000UL) != 0) {</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :             h = h ^ (g &gt;&gt; 24);</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :             h = h ^ g;</span>
+<span class="lineNum">      80 </span>            :         }
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         s++;</span>
+<span class="lineNum">      82 </span>            :     }
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     return h ^ strcase_hash(d-&gt;user);</span>
+<span class="lineNum">      85 </span>            : }
+<a name="86"><span class="lineNum">      86 </span>            : </a>
+<span class="lineNum">      87 </span>            : static int
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 : mail_duplicate_read_records(struct mail_duplicate_file *file,</span>
+<span class="lineNum">      89 </span>            :                 struct istream *input,
+<span class="lineNum">      90 </span>            :                 unsigned int record_size)
+<span class="lineNum">      91 </span>            : {
+<span class="lineNum">      92 </span>            :     const unsigned char *data;
+<span class="lineNum">      93 </span>            :     struct mail_duplicate_record_header hdr;
+<span class="lineNum">      94 </span>            :     size_t size;
+<span class="lineNum">      95 </span>            :     unsigned int change_count;
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     change_count = 0;</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     while (i_stream_read_bytes(input, &amp;data, &amp;size, record_size) &gt; 0) {</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         if (record_size == sizeof(hdr))</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :             memcpy(&amp;hdr, data, sizeof(hdr));</span>
+<span class="lineNum">     101 </span>            :         else {
+<span class="lineNum">     102 </span>            :             /* FIXME: backwards compatibility with v1.0 */
+<span class="lineNum">     103 </span>            :             time_t stamp;
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :             i_assert(record_size ==</span>
+<span class="lineNum">     106 </span>            :                  sizeof(time_t) + sizeof(uint32_t)*2);
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :             memcpy(&amp;stamp, data, sizeof(stamp));</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :             hdr.stamp = stamp;</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :             memcpy(&amp;hdr.id_size, data + sizeof(time_t),</span>
+<span class="lineNum">     110 </span>            :                    sizeof(hdr.id_size));
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :             memcpy(&amp;hdr.user_size,</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :                    data + sizeof(time_t) + sizeof(uint32_t),</span>
+<span class="lineNum">     113 </span>            :                    sizeof(hdr.user_size));
+<span class="lineNum">     114 </span>            :         }
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         i_stream_skip(input, record_size);</span>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         if (hdr.id_size == 0 || hdr.user_size == 0 ||</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :             hdr.id_size &gt; DUPLICATE_BUFSIZE ||</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :             hdr.user_size &gt; DUPLICATE_BUFSIZE) {</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :             i_error(&quot;broken mail_duplicate file %s&quot;, file-&gt;path);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     122 </span>            :         }
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         if (i_stream_read_bytes(input, &amp;data, &amp;size,</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :                     hdr.id_size + hdr.user_size) &lt;= 0) {</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :             i_error(&quot;unexpected end of file in %s&quot;, file-&gt;path);</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     128 </span>            :         }
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         if ((time_t)hdr.stamp &gt;= ioloop_time) {</span>
+<span class="lineNum">     131 </span>            :             /* still valid, save it */
+<span class="lineNum">     132 </span>            :             struct mail_duplicate *d;
+<span class="lineNum">     133 </span>            :             void *new_id;
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :             new_id = p_malloc(file-&gt;pool, hdr.id_size);</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :             memcpy(new_id, data, hdr.id_size);</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :             d = p_new(file-&gt;pool, struct mail_duplicate, 1);</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :             d-&gt;id = new_id;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :             d-&gt;id_size = hdr.id_size;</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :             d-&gt;user = p_strndup(file-&gt;pool,</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :                         data + hdr.id_size, hdr.user_size);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :             d-&gt;time = hdr.stamp;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :             hash_table_update(file-&gt;hash, d, d);</span>
+<span class="lineNum">     145 </span>            :         } else {
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :                         change_count++;</span>
+<span class="lineNum">     147 </span>            :         }
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :         i_stream_skip(input, hdr.id_size + hdr.user_size);</span>
+<span class="lineNum">     149 </span>            :     }
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     if (hash_table_count(file-&gt;hash) *</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         COMPRESS_PERCENTAGE / 100 &gt; change_count)</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         file-&gt;changed = TRUE;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="155"><span class="lineNum">     155 </span>            : }</a>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 : static int mail_duplicate_read(struct mail_duplicate_file *file)</span>
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span>            :     struct istream *input;
+<span class="lineNum">     160 </span>            :     struct mail_duplicate_file_header hdr;
+<span class="lineNum">     161 </span>            :     const unsigned char *data;
+<span class="lineNum">     162 </span>            :     size_t size;
+<span class="lineNum">     163 </span>            :     int fd;
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     unsigned int record_size = 0;</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     fd = open(file-&gt;path, O_RDONLY);</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :     if (fd == -1) {</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :         if (errno == ENOENT)</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         i_error(&quot;open(%s) failed: %m&quot;, file-&gt;path);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     172 </span>            :     }
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span>            :     /* &lt;timestamp&gt; &lt;id_size&gt; &lt;user_size&gt; &lt;id&gt; &lt;user&gt; */
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     input = i_stream_create_fd(fd, DUPLICATE_BUFSIZE);</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     if (i_stream_read_bytes(input, &amp;data, &amp;size, sizeof(hdr)) &gt; 0) {</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         memcpy(&amp;hdr, data, sizeof(hdr));</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         if (hdr.version == 0 || hdr.version &gt; DUPLICATE_VERSION + 10) {</span>
+<span class="lineNum">     179 </span>            :             /* FIXME: backwards compatibility with v1.0 */
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :             record_size = sizeof(time_t) + sizeof(uint32_t)*2;</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :         } else if (hdr.version == DUPLICATE_VERSION) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :             record_size = sizeof(struct mail_duplicate_record_header);</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :             i_stream_skip(input, sizeof(hdr));</span>
+<span class="lineNum">     184 </span>            :         }
+<span class="lineNum">     185 </span>            :     }
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :     if (record_size == 0 ||</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         mail_duplicate_read_records(file, input, record_size) &lt; 0)</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         i_unlink_if_exists(file-&gt;path);</span>
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     if (close(fd) &lt; 0)</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :         i_error(&quot;close(%s) failed: %m&quot;, file-&gt;path);</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     195 </span>            : }
+<a name="196"><span class="lineNum">     196 </span>            : </a>
+<span class="lineNum">     197 </span>            : static struct mail_duplicate_file *
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 : mail_duplicate_file_new(struct mail_duplicate_db *db)</span>
+<span class="lineNum">     199 </span>            : {
+<span class="lineNum">     200 </span>            :     struct mail_duplicate_file *file;
+<span class="lineNum">     201 </span>            :     pool_t pool;
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     i_assert(db-&gt;path != NULL);</span>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;mail_duplicates&quot;, 10240);</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     file = p_new(pool, struct mail_duplicate_file, 1);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     file-&gt;pool = pool;</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     file-&gt;path = p_strdup(pool, db-&gt;path);</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     file-&gt;new_fd = file_dotlock_open(&amp;db-&gt;dotlock_set, file-&gt;path, 0,</span>
+<span class="lineNum">     211 </span>            :                      &amp;file-&gt;dotlock);
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     if (file-&gt;new_fd != -1)</span>
+<span class="lineNum">     213 </span>            :         ;
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     else if (errno != EAGAIN)</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         i_error(&quot;file_dotlock_open(%s) failed: %m&quot;, file-&gt;path);</span>
+<span class="lineNum">     216 </span>            :     else {
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         i_error(&quot;Creating lock file for %s timed out in %u secs&quot;,</span>
+<span class="lineNum">     218 </span>            :             file-&gt;path, db-&gt;dotlock_set.timeout);
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     hash_table_create(&amp;file-&gt;hash, pool, 0, mail_duplicate_hash, mail_duplicate_cmp);</span>
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     (void)mail_duplicate_read(file);</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     return file;</span>
+<a name="224"><span class="lineNum">     224 </span>            : }</a>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 : static void mail_duplicate_file_free(struct mail_duplicate_file **_file)</span>
+<span class="lineNum">     227 </span>            : {
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     struct mail_duplicate_file *file = *_file;</span>
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     *_file = NULL;</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     if (file-&gt;dotlock != NULL)</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :         file_dotlock_delete(&amp;file-&gt;dotlock);</span>
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     hash_table_destroy(&amp;file-&gt;hash);</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     pool_unref(&amp;file-&gt;pool);</span>
+<a name="236"><span class="lineNum">     236 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 : bool mail_duplicate_check(struct mail_duplicate_db *db,</span>
+<span class="lineNum">     239 </span>            :               const void *id, size_t id_size, const char *user)
+<span class="lineNum">     240 </span>            : {
+<span class="lineNum">     241 </span>            :     struct mail_duplicate d;
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     if (db-&gt;file == NULL) {</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         if (db-&gt;path == NULL) {</span>
+<span class="lineNum">     245 </span>            :             /* mail_duplicate database disabled */
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     247 </span>            :         }
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         db-&gt;file = mail_duplicate_file_new(db);</span>
+<span class="lineNum">     249 </span>            :     }
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     d.id = id;</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :     d.id_size = id_size;</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :     d.user = user;</span>
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :     return hash_table_lookup(db-&gt;file-&gt;hash, &amp;d) != NULL;</span>
+<a name="256"><span class="lineNum">     256 </span>            : }</a>
+<span class="lineNum">     257 </span>            : 
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 : void mail_duplicate_mark(struct mail_duplicate_db *db,</span>
+<span class="lineNum">     259 </span>            :              const void *id, size_t id_size,
+<span class="lineNum">     260 </span>            :              const char *user, time_t timestamp)
+<span class="lineNum">     261 </span>            : {
+<span class="lineNum">     262 </span>            :     struct mail_duplicate *d;
+<span class="lineNum">     263 </span>            :     void *new_id;
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     if (db-&gt;file == NULL) {</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         if (db-&gt;path == NULL) {</span>
+<span class="lineNum">     267 </span>            :             /* mail_duplicate database disabled */
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     269 </span>            :         }
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :         db-&gt;file = mail_duplicate_file_new(db);</span>
+<span class="lineNum">     271 </span>            :     }
+<span class="lineNum">     272 </span>            : 
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     new_id = p_malloc(db-&gt;file-&gt;pool, id_size);</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :     memcpy(new_id, id, id_size);</span>
+<span class="lineNum">     275 </span>            : 
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     d = p_new(db-&gt;file-&gt;pool, struct mail_duplicate, 1);</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     d-&gt;id = new_id;</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     d-&gt;id_size = id_size;</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     d-&gt;user = p_strdup(db-&gt;file-&gt;pool, user);</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     d-&gt;time = timestamp;</span>
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     db-&gt;file-&gt;changed = TRUE;</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :     hash_table_update(db-&gt;file-&gt;hash, d, d);</span>
+<a name="284"><span class="lineNum">     284 </span>            : }</a>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 : void mail_duplicate_db_flush(struct mail_duplicate_db *db)</span>
+<span class="lineNum">     287 </span>            : {
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     struct mail_duplicate_file *file = db-&gt;file;</span>
+<span class="lineNum">     289 </span>            :     struct mail_duplicate_file_header hdr;
+<span class="lineNum">     290 </span>            :     struct mail_duplicate_record_header rec;
+<span class="lineNum">     291 </span>            :     struct ostream *output;
+<span class="lineNum">     292 </span>            :         struct hash_iterate_context *iter;
+<span class="lineNum">     293 </span>            :     struct mail_duplicate *d;
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     if (file == NULL)</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     if (!file-&gt;changed || file-&gt;new_fd == -1) {</span>
+<span class="lineNum">     298 </span>            :         /* unlock the mail_duplicate database */
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         mail_duplicate_file_free(&amp;db-&gt;file);</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     301 </span>            :     }
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     i_zero(&amp;hdr);</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     hdr.version = DUPLICATE_VERSION;</span>
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     output = o_stream_create_fd_file(file-&gt;new_fd, 0, FALSE);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     o_stream_cork(output);</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     o_stream_nsend(output, &amp;hdr, sizeof(hdr));</span>
+<span class="lineNum">     309 </span>            : 
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     i_zero(&amp;rec);</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :     iter = hash_table_iterate_init(file-&gt;hash);</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     while (hash_table_iterate(iter, file-&gt;hash, &amp;d, &amp;d)) {</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :         rec.stamp = d-&gt;time;</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         rec.id_size = d-&gt;id_size;</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         rec.user_size = strlen(d-&gt;user);</span>
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         o_stream_nsend(output, &amp;rec, sizeof(rec));</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         o_stream_nsend(output, d-&gt;id, rec.id_size);</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         o_stream_nsend(output, d-&gt;user, rec.user_size);</span>
+<span class="lineNum">     320 </span>            :     }
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     hash_table_iterate_deinit(&amp;iter);</span>
+<span class="lineNum">     322 </span>            : 
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     if (o_stream_finish(output) &lt; 0) {</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :         i_error(&quot;write(%s) failed: %s&quot;, file-&gt;path,</span>
+<span class="lineNum">     325 </span>            :             o_stream_get_error(output));
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :         o_stream_unref(&amp;output);</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :         mail_duplicate_file_free(&amp;db-&gt;file);</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     329 </span>            :     }
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;output);</span>
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     if (file_dotlock_replace(&amp;file-&gt;dotlock, 0) &lt; 0)</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :         i_error(&quot;file_dotlock_replace(%s) failed: %m&quot;, file-&gt;path);</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     mail_duplicate_file_free(&amp;db-&gt;file);</span>
+<span class="lineNum">     335 </span>            : }
+<a name="336"><span class="lineNum">     336 </span>            : </a>
+<span class="lineNum">     337 </span>            : struct mail_duplicate_db *
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 : mail_duplicate_db_init(struct mail_user *user, const char *name)</span>
+<span class="lineNum">     339 </span>            : {
+<span class="lineNum">     340 </span>            :     struct mail_duplicate_db *db;
+<span class="lineNum">     341 </span>            :     const struct mail_storage_settings *mail_set;
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     const char *home = NULL;</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     if (mail_user_get_home(user, &amp;home) &lt;= 0) {</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         i_error(&quot;User %s doesn't have home dir set, &quot;</span>
+<span class="lineNum">     346 </span>            :             &quot;disabling duplicate database&quot;, user-&gt;username);
+<span class="lineNum">     347 </span>            :     }
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     db = i_new(struct mail_duplicate_db, 1);</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :     db-&gt;path = home == NULL ? NULL :</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :         i_strconcat(home, &quot;/.dovecot.&quot;, name, NULL);</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     db-&gt;dotlock_set = default_mail_duplicate_dotlock_set;</span>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     mail_set = mail_user_set_get_storage_set(user);</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     db-&gt;dotlock_set.use_excl_lock = mail_set-&gt;dotlock_use_excl;</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     db-&gt;dotlock_set.nfs_flush = mail_set-&gt;mail_nfs_storage;</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     return db;</span>
+<a name="358"><span class="lineNum">     358 </span>            : }</a>
+<span class="lineNum">     359 </span>            : 
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 : void mail_duplicate_db_deinit(struct mail_duplicate_db **_db)</span>
+<span class="lineNum">     361 </span>            : {
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     struct mail_duplicate_db *db = *_db;</span>
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     *_db = NULL;</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     if (db-&gt;file != NULL) {</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         mail_duplicate_db_flush(db);</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :         i_assert(db-&gt;file == NULL);</span>
+<span class="lineNum">     368 </span>            :     }
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     i_free(db-&gt;path);</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :     i_free(db);</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

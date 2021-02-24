@@ -1,0 +1,699 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-request-parser.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-request-parser.c<span style="font-size: 80%;"> (source / <a href="http-request-parser.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">224</td>
+            <td class="headerCovTableEntry">319</td>
+            <td class="headerCovTableEntryLo">70.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntryHi">92.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;http-url.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;http-parser.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;http-message-parser.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;http-request-parser.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #define HTTP_REQUEST_PARSER_MAX_METHOD_LENGTH 32
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : enum http_request_parser_state {
+<span class="lineNum">      13 </span>            :     HTTP_REQUEST_PARSE_STATE_INIT = 0,
+<span class="lineNum">      14 </span>            :     HTTP_REQUEST_PARSE_STATE_SKIP_LINE,
+<span class="lineNum">      15 </span>            :     HTTP_REQUEST_PARSE_STATE_METHOD,
+<span class="lineNum">      16 </span>            :     HTTP_REQUEST_PARSE_STATE_SP1,
+<span class="lineNum">      17 </span>            :     HTTP_REQUEST_PARSE_STATE_TARGET,
+<span class="lineNum">      18 </span>            :     HTTP_REQUEST_PARSE_STATE_SP2,
+<span class="lineNum">      19 </span>            :     HTTP_REQUEST_PARSE_STATE_VERSION,
+<span class="lineNum">      20 </span>            :     HTTP_REQUEST_PARSE_STATE_CR,
+<span class="lineNum">      21 </span>            :     HTTP_REQUEST_PARSE_STATE_LF,
+<span class="lineNum">      22 </span>            :     HTTP_REQUEST_PARSE_STATE_HEADER
+<span class="lineNum">      23 </span>            : };
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : struct http_request_parser {
+<span class="lineNum">      26 </span>            :     struct http_message_parser parser;
+<span class="lineNum">      27 </span>            :     enum http_request_parser_state state;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :     uoff_t max_target_length;
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            :     enum http_request_parse_error error_code;
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            :     const char *request_method;
+<span class="lineNum">      34 </span>            :     const char *request_target;
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            :     bool skipping_line:1;
+<span class="lineNum">      37 </span>            : };
+<a name="38"><span class="lineNum">      38 </span>            : </a>
+<span class="lineNum">      39 </span>            : struct http_request_parser *
+<span class="lineNum">      40 </span><span class="lineCov">         24 : http_request_parser_init(struct istream *input,</span>
+<span class="lineNum">      41 </span>            :     const struct http_request_limits *limits,
+<span class="lineNum">      42 </span>            :     enum http_request_parse_flags flags)
+<span class="lineNum">      43 </span>            : {
+<span class="lineNum">      44 </span>            :     struct http_request_parser *parser;
+<span class="lineNum">      45 </span>            :     struct http_header_limits hdr_limits;
+<span class="lineNum">      46 </span>            :     uoff_t max_payload_size;
+<span class="lineNum">      47 </span><span class="lineCov">         24 :     enum http_message_parse_flags msg_flags = 0;</span>
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span><span class="lineCov">         24 :     parser = i_new(struct http_request_parser, 1);</span>
+<span class="lineNum">      50 </span><span class="lineCov">         24 :     if (limits != NULL) {</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :         hdr_limits = limits-&gt;header;</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :         max_payload_size = limits-&gt;max_payload_size;</span>
+<span class="lineNum">      53 </span>            :     } else {
+<span class="lineNum">      54 </span><span class="lineCov">         24 :         i_zero(&amp;hdr_limits);</span>
+<span class="lineNum">      55 </span><span class="lineCov">         24 :         max_payload_size = 0;</span>
+<span class="lineNum">      56 </span>            :     }
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span>            :     /* substitute default limits */
+<span class="lineNum">      59 </span><span class="lineCov">         24 :     if (parser-&gt;max_target_length == 0)</span>
+<span class="lineNum">      60 </span><span class="lineCov">         24 :         parser-&gt;max_target_length =  HTTP_REQUEST_DEFAULT_MAX_TARGET_LENGTH;</span>
+<span class="lineNum">      61 </span><span class="lineCov">         24 :     if (hdr_limits.max_size == 0)</span>
+<span class="lineNum">      62 </span><span class="lineCov">         24 :         hdr_limits.max_size =   HTTP_REQUEST_DEFAULT_MAX_HEADER_SIZE;</span>
+<span class="lineNum">      63 </span><span class="lineCov">         24 :     if (hdr_limits.max_field_size == 0)</span>
+<span class="lineNum">      64 </span><span class="lineCov">         24 :         hdr_limits.max_field_size = HTTP_REQUEST_DEFAULT_MAX_HEADER_FIELD_SIZE;</span>
+<span class="lineNum">      65 </span><span class="lineCov">         24 :     if (hdr_limits.max_fields == 0)</span>
+<span class="lineNum">      66 </span><span class="lineCov">         24 :         hdr_limits.max_fields = HTTP_REQUEST_DEFAULT_MAX_HEADER_FIELDS;</span>
+<span class="lineNum">      67 </span><span class="lineCov">         24 :     if (max_payload_size == 0)</span>
+<span class="lineNum">      68 </span><span class="lineCov">         24 :         max_payload_size = HTTP_REQUEST_DEFAULT_MAX_PAYLOAD_SIZE;</span>
+<span class="lineNum">      69 </span>            : 
+<span class="lineNum">      70 </span><span class="lineCov">         24 :     if ((flags &amp; HTTP_REQUEST_PARSE_FLAG_STRICT) != 0)</span>
+<span class="lineNum">      71 </span><span class="lineCov">          3 :         msg_flags |= HTTP_MESSAGE_PARSE_FLAG_STRICT;</span>
+<span class="lineNum">      72 </span><span class="lineCov">         24 :     http_message_parser_init(&amp;parser-&gt;parser, input,</span>
+<span class="lineNum">      73 </span>            :         &amp;hdr_limits, max_payload_size, msg_flags);
+<span class="lineNum">      74 </span><span class="lineCov">         24 :     return parser;</span>
+<a name="75"><span class="lineNum">      75 </span>            : }</a>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span><span class="lineCov">         24 : void http_request_parser_deinit(struct http_request_parser **_parser)</span>
+<span class="lineNum">      78 </span>            : {
+<span class="lineNum">      79 </span><span class="lineCov">         24 :     struct http_request_parser *parser = *_parser;</span>
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span><span class="lineCov">         24 :     *_parser = NULL;</span>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">         24 :     http_message_parser_deinit(&amp;parser-&gt;parser);</span>
+<span class="lineNum">      84 </span><span class="lineCov">         24 :     i_free(parser);</span>
+<span class="lineNum">      85 </span><span class="lineCov">         24 : }</span>
+<a name="86"><span class="lineNum">      86 </span>            : </a>
+<span class="lineNum">      87 </span>            : static void
+<span class="lineNum">      88 </span><span class="lineCov">         24 : http_request_parser_restart(struct http_request_parser *parser,</span>
+<span class="lineNum">      89 </span>            :     pool_t pool)
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span><span class="lineCov">         24 :     http_message_parser_restart(&amp;parser-&gt;parser, pool);</span>
+<span class="lineNum">      92 </span><span class="lineCov">         24 :     parser-&gt;request_method = NULL;</span>
+<span class="lineNum">      93 </span><span class="lineCov">         24 :     parser-&gt;request_target = NULL;</span>
+<a name="94"><span class="lineNum">      94 </span><span class="lineCov">         24 : }</span></a>
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span><span class="lineCov">        102 : static int http_request_parse_method(struct http_request_parser *parser)</span>
+<span class="lineNum">      97 </span>            : {
+<span class="lineNum">      98 </span><span class="lineCov">        102 :     const unsigned char *p = parser-&gt;parser.cur;</span>
+<span class="lineNum">      99 </span>            :     pool_t pool;
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span>            :     /* method         = token
+<span class="lineNum">     102 </span>            :      */
+<span class="lineNum">     103 </span><span class="lineCov">        501 :     while (p &lt; parser-&gt;parser.end &amp;&amp; http_char_is_token(*p))</span>
+<span class="lineNum">     104 </span><span class="lineCov">        297 :         p++;</span>
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineCov">        102 :     if ((p - parser-&gt;parser.cur) &gt; HTTP_REQUEST_PARSER_MAX_METHOD_LENGTH) {</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_METHOD_TOO_LONG;</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :         parser-&gt;parser.error = &quot;HTTP request method is too long&quot;;</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     110 </span>            :     }
+<span class="lineNum">     111 </span><span class="lineCov">        102 :     if (p == parser-&gt;parser.end)</span>
+<span class="lineNum">     112 </span><span class="lineCov">         78 :         return 0;</span>
+<span class="lineNum">     113 </span><span class="lineCov">         24 :     pool = http_message_parser_get_pool(&amp;parser-&gt;parser);</span>
+<span class="lineNum">     114 </span><span class="lineCov">         24 :     parser-&gt;request_method =</span>
+<span class="lineNum">     115 </span><span class="lineCov">         24 :         p_strdup_until(pool, parser-&gt;parser.cur, p);</span>
+<span class="lineNum">     116 </span><span class="lineCov">         24 :     parser-&gt;parser.cur = p;</span>
+<span class="lineNum">     117 </span><span class="lineCov">         24 :     return 1;</span>
+<a name="118"><span class="lineNum">     118 </span>            : }</a>
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineCov">        411 : static int http_request_parse_target(struct http_request_parser *parser)</span>
+<span class="lineNum">     121 </span>            : {
+<span class="lineNum">     122 </span><span class="lineCov">        411 :     struct http_message_parser *_parser = &amp;parser-&gt;parser;</span>
+<span class="lineNum">     123 </span><span class="lineCov">        411 :     const unsigned char *p = parser-&gt;parser.cur;</span>
+<span class="lineNum">     124 </span>            :     pool_t pool;
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span>            :     /* We'll just parse anything up to the first SP or a control char.
+<span class="lineNum">     127 </span>            :        We could also implement workarounds for buggy HTTP clients and
+<span class="lineNum">     128 </span>            :        parse anything up to the HTTP-version and return 301 with the
+<span class="lineNum">     129 </span>            :        target properly encoded (FIXME). */
+<span class="lineNum">     130 </span><span class="lineCov">       7744 :     while (p &lt; _parser-&gt;end &amp;&amp; *p &gt; ' ')</span>
+<span class="lineNum">     131 </span><span class="lineCov">       6922 :         p++;</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span>            :     /* target is too long when explicit limit is exceeded or when input buffer
+<span class="lineNum">     134 </span>            :        runs out of space */
+<span class="lineNum">     135 </span>            :     /* FIXME: put limit on full request line rather than target and method
+<span class="lineNum">     136 </span>            :        separately */
+<span class="lineNum">     137 </span>            :     /* FIXME: is it wise to keep target in stream buffer? It can become very
+<span class="lineNum">     138 </span>            :        large for some applications, increasing the stream buffer size */
+<span class="lineNum">     139 </span><span class="lineCov">        822 :     if ((uoff_t)(p - _parser-&gt;cur) &gt; parser-&gt;max_target_length ||</span>
+<span class="lineNum">     140 </span><span class="lineCov">       1187 :         (p == _parser-&gt;end &amp;&amp; ((uoff_t)(p - _parser-&gt;cur) &gt;=</span>
+<span class="lineNum">     141 </span><span class="lineCov">        388 :             i_stream_get_max_buffer_size(_parser-&gt;input)))) {</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_TARGET_TOO_LONG;</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         parser-&gt;parser.error = &quot;HTTP request target is too long&quot;;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     145 </span>            :     }
+<span class="lineNum">     146 </span><span class="lineCov">        411 :     if (p == _parser-&gt;end)</span>
+<span class="lineNum">     147 </span><span class="lineCov">        388 :         return 0;</span>
+<span class="lineNum">     148 </span><span class="lineCov">         23 :     pool = http_message_parser_get_pool(_parser);</span>
+<span class="lineNum">     149 </span><span class="lineCov">         23 :     parser-&gt;request_target = p_strdup_until(pool, _parser-&gt;cur, p);</span>
+<span class="lineNum">     150 </span><span class="lineCov">         23 :     parser-&gt;parser.cur = p;</span>
+<span class="lineNum">     151 </span><span class="lineCov">         23 :     return 1;</span>
+<a name="152"><span class="lineNum">     152 </span>            : }</a>
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineCov">          2 : static inline const char *_chr_sanitize(unsigned char c)</span>
+<span class="lineNum">     155 </span>            : {
+<span class="lineNum">     156 </span><span class="lineCov">          2 :     if (c &gt;= 0x20 &amp;&amp; c &lt; 0x7F)</span>
+<span class="lineNum">     157 </span><span class="lineCov">          2 :         return t_strdup_printf(&quot;`%c'&quot;, c);</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     if (c == 0x0a)</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :         return &quot;&lt;LF&gt;&quot;;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     if (c == 0x0d)</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         return &quot;&lt;CR&gt;&quot;;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;&lt;0x%02x&gt;&quot;, c);</span>
+<a name="163"><span class="lineNum">     163 </span>            : }</a>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineCov">        670 : static int http_request_parse(struct http_request_parser *parser,</span>
+<span class="lineNum">     166 </span>            :                   pool_t pool)
+<span class="lineNum">     167 </span>            : {
+<span class="lineNum">     168 </span><span class="lineCov">        670 :     struct http_message_parser *_parser = &amp;parser-&gt;parser;</span>
+<span class="lineNum">     169 </span>            :     int ret;
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span>            :     /* RFC 7230, Section 3.1.1: Request Line
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span>            :        request-line  = method SP request-target SP HTTP-version CRLF
+<span class="lineNum">     174 </span>            :        method        = token
+<span class="lineNum">     175 </span>            :      */
+<span class="lineNum">     176 </span>            :     for (;;) {
+<span class="lineNum">     177 </span><span class="lineCov">        670 :         switch (parser-&gt;state) {</span>
+<span class="lineNum">     178 </span>            :         case HTTP_REQUEST_PARSE_STATE_INIT:
+<span class="lineNum">     179 </span><span class="lineCov">         24 :             http_request_parser_restart(parser, pool);</span>
+<span class="lineNum">     180 </span><span class="lineCov">         24 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_SKIP_LINE;</span>
+<span class="lineNum">     181 </span><span class="lineCov">         24 :             if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     183 </span>            :             /* fall through */
+<span class="lineNum">     184 </span>            :         case HTTP_REQUEST_PARSE_STATE_SKIP_LINE:
+<span class="lineNum">     185 </span><span class="lineCov">         24 :             if (*_parser-&gt;cur == '\r' || *_parser-&gt;cur == '\n') {</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :                 if (parser-&gt;skipping_line) {</span>
+<span class="lineNum">     187 </span>            :                     /* second extra CRLF; not allowed */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :                     parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :                     _parser-&gt;error = &quot;Empty request line&quot;;</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     191 </span>            :                 }
+<span class="lineNum">     192 </span>            :                 /* HTTP/1.0 client sent one extra CRLF after body.
+<span class="lineNum">     193 </span>            :                    ignore it. */
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :                 parser-&gt;skipping_line = TRUE;</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :                 parser-&gt;state = HTTP_REQUEST_PARSE_STATE_CR;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     197 </span>            :             }
+<span class="lineNum">     198 </span><span class="lineCov">         24 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_METHOD;</span>
+<span class="lineNum">     199 </span><span class="lineCov">         24 :             parser-&gt;skipping_line = FALSE;</span>
+<span class="lineNum">     200 </span>            :             /* fall through */
+<span class="lineNum">     201 </span>            :         case HTTP_REQUEST_PARSE_STATE_METHOD:
+<span class="lineNum">     202 </span><span class="lineCov">        102 :             if ((ret=http_request_parse_method(parser)) &lt;= 0)</span>
+<span class="lineNum">     203 </span><span class="lineCov">         78 :                 return ret;</span>
+<span class="lineNum">     204 </span><span class="lineCov">         24 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_SP1;</span>
+<span class="lineNum">     205 </span><span class="lineCov">         24 :             if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     207 </span>            :             /* fall through */
+<span class="lineNum">     208 </span>            :         case HTTP_REQUEST_PARSE_STATE_SP1:
+<span class="lineNum">     209 </span><span class="lineCov">         24 :             if (*_parser-&gt;cur != ' ') {</span>
+<span class="lineNum">     210 </span><span class="lineCov">          1 :                 parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     211 </span><span class="lineCov">          1 :                 _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     212 </span><span class="lineCov">          1 :                     (&quot;Unexpected character %s in request method&quot;,</span>
+<span class="lineNum">     213 </span><span class="lineCov">          1 :                         _chr_sanitize(*_parser-&gt;cur));</span>
+<span class="lineNum">     214 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     215 </span>            :             }
+<span class="lineNum">     216 </span><span class="lineCov">         23 :             _parser-&gt;cur++;</span>
+<span class="lineNum">     217 </span><span class="lineCov">         23 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_TARGET;</span>
+<span class="lineNum">     218 </span><span class="lineCov">         23 :             if (_parser-&gt;cur &gt;= _parser-&gt;end)</span>
+<span class="lineNum">     219 </span><span class="lineCov">         10 :                 return 0;</span>
+<span class="lineNum">     220 </span>            :             /* fall through */
+<span class="lineNum">     221 </span>            :         case HTTP_REQUEST_PARSE_STATE_TARGET:
+<span class="lineNum">     222 </span><span class="lineCov">        411 :             if ((ret=http_request_parse_target(parser)) &lt;= 0)</span>
+<span class="lineNum">     223 </span><span class="lineCov">        388 :                 return ret;</span>
+<span class="lineNum">     224 </span><span class="lineCov">         23 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_SP2;</span>
+<span class="lineNum">     225 </span><span class="lineCov">         23 :             if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     227 </span>            :             /* fall through */
+<span class="lineNum">     228 </span>            :         case HTTP_REQUEST_PARSE_STATE_SP2:
+<span class="lineNum">     229 </span><span class="lineCov">         23 :             if (*_parser-&gt;cur != ' ') {</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :                 parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :                 _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :                     (&quot;Unexpected character %s in request target&quot;,</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :                         _chr_sanitize(*_parser-&gt;cur));</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     235 </span>            :             }
+<span class="lineNum">     236 </span><span class="lineCov">         23 :             _parser-&gt;cur++;</span>
+<span class="lineNum">     237 </span><span class="lineCov">         23 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_VERSION;</span>
+<span class="lineNum">     238 </span><span class="lineCov">         23 :             if (_parser-&gt;cur &gt;= _parser-&gt;end)</span>
+<span class="lineNum">     239 </span><span class="lineCov">         10 :                 return 0;</span>
+<span class="lineNum">     240 </span>            :             /* fall through */
+<span class="lineNum">     241 </span>            :         case HTTP_REQUEST_PARSE_STATE_VERSION:
+<span class="lineNum">     242 </span><span class="lineCov">        163 :             if ((ret=http_message_parse_version(&amp;parser-&gt;parser)) &lt;= 0) {</span>
+<span class="lineNum">     243 </span><span class="lineCov">        141 :                 if (ret &lt; 0) {</span>
+<span class="lineNum">     244 </span><span class="lineCov">          1 :                     parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     245 </span><span class="lineCov">          1 :                     _parser-&gt;error = &quot;Invalid HTTP version in request&quot;;</span>
+<span class="lineNum">     246 </span>            :                 }
+<span class="lineNum">     247 </span><span class="lineCov">        141 :                 return ret;</span>
+<span class="lineNum">     248 </span>            :             }
+<span class="lineNum">     249 </span><span class="lineCov">         22 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_CR;</span>
+<span class="lineNum">     250 </span><span class="lineCov">         22 :             if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     251 </span><span class="lineCov">         10 :                 return 0;</span>
+<span class="lineNum">     252 </span>            :             /* fall through */
+<span class="lineNum">     253 </span>            :         case HTTP_REQUEST_PARSE_STATE_CR:
+<span class="lineNum">     254 </span><span class="lineCov">         22 :             if (*_parser-&gt;cur == '\r')</span>
+<span class="lineNum">     255 </span><span class="lineCov">         21 :                 _parser-&gt;cur++;</span>
+<span class="lineNum">     256 </span><span class="lineCov">         22 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_LF;</span>
+<span class="lineNum">     257 </span><span class="lineCov">         22 :             if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     258 </span><span class="lineCov">         10 :                 return 0;</span>
+<span class="lineNum">     259 </span>            :             /* fall through */
+<span class="lineNum">     260 </span>            :         case HTTP_REQUEST_PARSE_STATE_LF:
+<span class="lineNum">     261 </span><span class="lineCov">         22 :             if (*_parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     262 </span><span class="lineCov">          1 :                 parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     263 </span><span class="lineCov">          1 :                 _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     264 </span><span class="lineCov">          1 :                     (&quot;Unexpected character %s at end of request line&quot;,</span>
+<span class="lineNum">     265 </span><span class="lineCov">          1 :                         _chr_sanitize(*_parser-&gt;cur));</span>
+<span class="lineNum">     266 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     267 </span>            :             }
+<span class="lineNum">     268 </span><span class="lineCov">         21 :             _parser-&gt;cur++;</span>
+<span class="lineNum">     269 </span><span class="lineCov">         21 :             if (!parser-&gt;skipping_line) {</span>
+<span class="lineNum">     270 </span><span class="lineCov">         21 :                 parser-&gt;state = HTTP_REQUEST_PARSE_STATE_HEADER;</span>
+<span class="lineNum">     271 </span><span class="lineCov">         21 :                 return 1;</span>
+<span class="lineNum">     272 </span>            :             }
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :             parser-&gt;state = HTTP_REQUEST_PARSE_STATE_INIT;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     275 </span>            :         case HTTP_REQUEST_PARSE_STATE_HEADER:
+<span class="lineNum">     276 </span>            :         default:
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     278 </span>            :         }
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span>            :     i_unreached();
+<span class="lineNum">     282 </span>            :     return -1;
+<a name="283"><span class="lineNum">     283 </span>            : }</a>
+<span class="lineNum">     284 </span>            : 
+<span class="lineNum">     285 </span><span class="lineCov">        388 : static int http_request_parse_request_line(struct http_request_parser *parser,</span>
+<span class="lineNum">     286 </span>            :                        pool_t pool)
+<span class="lineNum">     287 </span>            : {
+<span class="lineNum">     288 </span><span class="lineCov">        388 :     struct http_message_parser *_parser = &amp;parser-&gt;parser;</span>
+<span class="lineNum">     289 </span>            :     const unsigned char *begin;
+<span class="lineNum">     290 </span><span class="lineCov">        388 :     size_t size, old_bytes = 0;</span>
+<span class="lineNum">     291 </span>            :     int ret;
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineCov">       1422 :     while ((ret = i_stream_read_bytes(_parser-&gt;input, &amp;begin, &amp;size,</span>
+<span class="lineNum">     294 </span>            :                       old_bytes + 1)) &gt; 0) {
+<span class="lineNum">     295 </span><span class="lineCov">        670 :         _parser-&gt;cur = begin;</span>
+<span class="lineNum">     296 </span><span class="lineCov">        670 :         _parser-&gt;end = _parser-&gt;cur + size;</span>
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineCov">        670 :         if ((ret = http_request_parse(parser, pool)) &lt; 0)</span>
+<span class="lineNum">     299 </span><span class="lineCov">          3 :             return -1;</span>
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineCov">        667 :         i_stream_skip(_parser-&gt;input, _parser-&gt;cur - begin);</span>
+<span class="lineNum">     302 </span><span class="lineCov">        667 :         if (ret &gt; 0)</span>
+<span class="lineNum">     303 </span><span class="lineCov">         21 :             return 1;</span>
+<span class="lineNum">     304 </span><span class="lineCov">        646 :         old_bytes = i_stream_get_data_size(_parser-&gt;input);</span>
+<span class="lineNum">     305 </span>            :     }
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineCov">        364 :     if (ret == -2) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         _parser-&gt;error = &quot;HTTP request line is too long&quot;;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     311 </span>            :     }
+<span class="lineNum">     312 </span><span class="lineCov">        364 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     313 </span><span class="lineCov">         22 :         if (_parser-&gt;input-&gt;eof &amp;&amp;</span>
+<span class="lineNum">     314 </span><span class="lineCov">         11 :         parser-&gt;state == HTTP_REQUEST_PARSE_STATE_INIT)</span>
+<span class="lineNum">     315 </span><span class="lineCov">         11 :             return 0;</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BROKEN_STREAM;</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         _parser-&gt;error = &quot;Broken stream&quot;;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     319 </span>            :     }
+<span class="lineNum">     320 </span><span class="lineCov">        353 :     return 0;</span>
+<span class="lineNum">     321 </span>            : }
+<a name="322"><span class="lineNum">     322 </span>            : </a>
+<span class="lineNum">     323 </span>            : static inline enum http_request_parse_error
+<span class="lineNum">     324 </span><span class="lineCov">          5 : http_request_parser_message_error(struct http_request_parser *parser)</span>
+<span class="lineNum">     325 </span>            : {
+<span class="lineNum">     326 </span><span class="lineCov">          5 :     switch (parser-&gt;parser.error_code) {</span>
+<span class="lineNum">     327 </span>            :     case HTTP_MESSAGE_PARSE_ERROR_BROKEN_STREAM:
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         return HTTP_REQUEST_PARSE_ERROR_BROKEN_STREAM;</span>
+<span class="lineNum">     329 </span>            :     case HTTP_MESSAGE_PARSE_ERROR_BAD_MESSAGE:
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         return HTTP_REQUEST_PARSE_ERROR_BAD_REQUEST;</span>
+<span class="lineNum">     331 </span>            :     case HTTP_MESSAGE_PARSE_ERROR_NOT_IMPLEMENTED:
+<span class="lineNum">     332 </span><span class="lineCov">          1 :         return HTTP_REQUEST_PARSE_ERROR_NOT_IMPLEMENTED;</span>
+<span class="lineNum">     333 </span>            :     case HTTP_MESSAGE_PARSE_ERROR_PAYLOAD_TOO_LARGE:
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         return HTTP_REQUEST_PARSE_ERROR_PAYLOAD_TOO_LARGE;</span>
+<span class="lineNum">     335 </span>            :     case HTTP_MESSAGE_PARSE_ERROR_BROKEN_MESSAGE:
+<span class="lineNum">     336 </span><span class="lineCov">          4 :         return HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;</span>
+<span class="lineNum">     337 </span>            :     default:
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     339 </span>            :     }
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<span class="lineNum">     341 </span>            :     return HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST;
+<a name="342"><span class="lineNum">     342 </span>            : }</a>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 : bool http_request_parser_pending_payload(</span>
+<span class="lineNum">     345 </span>            :     struct http_request_parser *parser)
+<span class="lineNum">     346 </span>            : {
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     if (parser-&gt;parser.payload == NULL)</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     return i_stream_have_bytes_left(parser-&gt;parser.payload);</span>
+<span class="lineNum">     350 </span>            : }
+<a name="351"><span class="lineNum">     351 </span>            : </a>
+<span class="lineNum">     352 </span>            : static int
+<span class="lineNum">     353 </span><span class="lineCov">          2 : http_request_parse_expect_header(struct http_request_parser *parser,</span>
+<span class="lineNum">     354 </span>            :     struct http_request *request, const struct http_header_field *hdr)
+<span class="lineNum">     355 </span>            : {
+<span class="lineNum">     356 </span><span class="lineCov">          2 :     struct http_message_parser *_parser = &amp;parser-&gt;parser;</span>
+<span class="lineNum">     357 </span>            :     struct http_parser hparser;
+<span class="lineNum">     358 </span><span class="lineCov">          2 :     bool parse_error = FALSE;</span>
+<span class="lineNum">     359 </span><span class="lineCov">          2 :     unsigned int num_expectations = 0;</span>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span>            :     /* RFC 7231, Section 5.1.1:
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span>            :        Expect  = &quot;100-continue&quot;
+<span class="lineNum">     364 </span>            :      */
+<span class="lineNum">     365 </span>            :     // FIXME: simplify; RFC 7231 discarded Expect extension mechanism
+<span class="lineNum">     366 </span><span class="lineCov">          2 :     http_parser_init(&amp;hparser, (const unsigned char *)hdr-&gt;value, hdr-&gt;size);</span>
+<span class="lineNum">     367 </span><span class="lineCov">          2 :     while (!parse_error) {</span>
+<span class="lineNum">     368 </span>            :         const char *expect_name, *expect_value;
+<span class="lineNum">     369 </span>            : 
+<span class="lineNum">     370 </span>            :         /* expect-name */
+<span class="lineNum">     371 </span><span class="lineCov">          2 :         if (http_parse_token(&amp;hparser, &amp;expect_name) &gt; 0) {</span>
+<span class="lineNum">     372 </span><span class="lineCov">          2 :             num_expectations++;</span>
+<span class="lineNum">     373 </span><span class="lineCov">          2 :             if (strcasecmp(expect_name, &quot;100-continue&quot;) == 0) {</span>
+<span class="lineNum">     374 </span><span class="lineCov">          1 :                 request-&gt;expect_100_continue = TRUE;</span>
+<span class="lineNum">     375 </span>            :             } else {
+<span class="lineNum">     376 </span><span class="lineCov">          1 :                 if (parser-&gt;error_code == HTTP_REQUEST_PARSE_ERROR_NONE) {</span>
+<span class="lineNum">     377 </span><span class="lineCov">          1 :                     parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_EXPECTATION_FAILED;</span>
+<span class="lineNum">     378 </span><span class="lineCov">          1 :                     _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     379 </span><span class="lineCov">          1 :                         (&quot;Unknown Expectation `%s'&quot;, expect_name);</span>
+<span class="lineNum">     380 </span>            :                 }
+<span class="lineNum">     381 </span>            :             }
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span>            :             /* BWS &quot;=&quot; BWS */
+<span class="lineNum">     384 </span><span class="lineCov">          2 :             http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     385 </span><span class="lineCov">          2 :             if (hparser.cur &gt;= hparser.end)</span>
+<span class="lineNum">     386 </span><span class="lineCov">          4 :                 break;</span>
+<span class="lineNum">     387 </span>            :             
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :             if (*hparser.cur == '=') {</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :                 hparser.cur++;</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :                 http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     391 </span>            : 
+<span class="lineNum">     392 </span>            :                 /* value */
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :                 if (http_parse_token_or_qstring(&amp;hparser, &amp;expect_value) &lt;= 0) {</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :                     parse_error = TRUE;</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     396 </span>            :                 }
+<span class="lineNum">     397 </span>            :         
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :                 if (parser-&gt;error_code == HTTP_REQUEST_PARSE_ERROR_NONE) {</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :                     parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_EXPECTATION_FAILED;</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :                     _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :                         (&quot;Expectation `%s' has unexpected value&quot;, expect_name);</span>
+<span class="lineNum">     402 </span>            :                 }
+<span class="lineNum">     403 </span>            :             }
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span>            :             /* *( OWS &quot;;&quot; [ OWS expect-param ] ) */
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :             while (!parse_error) {</span>
+<span class="lineNum">     407 </span>            :                 const char *attribute, *value;
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span>            :                 /* OWS &quot;;&quot; */
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :                 http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :                 if (hparser.cur &gt;= hparser.end || *hparser.cur != ';')</span>
+<span class="lineNum">     412 </span>            :                     break;
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :                 hparser.cur++;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :                 http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span>            :                 /* expect-param */
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :                 if (http_parse_token(&amp;hparser, &amp;attribute) &lt;= 0) {</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :                     parse_error = TRUE;</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     420 </span>            :                 }
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span>            :                 /* BWS &quot;=&quot; BWS */
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :                 http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :                 if (hparser.cur &gt;= hparser.end || *hparser.cur != '=') {</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :                     parse_error = TRUE;</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     427 </span>            :                 }
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :                 hparser.cur++;</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :                 http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span>            :                 /* value */
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :                 if (http_parse_token_or_qstring(&amp;hparser, &amp;value) &lt;= 0) {</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :                     parse_error = TRUE;</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     435 </span>            :                 }
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :                 if (parser-&gt;error_code == HTTP_REQUEST_PARSE_ERROR_NONE) {</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :                     parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_EXPECTATION_FAILED;</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :                     _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :                         (&quot;Expectation `%s' has unknown parameter `'%s'&quot;,</span>
+<span class="lineNum">     441 </span>            :                             expect_name, attribute);
+<span class="lineNum">     442 </span>            :                 }
+<span class="lineNum">     443 </span>            :             }
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :             if (parse_error)</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :                 break;      </span>
+<span class="lineNum">     446 </span>            :         }
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :         if (hparser.cur &gt;= hparser.end || *hparser.cur != ',')</span>
+<span class="lineNum">     449 </span>            :             break;
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         hparser.cur++;</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :         http_parse_ows(&amp;hparser);</span>
+<span class="lineNum">     452 </span>            :     }
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineCov">          2 :     if (parse_error || hparser.cur &lt; hparser.end) {</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BAD_REQUEST;</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :         _parser-&gt;error = &quot;Invalid Expect header&quot;;</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     458 </span>            :     }
+<span class="lineNum">     459 </span>            : 
+<span class="lineNum">     460 </span><span class="lineCov">          2 :     if (parser-&gt;error_code != HTTP_REQUEST_PARSE_ERROR_NONE)</span>
+<span class="lineNum">     461 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     462 </span>            : 
+<span class="lineNum">     463 </span><span class="lineCov">          1 :     if (num_expectations == 0) {</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_BAD_REQUEST;</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         _parser-&gt;error = &quot;Empty Expect header&quot;;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     467 </span>            :     }
+<span class="lineNum">     468 </span><span class="lineCov">          1 :     return 0;</span>
+<span class="lineNum">     469 </span>            : }
+<a name="470"><span class="lineNum">     470 </span>            : </a>
+<span class="lineNum">     471 </span>            : static int
+<span class="lineNum">     472 </span><span class="lineCov">         12 : http_request_parse_headers(struct http_request_parser *parser,</span>
+<span class="lineNum">     473 </span>            :     struct http_request *request)
+<span class="lineNum">     474 </span>            : {
+<span class="lineNum">     475 </span>            :     const ARRAY_TYPE(http_header_field) *hdrs;
+<span class="lineNum">     476 </span>            :     const struct http_header_field *hdr;
+<span class="lineNum">     477 </span>            :     
+<span class="lineNum">     478 </span><span class="lineCov">         12 :     hdrs = http_header_get_fields(parser-&gt;parser.msg.header);</span>
+<span class="lineNum">     479 </span><span class="lineCov">         32 :     array_foreach(hdrs, hdr) {</span>
+<span class="lineNum">     480 </span><span class="lineCov">         21 :         int ret = 0;</span>
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span>            :         /* Expect: */
+<span class="lineNum">     483 </span><span class="lineCov">         21 :         if (http_header_field_is(hdr, &quot;Expect&quot;))</span>
+<span class="lineNum">     484 </span><span class="lineCov">          2 :             ret = http_request_parse_expect_header(parser, request, hdr);</span>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineCov">         21 :         if (ret &lt; 0)</span>
+<span class="lineNum">     487 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     488 </span>            :     }
+<span class="lineNum">     489 </span><span class="lineCov">         11 :     return 0;</span>
+<a name="490"><span class="lineNum">     490 </span>            : }</a>
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span><span class="lineCov">        826 : int http_request_parse_finish_payload(</span>
+<span class="lineNum">     493 </span>            :     struct http_request_parser *parser,
+<span class="lineNum">     494 </span>            :     enum http_request_parse_error *error_code_r,
+<span class="lineNum">     495 </span>            :     const char **error_r)
+<span class="lineNum">     496 </span>            : {
+<span class="lineNum">     497 </span>            :     int ret;
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span><span class="lineCov">        826 :     *error_code_r = parser-&gt;error_code = HTTP_REQUEST_PARSE_ERROR_NONE;</span>
+<span class="lineNum">     500 </span><span class="lineCov">        826 :     *error_r = parser-&gt;parser.error = NULL;</span>
+<span class="lineNum">     501 </span>            : 
+<span class="lineNum">     502 </span>            :     /* make sure we finished streaming payload from previous request
+<span class="lineNum">     503 </span>            :        before we continue. */
+<span class="lineNum">     504 </span><span class="lineCov">        826 :     if ((ret = http_message_parse_finish_payload(&amp;parser-&gt;parser)) &lt;= 0) {</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :             *error_code_r = http_request_parser_message_error(parser);</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :             *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     508 </span>            :         }
+<span class="lineNum">     509 </span>            :     }
+<span class="lineNum">     510 </span><span class="lineCov">        826 :     return ret;</span>
+<a name="511"><span class="lineNum">     511 </span>            : }</a>
+<span class="lineNum">     512 </span>            : 
+<span class="lineNum">     513 </span><span class="lineCov">        826 : int http_request_parse_next(struct http_request_parser *parser,</span>
+<span class="lineNum">     514 </span>            :                 pool_t pool, struct http_request *request,
+<span class="lineNum">     515 </span>            :                 enum http_request_parse_error *error_code_r, const char **error_r)
+<span class="lineNum">     516 </span>            : {
+<span class="lineNum">     517 </span>            :     const struct http_header_field *hdr;
+<span class="lineNum">     518 </span>            :     const char *error;
+<span class="lineNum">     519 </span>            :     int ret;
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span>            :     /* initialize and get rid of any payload of previous request */
+<span class="lineNum">     522 </span><span class="lineCov">        826 :     if ((ret=http_request_parse_finish_payload</span>
+<span class="lineNum">     523 </span>            :         (parser, error_code_r, error_r)) &lt;= 0)
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     525 </span>            : 
+<span class="lineNum">     526 </span>            :     /* RFC 7230, Section 3:
+<span class="lineNum">     527 </span>            :         
+<span class="lineNum">     528 </span>            :        HTTP-message   = start-line
+<span class="lineNum">     529 </span>            :                        *( header-field CRLF )
+<span class="lineNum">     530 </span>            :                         CRLF
+<span class="lineNum">     531 </span>            :                         [ message-body ]
+<span class="lineNum">     532 </span>            :      */
+<span class="lineNum">     533 </span><span class="lineCov">        826 :     if (parser-&gt;state != HTTP_REQUEST_PARSE_STATE_HEADER) {</span>
+<span class="lineNum">     534 </span><span class="lineCov">        388 :         ret = http_request_parse_request_line(parser, pool);</span>
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span>            :         /* assign early for error reporting */
+<span class="lineNum">     537 </span><span class="lineCov">        388 :         request-&gt;method = parser-&gt;request_method;</span>
+<span class="lineNum">     538 </span><span class="lineCov">        388 :         request-&gt;target_raw = parser-&gt;request_target; </span>
+<span class="lineNum">     539 </span><span class="lineCov">        388 :         request-&gt;version_major = parser-&gt;parser.msg.version_major;</span>
+<span class="lineNum">     540 </span><span class="lineCov">        388 :         request-&gt;version_minor = parser-&gt;parser.msg.version_minor;</span>
+<span class="lineNum">     541 </span>            : 
+<span class="lineNum">     542 </span><span class="lineCov">        388 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">     543 </span><span class="lineCov">        367 :             if (ret &lt; 0) {</span>
+<span class="lineNum">     544 </span><span class="lineCov">          3 :                 *error_code_r = parser-&gt;error_code;</span>
+<span class="lineNum">     545 </span><span class="lineCov">          3 :                 *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     546 </span>            :             }
+<span class="lineNum">     547 </span><span class="lineCov">        367 :             return ret;</span>
+<span class="lineNum">     548 </span>            :         }
+<span class="lineNum">     549 </span>            :     }
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineCov">        459 :     if ((ret = http_message_parse_headers(&amp;parser-&gt;parser)) &lt;= 0) {</span>
+<span class="lineNum">     552 </span><span class="lineCov">        441 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     553 </span><span class="lineCov">          3 :             *error_code_r = http_request_parser_message_error(parser);</span>
+<span class="lineNum">     554 </span><span class="lineCov">          3 :             *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     555 </span>            :         }
+<span class="lineNum">     556 </span><span class="lineCov">        441 :         return ret;</span>
+<span class="lineNum">     557 </span>            :     }
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineCov">         18 :     if (http_message_parse_body(&amp;parser-&gt;parser, TRUE) &lt; 0) {</span>
+<span class="lineNum">     560 </span><span class="lineCov">          2 :         *error_code_r = http_request_parser_message_error(parser);</span>
+<span class="lineNum">     561 </span><span class="lineCov">          2 :         *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     562 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     563 </span>            :     }
+<span class="lineNum">     564 </span><span class="lineCov">         16 :     parser-&gt;state = HTTP_REQUEST_PARSE_STATE_INIT;</span>
+<span class="lineNum">     565 </span>            : 
+<span class="lineNum">     566 </span>            :     /* RFC 7230, Section 5.4: Host
+<span class="lineNum">     567 </span>            : 
+<span class="lineNum">     568 </span>            :        A server MUST respond with a 400 (Bad Request) status code to any
+<span class="lineNum">     569 </span>            :        HTTP/1.1 request message that lacks a Host header field and to any
+<span class="lineNum">     570 </span>            :        request message that contains more than one Host header field or a
+<span class="lineNum">     571 </span>            :        Host header field with an invalid field-value.
+<span class="lineNum">     572 </span>            :      */
+<span class="lineNum">     573 </span><span class="lineCov">         16 :     if ((ret=http_header_field_find_unique</span>
+<span class="lineNum">     574 </span><span class="lineCov">         16 :         (parser-&gt;parser.msg.header, &quot;Host&quot;, &amp;hdr)) &lt;= 0) {</span>
+<span class="lineNum">     575 </span><span class="lineCov">          1 :         *error_code_r = HTTP_REQUEST_PARSE_ERROR_BAD_REQUEST;</span>
+<span class="lineNum">     576 </span><span class="lineCov">          1 :         if (ret == 0)</span>
+<span class="lineNum">     577 </span><span class="lineCov">          1 :             *error_r = &quot;Missing Host header&quot;;</span>
+<span class="lineNum">     578 </span>            :         else
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :             *error_r = &quot;Duplicate Host header&quot;;</span>
+<span class="lineNum">     580 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     581 </span>            :     }
+<span class="lineNum">     582 </span>            : 
+<span class="lineNum">     583 </span><span class="lineCov">         15 :     i_zero(request);</span>
+<span class="lineNum">     584 </span>            : 
+<span class="lineNum">     585 </span><span class="lineCov">         15 :     pool = http_message_parser_get_pool(&amp;parser-&gt;parser);</span>
+<span class="lineNum">     586 </span><span class="lineCov">         15 :     if (http_url_request_target_parse(parser-&gt;request_target, hdr-&gt;value,</span>
+<span class="lineNum">     587 </span>            :         pool, &amp;request-&gt;target, &amp;error) &lt; 0) {
+<span class="lineNum">     588 </span><span class="lineCov">          3 :         *error_code_r = HTTP_REQUEST_PARSE_ERROR_BAD_REQUEST;</span>
+<span class="lineNum">     589 </span><span class="lineCov">          3 :         *error_r = t_strdup_printf(&quot;Bad request target `%s': %s&quot;,</span>
+<span class="lineNum">     590 </span>            :             parser-&gt;request_target, error);
+<span class="lineNum">     591 </span><span class="lineCov">          3 :         return -1;</span>
+<span class="lineNum">     592 </span>            :     }
+<span class="lineNum">     593 </span>            : 
+<span class="lineNum">     594 </span>            :     /* parse request-specific headers */
+<span class="lineNum">     595 </span><span class="lineCov">         12 :     if (http_request_parse_headers(parser, request) &lt; 0) {</span>
+<span class="lineNum">     596 </span><span class="lineCov">          1 :         *error_code_r = parser-&gt;error_code;</span>
+<span class="lineNum">     597 </span><span class="lineCov">          1 :         *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     598 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     599 </span>            :     }
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineCov">         11 :     request-&gt;method = parser-&gt;request_method;</span>
+<span class="lineNum">     602 </span><span class="lineCov">         11 :     request-&gt;target_raw = parser-&gt;request_target;</span>
+<span class="lineNum">     603 </span><span class="lineCov">         11 :     request-&gt;version_major = parser-&gt;parser.msg.version_major;</span>
+<span class="lineNum">     604 </span><span class="lineCov">         11 :     request-&gt;version_minor = parser-&gt;parser.msg.version_minor;</span>
+<span class="lineNum">     605 </span><span class="lineCov">         11 :     request-&gt;date = parser-&gt;parser.msg.date;</span>
+<span class="lineNum">     606 </span><span class="lineCov">         11 :     request-&gt;payload = parser-&gt;parser.payload;</span>
+<span class="lineNum">     607 </span><span class="lineCov">         11 :     request-&gt;header = parser-&gt;parser.msg.header;</span>
+<span class="lineNum">     608 </span><span class="lineCov">         11 :     request-&gt;connection_options = parser-&gt;parser.msg.connection_options;</span>
+<span class="lineNum">     609 </span><span class="lineCov">         11 :     request-&gt;connection_close = parser-&gt;parser.msg.connection_close;</span>
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span>            :     /* reset this state early */
+<span class="lineNum">     612 </span><span class="lineCov">         11 :     parser-&gt;request_method = NULL;</span>
+<span class="lineNum">     613 </span><span class="lineCov">         11 :     parser-&gt;request_target = NULL;</span>
+<span class="lineNum">     614 </span><span class="lineCov">         11 :     return 1;</span>
+<span class="lineNum">     615 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

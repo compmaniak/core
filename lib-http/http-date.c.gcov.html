@@ -1,0 +1,571 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-date.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-date.c<span style="font-size: 80%;"> (source / <a href="http-date.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">165</td>
+            <td class="headerCovTableEntry">182</td>
+            <td class="headerCovTableEntryHi">90.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntryHi">93.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;utc-mktime.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;http-date.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : /* RFC 7231, Section 7.1.1.1: Date/Time Formats 
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            :     The defined syntax is as follows:
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            :    HTTP-date    = IMF-fixdate / obs-date
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            :     Preferred format:
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            :    IMF-fixdate  = day-name &quot;,&quot; SP date1 SP time-of-day SP GMT
+<span class="lineNum">      19 </span>            :                 ; fixed length/zone/capitalization subset of the format
+<span class="lineNum">      20 </span>            :                 ; see Section 3.3 of [RFC5322]
+<span class="lineNum">      21 </span>            :    day-name     = %x4D.6F.6E ; &quot;Mon&quot;, case-sensitive
+<span class="lineNum">      22 </span>            :                 / %x54.75.65 ; &quot;Tue&quot;, case-sensitive
+<span class="lineNum">      23 </span>            :                 / %x57.65.64 ; &quot;Wed&quot;, case-sensitive
+<span class="lineNum">      24 </span>            :                 / %x54.68.75 ; &quot;Thu&quot;, case-sensitive
+<span class="lineNum">      25 </span>            :                 / %x46.72.69 ; &quot;Fri&quot;, case-sensitive
+<span class="lineNum">      26 </span>            :                 / %x53.61.74 ; &quot;Sat&quot;, case-sensitive
+<span class="lineNum">      27 </span>            :                 / %x53.75.6E ; &quot;Sun&quot;, case-sensitive
+<span class="lineNum">      28 </span>            :    date1        = day SP month SP year
+<span class="lineNum">      29 </span>            :                 ; e.g., 02 Jun 1982
+<span class="lineNum">      30 </span>            :    day          = 2DIGIT
+<span class="lineNum">      31 </span>            :    month        = %x4A.61.6E ; &quot;Jan&quot;, case-sensitive
+<span class="lineNum">      32 </span>            :                 / %x46.65.62 ; &quot;Feb&quot;, case-sensitive
+<span class="lineNum">      33 </span>            :                 / %x4D.61.72 ; &quot;Mar&quot;, case-sensitive
+<span class="lineNum">      34 </span>            :                 / %x41.70.72 ; &quot;Apr&quot;, case-sensitive
+<span class="lineNum">      35 </span>            :                 / %x4D.61.79 ; &quot;May&quot;, case-sensitive
+<span class="lineNum">      36 </span>            :                 / %x4A.75.6E ; &quot;Jun&quot;, case-sensitive
+<span class="lineNum">      37 </span>            :                 / %x4A.75.6C ; &quot;Jul&quot;, case-sensitive
+<span class="lineNum">      38 </span>            :                 / %x41.75.67 ; &quot;Aug&quot;, case-sensitive
+<span class="lineNum">      39 </span>            :                 / %x53.65.70 ; &quot;Sep&quot;, case-sensitive
+<span class="lineNum">      40 </span>            :                 / %x4F.63.74 ; &quot;Oct&quot;, case-sensitive
+<span class="lineNum">      41 </span>            :                 / %x4E.6F.76 ; &quot;Nov&quot;, case-sensitive
+<span class="lineNum">      42 </span>            :                 / %x44.65.63 ; &quot;Dec&quot;, case-sensitive
+<span class="lineNum">      43 </span>            :    year         = 4DIGIT
+<span class="lineNum">      44 </span>            :    GMT          = %x47.4D.54 ; &quot;GMT&quot;, case-sensitive
+<span class="lineNum">      45 </span>            :    time-of-day  = hour &quot;:&quot; minute &quot;:&quot; second
+<span class="lineNum">      46 </span>            :                 ; 00:00:00 - 23:59:60 (leap second)
+<span class="lineNum">      47 </span>            :    hour         = 2DIGIT
+<span class="lineNum">      48 </span>            :    minute       = 2DIGIT
+<span class="lineNum">      49 </span>            :    second       = 2DIGIT
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :   Obsolete formats:
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span>            :    obs-date     = rfc850-date / asctime-date
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :    rfc850-date  = day-name-l &quot;,&quot; SP date2 SP time-of-day SP GMT
+<span class="lineNum">      56 </span>            :    date2        = day &quot;-&quot; month &quot;-&quot; 2DIGIT
+<span class="lineNum">      57 </span>            :                 ; e.g., 02-Jun-82
+<span class="lineNum">      58 </span>            :    day-name-l   = %x4D.6F.6E.64.61.79    ; &quot;Monday&quot;, case-sensitive
+<span class="lineNum">      59 </span>            :                 / %x54.75.65.73.64.61.79       ; &quot;Tuesday&quot;, case-sensitive
+<span class="lineNum">      60 </span>            :                 / %x57.65.64.6E.65.73.64.61.79 ; &quot;Wednesday&quot;, case-sensitive
+<span class="lineNum">      61 </span>            :                 / %x54.68.75.72.73.64.61.79    ; &quot;Thursday&quot;, case-sensitive
+<span class="lineNum">      62 </span>            :                 / %x46.72.69.64.61.79          ; &quot;Friday&quot;, case-sensitive
+<span class="lineNum">      63 </span>            :                 / %x53.61.74.75.72.64.61.79    ; &quot;Saturday&quot;, case-sensitive
+<span class="lineNum">      64 </span>            :                 / %x53.75.6E.64.61.79          ; &quot;Sunday&quot;, case-sensitive
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span>            :    asctime-date = day-name SP date3 SP time-of-day SP year
+<span class="lineNum">      67 </span>            :    date3        = month SP ( 2DIGIT / ( SP 1DIGIT ))
+<span class="lineNum">      68 </span>            :                   ; e.g., Jun  2
+<span class="lineNum">      69 </span>            :  */
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span>            : static const char *month_names[] = {
+<span class="lineNum">      72 </span>            :     &quot;Jan&quot;, &quot;Feb&quot;, &quot;Mar&quot;, &quot;Apr&quot;, &quot;May&quot;, &quot;Jun&quot;,
+<span class="lineNum">      73 </span>            :     &quot;Jul&quot;, &quot;Aug&quot;, &quot;Sep&quot;, &quot;Oct&quot;, &quot;Nov&quot;, &quot;Dec&quot;
+<span class="lineNum">      74 </span>            : };
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span>            : static const char *weekday_names[] = {
+<span class="lineNum">      77 </span>            :     &quot;Sun&quot;, &quot;Mon&quot;, &quot;Tue&quot;, &quot;Wed&quot;, &quot;Thu&quot;, &quot;Fri&quot;, &quot;Sat&quot;
+<span class="lineNum">      78 </span>            : };
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span>            : static const char *weekday_names_long[] = {
+<span class="lineNum">      81 </span>            :     &quot;Sunday&quot;, &quot;Monday&quot;, &quot;Tuesday&quot;, &quot;Wednesday&quot;, &quot;Thursday&quot;, &quot;Friday&quot;, &quot;Saturday&quot;
+<span class="lineNum">      82 </span>            : };
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span>            : struct http_date_parser {
+<span class="lineNum">      85 </span>            :     const unsigned char *cur, *end;
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span>            :     struct tm tm;
+<span class="lineNum">      88 </span>            :     int timezone_offset;
+<span class="lineNum">      89 </span>            : };
+<a name="90"><span class="lineNum">      90 </span>            : </a>
+<span class="lineNum">      91 </span>            : static inline int
+<span class="lineNum">      92 </span><span class="lineCov">        260 : http_date_parse_sp(struct http_date_parser *parser)</span>
+<span class="lineNum">      93 </span>            : {
+<span class="lineNum">      94 </span><span class="lineCov">        260 :     if (parser-&gt;cur &gt;= parser-&gt;end)</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      96 </span><span class="lineCov">        260 :     if (parser-&gt;cur[0] != ' ')</span>
+<span class="lineNum">      97 </span><span class="lineCov">         11 :         return 0;</span>
+<span class="lineNum">      98 </span><span class="lineCov">        249 :     parser-&gt;cur++;</span>
+<span class="lineNum">      99 </span><span class="lineCov">        249 :     return 1;</span>
+<span class="lineNum">     100 </span>            : }
+<a name="101"><span class="lineNum">     101 </span>            : </a>
+<span class="lineNum">     102 </span>            : static inline int
+<span class="lineNum">     103 </span><span class="lineCov">        255 : http_date_parse_number(struct http_date_parser *parser,</span>
+<span class="lineNum">     104 </span>            :               int digits, int *number_r)
+<span class="lineNum">     105 </span>            : {
+<span class="lineNum">     106 </span>            :     int i;
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineCov">        255 :     if (parser-&gt;cur &gt;= parser-&gt;end || !i_isdigit(parser-&gt;cur[0]))</span>
+<span class="lineNum">     109 </span><span class="lineCov">          4 :         return 0;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">        251 :     *number_r = parser-&gt;cur[0] - '0';</span>
+<span class="lineNum">     112 </span><span class="lineCov">        251 :     parser-&gt;cur++;</span>
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineCov">        578 :     for (i=0; i &lt; digits-1; i++) {</span>
+<span class="lineNum">     115 </span><span class="lineCov">        328 :         if (parser-&gt;cur &gt;= parser-&gt;end || !i_isdigit(parser-&gt;cur[0]))</span>
+<span class="lineNum">     116 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     117 </span><span class="lineCov">        327 :         *number_r = ((*number_r) * 10) + parser-&gt;cur[0] - '0';</span>
+<span class="lineNum">     118 </span><span class="lineCov">        327 :         parser-&gt;cur++;</span>
+<span class="lineNum">     119 </span>            :     }
+<span class="lineNum">     120 </span><span class="lineCov">        250 :     return 1;</span>
+<span class="lineNum">     121 </span>            : }
+<a name="122"><span class="lineNum">     122 </span>            : </a>
+<span class="lineNum">     123 </span>            : static inline int
+<span class="lineNum">     124 </span><span class="lineCov">        174 : http_date_parse_word(struct http_date_parser *parser,</span>
+<span class="lineNum">     125 </span>            :               int maxchars, string_t **word_r)
+<span class="lineNum">     126 </span>            : {
+<span class="lineNum">     127 </span>            :     string_t *word;
+<span class="lineNum">     128 </span>            :     int i;
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineCov">        174 :     if (parser-&gt;cur &gt;= parser-&gt;end || !i_isalpha(parser-&gt;cur[0]))</span>
+<span class="lineNum">     131 </span><span class="lineCov">          3 :         return 0;</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineCov">        171 :     word = t_str_new(maxchars);</span>
+<span class="lineNum">     134 </span><span class="lineCov">        171 :     str_append_c(word, parser-&gt;cur[0]);</span>
+<span class="lineNum">     135 </span><span class="lineCov">        171 :     parser-&gt;cur++;</span>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineCov">        566 :     for (i=0; i &lt; maxchars-1; i++) {</span>
+<span class="lineNum">     138 </span><span class="lineCov">        469 :         if (parser-&gt;cur &gt;= parser-&gt;end || !i_isalpha(parser-&gt;cur[0]))</span>
+<span class="lineNum">     139 </span>            :             break;
+<span class="lineNum">     140 </span><span class="lineCov">        395 :         str_append_c(word, parser-&gt;cur[0]);</span>
+<span class="lineNum">     141 </span><span class="lineCov">        395 :         parser-&gt;cur++;</span>
+<span class="lineNum">     142 </span>            :     }
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineCov">        171 :     if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; i_isalpha(parser-&gt;cur[0]))</span>
+<span class="lineNum">     145 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     146 </span><span class="lineCov">        167 :     *word_r = word;</span>
+<span class="lineNum">     147 </span><span class="lineCov">        167 :     return 1;</span>
+<span class="lineNum">     148 </span>            : }
+<a name="149"><span class="lineNum">     149 </span>            : </a>
+<span class="lineNum">     150 </span>            : static inline int
+<span class="lineNum">     151 </span><span class="lineCov">         43 : http_date_parse_year(struct http_date_parser *parser)</span>
+<span class="lineNum">     152 </span>            : {
+<span class="lineNum">     153 </span>            :     /* year = 4DIGIT */
+<span class="lineNum">     154 </span><span class="lineCov">         43 :     if (http_date_parse_number(parser, 4, &amp;parser-&gt;tm.tm_year) &lt;= 0)</span>
+<span class="lineNum">     155 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     156 </span><span class="lineCov">         42 :     if (parser-&gt;tm.tm_year &lt; 1900)</span>
+<span class="lineNum">     157 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     158 </span><span class="lineCov">         41 :     parser-&gt;tm.tm_year -= 1900;</span>
+<span class="lineNum">     159 </span><span class="lineCov">         41 :     return 1;</span>
+<span class="lineNum">     160 </span>            : }
+<a name="161"><span class="lineNum">     161 </span>            : </a>
+<span class="lineNum">     162 </span>            : static inline int
+<span class="lineNum">     163 </span><span class="lineCov">         66 : http_date_parse_month(struct http_date_parser *parser)</span>
+<span class="lineNum">     164 </span>            : {
+<span class="lineNum">     165 </span>            :     string_t *month;
+<span class="lineNum">     166 </span>            :     int i;
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineCov">         66 :     if (http_date_parse_word(parser, 3, &amp;month) &lt;= 0 || str_len(month) != 3)</span>
+<span class="lineNum">     169 </span><span class="lineCov">          5 :         return -1;</span>
+<span class="lineNum">     170 </span>            :     
+<span class="lineNum">     171 </span><span class="lineCov">        504 :     for (i = 0; i &lt; 12; i++) {</span>
+<span class="lineNum">     172 </span><span class="lineCov">        499 :         if (strcmp(month_names[i], str_c(month)) == 0) {</span>
+<span class="lineNum">     173 </span><span class="lineCov">         56 :             break;</span>
+<span class="lineNum">     174 </span>            :         }
+<span class="lineNum">     175 </span>            :     }
+<span class="lineNum">     176 </span><span class="lineCov">         61 :     if (i &gt;= 12)</span>
+<span class="lineNum">     177 </span><span class="lineCov">          5 :         return -1;</span>
+<span class="lineNum">     178 </span>            :     
+<span class="lineNum">     179 </span><span class="lineCov">         56 :     parser-&gt;tm.tm_mon = i;</span>
+<span class="lineNum">     180 </span><span class="lineCov">         56 :     return 1;</span>
+<span class="lineNum">     181 </span>            : }
+<a name="182"><span class="lineNum">     182 </span>            : </a>
+<span class="lineNum">     183 </span>            : static inline int
+<span class="lineNum">     184 </span><span class="lineCov">         58 : http_date_parse_day(struct http_date_parser *parser)</span>
+<span class="lineNum">     185 </span>            : {
+<span class="lineNum">     186 </span>            :     /* day = 2DIGIT */
+<span class="lineNum">     187 </span><span class="lineCov">         58 :     if (http_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_mday) &lt;= 0)</span>
+<span class="lineNum">     188 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     189 </span><span class="lineCov">         57 :     return 1;</span>
+<span class="lineNum">     190 </span>            : }
+<a name="191"><span class="lineNum">     191 </span>            : </a>
+<span class="lineNum">     192 </span>            : static int
+<span class="lineNum">     193 </span><span class="lineCov">         51 : http_date_parse_time_of_day(struct http_date_parser *parser)</span>
+<span class="lineNum">     194 </span>            : {
+<span class="lineNum">     195 </span>            :     /* time-of-day  = hour &quot;:&quot; minute &quot;:&quot; second
+<span class="lineNum">     196 </span>            :                       ; 00:00:00 - 23:59:59
+<span class="lineNum">     197 </span>            :          hour         = 2DIGIT
+<span class="lineNum">     198 </span>            :          minute       = 2DIGIT
+<span class="lineNum">     199 </span>            :          second       = 2DIGIT
+<span class="lineNum">     200 </span>            :      */
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span>            :     /* hour = 2DIGIT */
+<span class="lineNum">     203 </span><span class="lineCov">         51 :     if (http_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_hour) &lt;= 0)</span>
+<span class="lineNum">     204 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span>            :     /* &quot;:&quot; */
+<span class="lineNum">     207 </span><span class="lineCov">         49 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != ':')</span>
+<span class="lineNum">     208 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     209 </span><span class="lineCov">         45 :     parser-&gt;cur++;</span>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span>            :     /* minute = 2DIGIT */
+<span class="lineNum">     212 </span><span class="lineCov">         45 :     if (http_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_min) &lt;= 0)</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span>            :     /* &quot;:&quot; */
+<span class="lineNum">     216 </span><span class="lineCov">         45 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != ':')</span>
+<span class="lineNum">     217 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     218 </span><span class="lineCov">         41 :     parser-&gt;cur++;</span>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span>            :     /* second = 2DIGIT */
+<span class="lineNum">     221 </span><span class="lineCov">         41 :     if (http_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_sec) &lt;= 0)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     223 </span><span class="lineCov">         41 :     return 1;</span>
+<span class="lineNum">     224 </span>            : }
+<a name="225"><span class="lineNum">     225 </span>            : </a>
+<span class="lineNum">     226 </span>            : static inline int
+<span class="lineNum">     227 </span><span class="lineCov">         45 : http_date_parse_time_gmt(struct http_date_parser *parser)</span>
+<span class="lineNum">     228 </span>            : {
+<span class="lineNum">     229 </span>            :     string_t *gmt;
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span>            :     /* Remaining:    {...} SP time-of-day SP GMT
+<span class="lineNum">     232 </span>            :      */
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span>            :     /* SP time-of-day */
+<span class="lineNum">     235 </span><span class="lineCov">         45 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     236 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     237 </span><span class="lineCov">         43 :     if (http_date_parse_time_of_day(parser) &lt;= 0)</span>
+<span class="lineNum">     238 </span><span class="lineCov">          7 :         return -1;</span>
+<span class="lineNum">     239 </span>            : 
+<span class="lineNum">     240 </span>            :     /* SP GMT */
+<span class="lineNum">     241 </span><span class="lineCov">         36 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     242 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     243 </span><span class="lineCov">         66 :     if (http_date_parse_word(parser, 3, &amp;gmt) &lt;= 0 ||</span>
+<span class="lineNum">     244 </span><span class="lineCov">         32 :         strcmp(&quot;GMT&quot;, str_c(gmt)) != 0)</span>
+<span class="lineNum">     245 </span><span class="lineCov">          5 :         return -1;</span>
+<span class="lineNum">     246 </span><span class="lineCov">         29 :     return 1;</span>
+<span class="lineNum">     247 </span>            : }
+<a name="248"><span class="lineNum">     248 </span>            : </a>
+<span class="lineNum">     249 </span>            : static int
+<span class="lineNum">     250 </span><span class="lineCov">         49 : http_date_parse_format_imf_fixdate(struct http_date_parser *parser)</span>
+<span class="lineNum">     251 </span>            : {
+<span class="lineNum">     252 </span>            :     /*
+<span class="lineNum">     253 </span>            :      IMF-fixdate  = day-name &quot;,&quot; SP date1 SP time-of-day SP GMT
+<span class="lineNum">     254 </span>            :                     ; fixed length/zone/capitalization subset of the format
+<span class="lineNum">     255 </span>            :                     ; see Section 3.3 of [RFC5322]
+<span class="lineNum">     256 </span>            :      date1        = day SP month SP year
+<span class="lineNum">     257 </span>            :                   ; e.g., 02 Jun 1982
+<span class="lineNum">     258 </span>            :      
+<span class="lineNum">     259 </span>            :      Remaining:      {...} SP day SP month SP year SP time-of-day SP GMT
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span>            :      */
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span>            :     /* SP day */
+<span class="lineNum">     264 </span><span class="lineCov">         49 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     266 </span><span class="lineCov">         49 :     if (http_date_parse_day(parser) &lt;= 0)</span>
+<span class="lineNum">     267 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span>            :     /* SP month */
+<span class="lineNum">     270 </span><span class="lineCov">         48 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     271 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     272 </span><span class="lineCov">         46 :     if (http_date_parse_month(parser) &lt;= 0)</span>
+<span class="lineNum">     273 </span><span class="lineCov">          7 :         return -1;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span>            :     /* SP year */
+<span class="lineNum">     276 </span><span class="lineCov">         39 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     278 </span><span class="lineCov">         39 :     if (http_date_parse_year(parser) &lt;= 0)</span>
+<span class="lineNum">     279 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span>            :     /* SP time-of-day SP GMT */
+<span class="lineNum">     282 </span><span class="lineCov">         38 :     return http_date_parse_time_gmt(parser);</span>
+<span class="lineNum">     283 </span>            : }
+<a name="284"><span class="lineNum">     284 </span>            : </a>
+<span class="lineNum">     285 </span>            : static int
+<span class="lineNum">     286 </span><span class="lineCov">         11 : http_date_parse_format_rfc850(struct http_date_parser *parser)</span>
+<span class="lineNum">     287 </span>            : {
+<span class="lineNum">     288 </span>            :     /* 
+<span class="lineNum">     289 </span>            :      rfc850-date  = day-name-l &quot;,&quot; SP date2 SP time-of-day SP GMT
+<span class="lineNum">     290 </span>            :      date2        = day &quot;-&quot; month &quot;-&quot; 2DIGIT
+<span class="lineNum">     291 </span>            :                       ; day-month-year (e.g., 02-Jun-82)
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span>            :      Remaining: &quot;,&quot; SP day &quot;-&quot; month &quot;-&quot; 2DIGIT SP time-of-day SP GMT
+<span class="lineNum">     294 </span>            :      */
+<span class="lineNum">     295 </span>            : 
+<span class="lineNum">     296 </span>            :     /* &quot;,&quot; SP */
+<span class="lineNum">     297 </span><span class="lineCov">         11 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != ',')</span>
+<span class="lineNum">     298 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     299 </span><span class="lineCov">          9 :     parser-&gt;cur++;</span>
+<span class="lineNum">     300 </span><span class="lineCov">          9 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span>            :     /* day */
+<span class="lineNum">     304 </span><span class="lineCov">          9 :     if (http_date_parse_day(parser) &lt;= 0)</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         return -1;  </span>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span>            :     /* &quot;-&quot; */
+<span class="lineNum">     308 </span><span class="lineCov">          9 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != '-')</span>
+<span class="lineNum">     309 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     310 </span><span class="lineCov">          8 :     parser-&gt;cur++;</span>
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span>            :     /* month */
+<span class="lineNum">     313 </span><span class="lineCov">          8 :     if (http_date_parse_month(parser) &lt;= 0)</span>
+<span class="lineNum">     314 </span><span class="lineCov">          1 :         return -1;  </span>
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span>            :     /* &quot;-&quot; */
+<span class="lineNum">     317 </span><span class="lineCov">          7 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != '-')</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     319 </span><span class="lineCov">          7 :     parser-&gt;cur++;</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span>            :     /* 2DIGIT */
+<span class="lineNum">     322 </span><span class="lineCov">          7 :     if (http_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_year) &lt;= 0)</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     324 </span><span class="lineCov">          7 :     if (parser-&gt;tm.tm_year &lt; 70)</span>
+<span class="lineNum">     325 </span><span class="lineCov">          6 :         parser-&gt;tm.tm_year += 100;</span>
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span>            :     /* SP time-of-day SP GMT */
+<span class="lineNum">     328 </span><span class="lineCov">          7 :     return http_date_parse_time_gmt(parser);</span>
+<span class="lineNum">     329 </span>            : }
+<a name="330"><span class="lineNum">     330 </span>            : </a>
+<span class="lineNum">     331 </span>            : static int
+<span class="lineNum">     332 </span><span class="lineCov">         12 : http_date_parse_format_asctime(struct http_date_parser *parser)</span>
+<span class="lineNum">     333 </span>            : {
+<span class="lineNum">     334 </span>            :     int ret;
+<span class="lineNum">     335 </span>            : 
+<span class="lineNum">     336 </span>            :     /*
+<span class="lineNum">     337 </span>            :      asctime-date = day-name SP date3 SP time-of-day SP year
+<span class="lineNum">     338 </span>            :      date3        = month SP ( 2DIGIT / ( SP 1DIGIT ))
+<span class="lineNum">     339 </span>            :                       ; month day (e.g., Jun  2)
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span>            :      Remaining: {...} month SP ( 2DIGIT / ( SP 1DIGIT )) SP time-of-day SP year
+<span class="lineNum">     342 </span>            :     */
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span>            :     /* month */
+<span class="lineNum">     345 </span><span class="lineCov">         12 :     if (http_date_parse_month(parser) &lt;= 0)</span>
+<span class="lineNum">     346 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span>            :     /* SP */
+<span class="lineNum">     349 </span><span class="lineCov">         10 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span>            :     /* SP 1DIGIT / 2DIGIT */
+<span class="lineNum">     353 </span><span class="lineCov">         10 :     if ((ret=http_date_parse_sp(parser)) &lt; 0)</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     355 </span><span class="lineCov">         10 :     if (ret == 0) {</span>
+<span class="lineNum">     356 </span><span class="lineCov">          3 :         if (http_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_mday) &lt;= 0)</span>
+<span class="lineNum">     357 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     358 </span>            :     } else {
+<span class="lineNum">     359 </span><span class="lineCov">          7 :         if (http_date_parse_number(parser, 1, &amp;parser-&gt;tm.tm_mday) &lt;= 0)</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     361 </span>            :     }
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span>            :     /* SP time-of-day */
+<span class="lineNum">     364 </span><span class="lineCov">          9 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     365 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     366 </span><span class="lineCov">          8 :     if (http_date_parse_time_of_day(parser) &lt;= 0)</span>
+<span class="lineNum">     367 </span><span class="lineCov">          3 :         return -1;</span>
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span>            :     /* SP year */
+<span class="lineNum">     370 </span><span class="lineCov">          5 :     if (http_date_parse_sp(parser) &lt;= 0)</span>
+<span class="lineNum">     371 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineCov">          4 :     return http_date_parse_year(parser);</span>
+<span class="lineNum">     374 </span>            : }
+<a name="375"><span class="lineNum">     375 </span>            : </a>
+<span class="lineNum">     376 </span>            : static int
+<span class="lineNum">     377 </span><span class="lineCov">         74 : http_date_parse_format_any(struct http_date_parser *parser)</span>
+<span class="lineNum">     378 </span>            : {
+<span class="lineNum">     379 </span>            :     string_t *dayname;
+<span class="lineNum">     380 </span>            :     int i;
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span>            :     /*
+<span class="lineNum">     383 </span>            :      HTTP-date    = IMF-fixdate / obs-date
+<span class="lineNum">     384 </span>            :      IMF-fixdate  = day-name &quot;,&quot; SP date1 SP time-of-day SP GMT
+<span class="lineNum">     385 </span>            :                     ; fixed length/zone/capitalization subset of the format
+<span class="lineNum">     386 </span>            :                     ; see Section 3.3 of [RFC5322]
+<span class="lineNum">     387 </span>            :      obs-date     = rfc850-date / asctime-date
+<span class="lineNum">     388 </span>            :      rfc850-date  = day-name-l &quot;,&quot; SP date2 SP time-of-day SP GMT
+<span class="lineNum">     389 </span>            :      asctime-date = day-name SP date3 SP time-of-day SP year
+<span class="lineNum">     390 </span>            :      */
+<span class="lineNum">     391 </span>            : 
+<span class="lineNum">     392 </span><span class="lineCov">         74 :     if (http_date_parse_word(parser, 9, &amp;dayname) &lt;= 0)</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     394 </span>            :     
+<span class="lineNum">     395 </span><span class="lineCov">         74 :     if (str_len(dayname) &gt; 3) {</span>
+<span class="lineNum">     396 </span>            :         /* rfc850-date */
+<span class="lineNum">     397 </span><span class="lineCov">         50 :         for (i = 0; i &lt; 7; i++) {</span>
+<span class="lineNum">     398 </span><span class="lineCov">         50 :             if (strcmp(weekday_names_long[i], str_c(dayname)) == 0) {</span>
+<span class="lineNum">     399 </span><span class="lineCov">         11 :                 break;</span>
+<span class="lineNum">     400 </span>            :             }
+<span class="lineNum">     401 </span>            :         }
+<span class="lineNum">     402 </span><span class="lineCov">         11 :         if (i &gt;= 7)</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     404 </span><span class="lineCov">         11 :         return http_date_parse_format_rfc850(parser);</span>
+<span class="lineNum">     405 </span>            :     }
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span>            :     /* IMF-fixdate / asctime-date */
+<span class="lineNum">     408 </span><span class="lineCov">        133 :     for (i = 0; i &lt; 7; i++) {</span>
+<span class="lineNum">     409 </span><span class="lineCov">        132 :         if (strcmp(weekday_names[i], str_c(dayname)) == 0) {</span>
+<span class="lineNum">     410 </span><span class="lineCov">         62 :             break;</span>
+<span class="lineNum">     411 </span>            :         }
+<span class="lineNum">     412 </span>            :     }
+<span class="lineNum">     413 </span>            : 
+<span class="lineNum">     414 </span><span class="lineCov">         63 :     if (i &gt;= 7 || parser-&gt;cur &gt;= parser-&gt;end)</span>
+<span class="lineNum">     415 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineCov">         62 :     if (parser-&gt;cur[0] == ' ') {</span>
+<span class="lineNum">     418 </span>            :         /* asctime-date */
+<span class="lineNum">     419 </span><span class="lineCov">         12 :         parser-&gt;cur++;</span>
+<span class="lineNum">     420 </span><span class="lineCov">         12 :         return http_date_parse_format_asctime(parser);</span>
+<span class="lineNum">     421 </span>            :     }
+<span class="lineNum">     422 </span>            : 
+<span class="lineNum">     423 </span><span class="lineCov">         50 :     if (parser-&gt;cur[0] != ',')</span>
+<span class="lineNum">     424 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     425 </span>            : 
+<span class="lineNum">     426 </span>            :     /* IMF-fixdate */
+<span class="lineNum">     427 </span><span class="lineCov">         49 :     parser-&gt;cur++;</span>
+<span class="lineNum">     428 </span><span class="lineCov">         49 :     return http_date_parse_format_imf_fixdate(parser);</span>
+<a name="429"><span class="lineNum">     429 </span>            : }</a>
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span><span class="lineCov">         74 : bool http_date_parse(const unsigned char *data, size_t size,</span>
+<span class="lineNum">     432 </span>            :             time_t *timestamp_r)
+<span class="lineNum">     433 </span>            : {
+<span class="lineNum">     434 </span>            :     struct http_date_parser parser;
+<span class="lineNum">     435 </span>            :     time_t timestamp;
+<span class="lineNum">     436 </span>            :     
+<span class="lineNum">     437 </span><span class="lineCov">         74 :     i_zero(&amp;parser);</span>
+<span class="lineNum">     438 </span><span class="lineCov">         74 :     parser.cur = data;</span>
+<span class="lineNum">     439 </span><span class="lineCov">         74 :     parser.end = data + size;</span>
+<span class="lineNum">     440 </span>            : 
+<span class="lineNum">     441 </span><span class="lineCov">         74 :     if (http_date_parse_format_any(&amp;parser) &lt;= 0)</span>
+<span class="lineNum">     442 </span><span class="lineCov">         42 :         return FALSE;</span>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineCov">         32 :     if (parser.cur != parser.end)</span>
+<span class="lineNum">     445 </span><span class="lineCov">          1 :         return FALSE;</span>
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineCov">         31 :     parser.tm.tm_isdst = -1;</span>
+<span class="lineNum">     448 </span><span class="lineCov">         31 :     timestamp = utc_mktime(&amp;parser.tm);</span>
+<span class="lineNum">     449 </span><span class="lineCov">         31 :     if (timestamp == (time_t)-1)</span>
+<span class="lineNum">     450 </span><span class="lineCov">          4 :         return FALSE;</span>
+<span class="lineNum">     451 </span>            : 
+<span class="lineNum">     452 </span><span class="lineCov">         27 :     *timestamp_r = timestamp;</span>
+<span class="lineNum">     453 </span><span class="lineCov">         27 :     return TRUE;</span>
+<a name="454"><span class="lineNum">     454 </span>            : }</a>
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineCov">         59 : bool http_date_parse_tm(const unsigned char *data, size_t size,</span>
+<span class="lineNum">     457 </span>            :                struct tm *tm_r)
+<span class="lineNum">     458 </span>            : {
+<span class="lineNum">     459 </span>            :     time_t timestamp;
+<span class="lineNum">     460 </span>            :     struct tm *tm;
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span><span class="lineCov">         59 :     if (!http_date_parse(data, size, &amp;timestamp))</span>
+<span class="lineNum">     463 </span><span class="lineCov">         43 :         return FALSE;</span>
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span><span class="lineCov">         16 :     tm = gmtime(&amp;timestamp);</span>
+<span class="lineNum">     466 </span><span class="lineCov">         16 :     *tm_r = *tm;</span>
+<span class="lineNum">     467 </span><span class="lineCov">         16 :     return TRUE;</span>
+<a name="468"><span class="lineNum">     468 </span>            : }</a>
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span><span class="lineCov">         16 : const char *http_date_create_tm(struct tm *tm)</span>
+<span class="lineNum">     471 </span>            : {
+<span class="lineNum">     472 </span><span class="lineCov">         64 :     return t_strdup_printf(&quot;%s, %02d %s %04d %02d:%02d:%02d GMT&quot;,</span>
+<span class="lineNum">     473 </span><span class="lineCov">         16 :                    weekday_names[tm-&gt;tm_wday],</span>
+<span class="lineNum">     474 </span>            :                    tm-&gt;tm_mday,
+<span class="lineNum">     475 </span><span class="lineCov">         16 :                    month_names[tm-&gt;tm_mon],</span>
+<span class="lineNum">     476 </span><span class="lineCov">         16 :                    tm-&gt;tm_year+1900,</span>
+<span class="lineNum">     477 </span>            :                    tm-&gt;tm_hour, tm-&gt;tm_min, tm-&gt;tm_sec);
+<a name="478"><span class="lineNum">     478 </span>            : }</a>
+<span class="lineNum">     479 </span>            : 
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 : const char *http_date_create(time_t timestamp)</span>
+<span class="lineNum">     481 </span>            : {
+<span class="lineNum">     482 </span>            :     struct tm *tm;
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     tm = gmtime(&amp;timestamp);</span>
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :     return http_date_create_tm(tm);</span>
+<span class="lineNum">     486 </span>            : }
+<span class="lineNum">     487 </span>            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

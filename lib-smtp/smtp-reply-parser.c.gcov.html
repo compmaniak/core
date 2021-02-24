@@ -1,0 +1,715 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-smtp/smtp-reply-parser.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-smtp</a> - smtp-reply-parser.c<span style="font-size: 80%;"> (source / <a href="smtp-reply-parser.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">249</td>
+            <td class="headerCovTableEntry">282</td>
+            <td class="headerCovTableEntryMed">88.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntryHi">93.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;strfuncs.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;smtp-parser.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #include &quot;smtp-reply-parser.h&quot;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : /* From RFC 5321:
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            :    Reply-line     = *( Reply-code &quot;-&quot; [ textstring ] CRLF )
+<span class="lineNum">      17 </span>            :                       Reply-code [ SP textstring ] CRLF
+<span class="lineNum">      18 </span>            :    Reply-code     = %x32-35 %x30-35 %x30-39
+<span class="lineNum">      19 </span>            :    textstring     = 1*(%d09 / %d32-126) ; HT, SP, Printable US-ASCII
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            :    Greeting       = ( &quot;220 &quot; (Domain / address-literal)
+<span class="lineNum">      22 </span>            :                       [ SP textstring ] CRLF ) /
+<span class="lineNum">      23 </span>            :                     ( &quot;220-&quot; (Domain / address-literal)
+<span class="lineNum">      24 </span>            :                         [ SP textstring ] CRLF
+<span class="lineNum">      25 </span>            :                       *( &quot;220-&quot; [ textstring ] CRLF )
+<span class="lineNum">      26 </span>            :                         &quot;220&quot; [ SP textstring ] CRLF )
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            :    ehlo-ok-rsp    = ( &quot;250&quot; SP Domain [ SP ehlo-greet ] CRLF )
+<span class="lineNum">      29 </span>            :                     / ( &quot;250-&quot; Domain [ SP ehlo-greet ] CRLF
+<span class="lineNum">      30 </span>            :                       *( &quot;250-&quot; ehlo-line CRLF )
+<span class="lineNum">      31 </span>            :                     &quot;250&quot; SP ehlo-line CRLF )
+<span class="lineNum">      32 </span>            :    ehlo-greet     = 1*(%d0-9 / %d11-12 / %d14-127)
+<span class="lineNum">      33 </span>            :                     ; string of any characters other than CR or LF
+<span class="lineNum">      34 </span>            :    ehlo-line      = ehlo-keyword *( SP ehlo-param )
+<span class="lineNum">      35 </span>            :    ehlo-keyword   = (ALPHA / DIGIT) *(ALPHA / DIGIT / &quot;-&quot;)
+<span class="lineNum">      36 </span>            :                     ; additional syntax of ehlo-params depends on
+<span class="lineNum">      37 </span>            :                     ; ehlo-keyword
+<span class="lineNum">      38 </span>            :    ehlo-param     = 1*(%d33-126)
+<span class="lineNum">      39 </span>            :                     ; any CHAR excluding &lt;SP&gt; and all
+<span class="lineNum">      40 </span>            :                     ; control characters (US-ASCII 0-31 and 127
+<span class="lineNum">      41 </span>            :                     ; inclusive)
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            :    From RFC 2034:
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            :    status-code  ::= class &quot;.&quot; subject &quot;.&quot; detail
+<span class="lineNum">      46 </span>            :    class        ::= &quot;2&quot; / &quot;4&quot; / &quot;5&quot;
+<span class="lineNum">      47 </span>            :    subject      ::= 1*3digit
+<span class="lineNum">      48 </span>            :    detail       ::= 1*3digit
+<span class="lineNum">      49 </span>            :  */
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            : enum smtp_reply_parser_state {
+<span class="lineNum">      52 </span>            :     SMTP_REPLY_PARSE_STATE_INIT = 0,
+<span class="lineNum">      53 </span>            :     SMTP_REPLY_PARSE_STATE_CODE,
+<span class="lineNum">      54 </span>            :     SMTP_REPLY_PARSE_STATE_SEP,
+<span class="lineNum">      55 </span>            :     SMTP_REPLY_PARSE_STATE_TEXT,
+<span class="lineNum">      56 </span>            :     SMTP_REPLY_PARSE_STATE_EHLO_SPACE,
+<span class="lineNum">      57 </span>            :     SMTP_REPLY_PARSE_STATE_EHLO_GREET,
+<span class="lineNum">      58 </span>            :     SMTP_REPLY_PARSE_STATE_CR,
+<span class="lineNum">      59 </span>            :     SMTP_REPLY_PARSE_STATE_CRLF,
+<span class="lineNum">      60 </span>            :     SMTP_REPLY_PARSE_STATE_LF
+<span class="lineNum">      61 </span>            : };
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span>            : struct smtp_reply_parser_state_data {
+<span class="lineNum">      64 </span>            :     enum smtp_reply_parser_state state;
+<span class="lineNum">      65 </span>            :     unsigned int line;
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span>            :     struct smtp_reply *reply;
+<span class="lineNum">      68 </span>            :     ARRAY_TYPE(const_string) reply_lines;
+<span class="lineNum">      69 </span>            :     size_t reply_size;
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span>            :     bool last_line:1;
+<span class="lineNum">      72 </span>            : };
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span>            : struct smtp_reply_parser {
+<span class="lineNum">      75 </span>            :     struct istream *input;
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :     size_t max_reply_size;
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span>            :     const unsigned char *begin, *cur, *end;
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span>            :     string_t *strbuf;
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            :     struct smtp_reply_parser_state_data state;
+<span class="lineNum">      84 </span>            :     pool_t reply_pool;
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            :     char *error;
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span>            :     bool enhanced_codes:1;
+<span class="lineNum">      89 </span>            :     bool ehlo:1;
+<span class="lineNum">      90 </span>            : };
+<a name="91"><span class="lineNum">      91 </span>            : </a>
+<span class="lineNum">      92 </span>            : static inline void ATTR_FORMAT(2, 3)
+<span class="lineNum">      93 </span><span class="lineCov">         11 : smtp_reply_parser_error(struct smtp_reply_parser *parser,</span>
+<span class="lineNum">      94 </span>            :             const char *format, ...)
+<span class="lineNum">      95 </span>            : {
+<span class="lineNum">      96 </span>            :     va_list args;
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineCov">         11 :     i_free(parser-&gt;error);</span>
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineCov">         11 :     va_start(args, format);</span>
+<span class="lineNum">     101 </span><span class="lineCov">         11 :     parser-&gt;error = i_strdup_vprintf(format, args);</span>
+<span class="lineNum">     102 </span><span class="lineCov">         11 :     va_end(args);</span>
+<span class="lineNum">     103 </span><span class="lineCov">         11 : }</span>
+<a name="104"><span class="lineNum">     104 </span>            : </a>
+<span class="lineNum">     105 </span>            : struct smtp_reply_parser *
+<span class="lineNum">     106 </span><span class="lineCov">         20 : smtp_reply_parser_init(struct istream *input, size_t max_reply_size)</span>
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span>            :     struct smtp_reply_parser *parser;
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span><span class="lineCov">         20 :     parser = i_new(struct smtp_reply_parser, 1);</span>
+<span class="lineNum">     111 </span><span class="lineCov">         20 :     parser-&gt;max_reply_size =</span>
+<span class="lineNum">     112 </span><span class="lineCov">         20 :         (max_reply_size &gt; 0 ? max_reply_size : (size_t)-1);</span>
+<span class="lineNum">     113 </span><span class="lineCov">         20 :     parser-&gt;input = input;</span>
+<span class="lineNum">     114 </span><span class="lineCov">         20 :     i_stream_ref(input);</span>
+<span class="lineNum">     115 </span><span class="lineCov">         20 :     parser-&gt;strbuf = str_new(default_pool, 128);</span>
+<span class="lineNum">     116 </span><span class="lineCov">         20 :     return parser;</span>
+<a name="117"><span class="lineNum">     117 </span>            : }</a>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineCov">         20 : void smtp_reply_parser_deinit(struct smtp_reply_parser **_parser)</span>
+<span class="lineNum">     120 </span>            : {
+<span class="lineNum">     121 </span><span class="lineCov">         20 :     struct smtp_reply_parser *parser = *_parser;</span>
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineCov">         20 :     *_parser = NULL;</span>
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineCov">         20 :     str_free(&amp;parser-&gt;strbuf);</span>
+<span class="lineNum">     126 </span><span class="lineCov">         20 :     pool_unref(&amp;parser-&gt;reply_pool);</span>
+<span class="lineNum">     127 </span><span class="lineCov">         20 :     i_stream_unref(&amp;parser-&gt;input);</span>
+<span class="lineNum">     128 </span><span class="lineCov">         20 :     i_free(parser-&gt;error);</span>
+<span class="lineNum">     129 </span><span class="lineCov">         20 :     i_free(parser);</span>
+<a name="130"><span class="lineNum">     130 </span><span class="lineCov">         20 : }</span></a>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 : void smtp_reply_parser_set_stream(struct smtp_reply_parser *parser,</span>
+<span class="lineNum">     133 </span>            :                   struct istream *input)
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;parser-&gt;input);</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     if (input != NULL) {</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         parser-&gt;input = input;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         i_stream_ref(parser-&gt;input);</span>
+<span class="lineNum">     139 </span>            :     }
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 : }</span>
+<a name="141"><span class="lineNum">     141 </span>            : </a>
+<span class="lineNum">     142 </span>            : static void
+<span class="lineNum">     143 </span><span class="lineCov">         20 : smtp_reply_parser_restart(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     144 </span>            : {
+<span class="lineNum">     145 </span><span class="lineCov">         20 :     str_truncate(parser-&gt;strbuf, 0);</span>
+<span class="lineNum">     146 </span><span class="lineCov">         20 :     pool_unref(&amp;parser-&gt;reply_pool);</span>
+<span class="lineNum">     147 </span><span class="lineCov">         20 :     i_zero(&amp;parser-&gt;state);</span>
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineCov">         20 :     parser-&gt;reply_pool = pool_alloconly_create(&quot;smtp_reply&quot;, 256);</span>
+<span class="lineNum">     150 </span><span class="lineCov">         20 :     parser-&gt;state.reply = p_new(parser-&gt;reply_pool, struct smtp_reply, 1);</span>
+<span class="lineNum">     151 </span><span class="lineCov">         20 :     p_array_init(&amp;parser-&gt;state.reply_lines, parser-&gt;reply_pool, 8);</span>
+<span class="lineNum">     152 </span>            : 
+<a name="153"><span class="lineNum">     153 </span><span class="lineCov">         20 : }</span></a>
+<span class="lineNum">     154 </span>            : 
+<span class="lineNum">     155 </span><span class="lineCov">         29 : static int smtp_reply_parse_code</span>
+<span class="lineNum">     156 </span>            : (struct smtp_reply_parser *parser, unsigned int *code_r)
+<span class="lineNum">     157 </span>            : {
+<span class="lineNum">     158 </span><span class="lineCov">         29 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     159 </span>            :     const unsigned char *p;
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span>            :     /* Reply-code     = %x32-35 %x30-35 %x30-39
+<span class="lineNum">     162 </span>            :      */
+<span class="lineNum">     163 </span><span class="lineCov">        144 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; i_isdigit(*parser-&gt;cur))</span>
+<span class="lineNum">     164 </span><span class="lineCov">         86 :         parser-&gt;cur++;</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineCov">         29 :     if (str_len(parser-&gt;strbuf) + (parser-&gt;cur-first) &gt; 3)</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span><span class="lineCov">         29 :     str_append_n(parser-&gt;strbuf, first, parser-&gt;cur - first);</span>
+<span class="lineNum">     170 </span><span class="lineCov">         29 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     172 </span><span class="lineCov">         29 :     if (str_len(parser-&gt;strbuf) != 3)</span>
+<span class="lineNum">     173 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     174 </span><span class="lineCov">         28 :     p = str_data(parser-&gt;strbuf);</span>
+<span class="lineNum">     175 </span><span class="lineCov">         28 :     if (p[0] &lt; '2' || p[0] &gt; '5' || p[1] &gt; '5')</span>
+<span class="lineNum">     176 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     177 </span><span class="lineCov">         26 :     *code_r = (p[0] - '0')*100 + (p[1] - '0')*10 + (p[2] - '0');</span>
+<span class="lineNum">     178 </span><span class="lineCov">         26 :     str_truncate(parser-&gt;strbuf, 0);</span>
+<span class="lineNum">     179 </span><span class="lineCov">         26 :     return 1;</span>
+<a name="180"><span class="lineNum">     180 </span>            : }</a>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineCov">         19 : static int smtp_reply_parse_textstring(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     183 </span>            : {
+<span class="lineNum">     184 </span><span class="lineCov">         19 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span>            :     /* textstring = 1*(%d09 / %d32-126) ; HT, SP, Printable US-ASCII
+<span class="lineNum">     187 </span>            :      */
+<span class="lineNum">     188 </span><span class="lineCov">        376 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; smtp_char_is_textstr(*parser-&gt;cur))</span>
+<span class="lineNum">     189 </span><span class="lineCov">        338 :         parser-&gt;cur++;</span>
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineCov">         57 :     if (((parser-&gt;cur-first) + parser-&gt;state.reply_size +</span>
+<span class="lineNum">     192 </span><span class="lineCov">         38 :         str_len(parser-&gt;strbuf)) &gt; parser-&gt;max_reply_size) {</span>
+<span class="lineNum">     193 </span><span class="lineCov">          1 :         smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     194 </span>            :             &quot;Reply exceeds size limit&quot;);
+<span class="lineNum">     195 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     196 </span>            :     }
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineCov">         18 :     str_append_n(parser-&gt;strbuf, first, parser-&gt;cur - first);</span>
+<span class="lineNum">     199 </span><span class="lineCov">         18 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     201 </span><span class="lineCov">         18 :     return 1;</span>
+<a name="202"><span class="lineNum">     202 </span>            : }</a>
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineCov">          4 : static int smtp_reply_parse_ehlo_domain(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     205 </span>            : {
+<span class="lineNum">     206 </span><span class="lineCov">          4 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span>            :     /* Domain [ SP ...
+<span class="lineNum">     209 </span>            :      */
+<span class="lineNum">     210 </span><span class="lineCov">        126 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; *parser-&gt;cur != ' ' &amp;&amp;</span>
+<span class="lineNum">     211 </span><span class="lineCov">         59 :         smtp_char_is_textstr(*parser-&gt;cur))</span>
+<span class="lineNum">     212 </span><span class="lineCov">         59 :         parser-&gt;cur++;</span>
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineCov">         12 :     if (((parser-&gt;cur-first) + parser-&gt;state.reply_size +</span>
+<span class="lineNum">     215 </span><span class="lineCov">          8 :         str_len(parser-&gt;strbuf)) &gt; parser-&gt;max_reply_size) {</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :         smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     217 </span>            :             &quot;Reply exceeds size limit&quot;);
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span><span class="lineCov">          4 :     str_append_n(parser-&gt;strbuf, first, parser-&gt;cur - first);</span>
+<span class="lineNum">     221 </span><span class="lineCov">          4 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     223 </span><span class="lineCov">          4 :     return 1;</span>
+<a name="224"><span class="lineNum">     224 </span>            : }</a>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineCov">          4 : static int smtp_reply_parse_ehlo_greet(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     227 </span>            : {
+<span class="lineNum">     228 </span><span class="lineCov">          4 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span>            :     /* ehlo-greet     = 1*(%d0-9 / %d11-12 / %d14-127)
+<span class="lineNum">     231 </span>            :      *
+<span class="lineNum">     232 </span>            :      * The greet is not supposed to be empty, but we don't really care
+<span class="lineNum">     233 </span>            :      */
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineCov">          4 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     237 </span><span class="lineCov">          4 :     if (smtp_char_is_ehlo_greet(*parser-&gt;cur)) {</span>
+<span class="lineNum">     238 </span>            :         for (;;) {
+<span class="lineNum">     239 </span><span class="lineCov">        191 :             while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp;</span>
+<span class="lineNum">     240 </span><span class="lineCov">         92 :                 smtp_char_is_textstr(*parser-&gt;cur))</span>
+<span class="lineNum">     241 </span><span class="lineCov">         85 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineCov">         21 :             if (((parser-&gt;cur-first) + parser-&gt;state.reply_size +</span>
+<span class="lineNum">     244 </span><span class="lineCov">          7 :                 str_len(parser-&gt;strbuf)) &gt;</span>
+<span class="lineNum">     245 </span><span class="lineCov">          7 :                 parser-&gt;max_reply_size) {</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :                 smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     247 </span>            :                     &quot;Reply exceeds size limit&quot;);
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     249 </span>            :             }
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span>            :             /* sanitize bad characters */
+<span class="lineNum">     252 </span><span class="lineCov">          7 :             str_append_n(parser-&gt;strbuf,</span>
+<span class="lineNum">     253 </span><span class="lineCov">          7 :                 first, parser-&gt;cur - first);</span>
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span><span class="lineCov">          7 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     257 </span><span class="lineCov">          7 :             if (!smtp_char_is_ehlo_greet(*parser-&gt;cur))</span>
+<span class="lineNum">     258 </span><span class="lineCov">          4 :                 break;</span>
+<span class="lineNum">     259 </span><span class="lineCov">          3 :             str_append_c(parser-&gt;strbuf, ' ');</span>
+<span class="lineNum">     260 </span><span class="lineCov">          3 :             parser-&gt;cur++;</span>
+<span class="lineNum">     261 </span><span class="lineCov">          3 :             first = parser-&gt;cur;</span>
+<span class="lineNum">     262 </span><span class="lineCov">          3 :         }</span>
+<span class="lineNum">     263 </span>            :     }
+<span class="lineNum">     264 </span><span class="lineCov">          4 :     return 1;</span>
+<a name="265"><span class="lineNum">     265 </span>            : }</a>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineCov">          4 : static inline const char *_chr_sanitize(unsigned char c)</span>
+<span class="lineNum">     268 </span>            : {
+<span class="lineNum">     269 </span><span class="lineCov">          4 :     if (c &gt;= 0x20 &amp;&amp; c &lt; 0x7F)</span>
+<span class="lineNum">     270 </span><span class="lineCov">          1 :         return t_strdup_printf(&quot;'%c'&quot;, c);</span>
+<span class="lineNum">     271 </span><span class="lineCov">          3 :     return t_strdup_printf(&quot;0x%02x&quot;, c);</span>
+<span class="lineNum">     272 </span>            : }
+<a name="273"><span class="lineNum">     273 </span>            : </a>
+<span class="lineNum">     274 </span>            : static void
+<span class="lineNum">     275 </span><span class="lineCov">          3 : smtp_reply_parse_enhanced_code(struct smtp_reply_parser *parser,</span>
+<span class="lineNum">     276 </span>            :     const char **pos)
+<span class="lineNum">     277 </span>            : {
+<span class="lineNum">     278 </span><span class="lineCov">          3 :     const char *p = *pos;</span>
+<span class="lineNum">     279 </span>            :     unsigned int digits, x, y, z;
+<span class="lineNum">     280 </span><span class="lineCov">          3 :     unsigned int prevx = parser-&gt;state.reply-&gt;enhanced_code.x,</span>
+<span class="lineNum">     281 </span><span class="lineCov">          3 :         prevy = parser-&gt;state.reply-&gt;enhanced_code.y,</span>
+<span class="lineNum">     282 </span><span class="lineCov">          3 :         prevz = parser-&gt;state.reply-&gt;enhanced_code.z;</span>
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineCov">          3 :     if (prevx == 9)</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         return; /* failed on earlier line */</span>
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineCov">          3 :     parser-&gt;state.reply-&gt;enhanced_code.x = 9;</span>
+<span class="lineNum">     288 </span><span class="lineCov">          3 :     parser-&gt;state.reply-&gt;enhanced_code.y = 0;</span>
+<span class="lineNum">     289 </span><span class="lineCov">          3 :     parser-&gt;state.reply-&gt;enhanced_code.z = 0;</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span>            :     /* status-code ::= class &quot;.&quot; subject &quot;.&quot; detail
+<span class="lineNum">     292 </span>            :        class       ::= &quot;2&quot; / &quot;4&quot; / &quot;5&quot;
+<span class="lineNum">     293 </span>            :        subject     ::= 1*3digit
+<span class="lineNum">     294 </span>            :        detail      ::= 1*3digit
+<span class="lineNum">     295 </span>            :     */
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span>            :     /* class */
+<span class="lineNum">     298 </span><span class="lineCov">          3 :     if (p[1] != '.' || (p[0] != '2' &amp;&amp; p[0] != '4' &amp;&amp; p[0] != '5'))</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     300 </span><span class="lineCov">          3 :     x = p[0] - '0';</span>
+<span class="lineNum">     301 </span><span class="lineCov">          3 :     p += 2;</span>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span>            :     /* subject */
+<span class="lineNum">     304 </span><span class="lineCov">          3 :     digits = 0;</span>
+<span class="lineNum">     305 </span><span class="lineCov">          3 :     y = 0;</span>
+<span class="lineNum">     306 </span><span class="lineCov">          9 :     while (*p != '\0' &amp;&amp; i_isdigit(*p) &amp;&amp; digits++ &lt; 3) {</span>
+<span class="lineNum">     307 </span><span class="lineCov">          3 :         y = y*10 + (*p - '0');</span>
+<span class="lineNum">     308 </span><span class="lineCov">          3 :         p++;</span>
+<span class="lineNum">     309 </span>            :     }
+<span class="lineNum">     310 </span><span class="lineCov">          3 :     if (digits == 0 || *p != '.')</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     312 </span><span class="lineCov">          3 :     p++;</span>
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span>            :     /* detail */
+<span class="lineNum">     315 </span><span class="lineCov">          3 :     digits = 0;</span>
+<span class="lineNum">     316 </span><span class="lineCov">          3 :     z = 0;</span>
+<span class="lineNum">     317 </span><span class="lineCov">          9 :     while (*p != '\0' &amp;&amp; i_isdigit(*p) &amp;&amp; digits++ &lt; 3) {</span>
+<span class="lineNum">     318 </span><span class="lineCov">          3 :         z = z*10 + (*p - '0');</span>
+<span class="lineNum">     319 </span><span class="lineCov">          3 :         p++;</span>
+<span class="lineNum">     320 </span>            :     }
+<span class="lineNum">     321 </span><span class="lineCov">          3 :     if (digits == 0 || (*p != ' ' &amp;&amp; *p != '\r' &amp;&amp; *p != '\n'))</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     323 </span><span class="lineCov">          3 :     p++;</span>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span>            :     /* code is syntactically valid; strip code from textstring */
+<span class="lineNum">     326 </span><span class="lineCov">          3 :     *pos = p;</span>
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span>            :     /* check for match with status */
+<span class="lineNum">     329 </span><span class="lineCov">          3 :     if (x != parser-&gt;state.reply-&gt;status / 100) {</span>
+<span class="lineNum">     330 </span>            :         /* ignore code */
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     332 </span>            :     }
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span>            :     /* check for code consistency */
+<span class="lineNum">     335 </span><span class="lineCov">          3 :     if (parser-&gt;state.line &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     336 </span><span class="lineCov">          1 :         (prevx != x || prevy != y || prevz != z)) {</span>
+<span class="lineNum">     337 </span>            :         /* ignore code */
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     339 </span>            :     }
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineCov">          3 :     parser-&gt;state.reply-&gt;enhanced_code.x = x;</span>
+<span class="lineNum">     342 </span><span class="lineCov">          3 :     parser-&gt;state.reply-&gt;enhanced_code.y = y;</span>
+<span class="lineNum">     343 </span><span class="lineCov">          3 :     parser-&gt;state.reply-&gt;enhanced_code.z = z;</span>
+<a name="344"><span class="lineNum">     344 </span>            : }</a>
+<span class="lineNum">     345 </span>            : 
+<span class="lineNum">     346 </span><span class="lineCov">         18 : static void smtp_reply_parser_finish_line(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     347 </span>            : {
+<span class="lineNum">     348 </span><span class="lineCov">         18 :     const char *text = str_c(parser-&gt;strbuf);</span>
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineCov">         18 :     if (parser-&gt;enhanced_codes &amp;&amp; str_len(parser-&gt;strbuf) &gt; 5) {</span>
+<span class="lineNum">     351 </span><span class="lineCov">          3 :         smtp_reply_parse_enhanced_code(parser, &amp;text);</span>
+<span class="lineNum">     352 </span>            :     }
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span><span class="lineCov">         18 :     parser-&gt;state.line++;</span>
+<span class="lineNum">     355 </span><span class="lineCov">         18 :     parser-&gt;state.reply_size += str_len(parser-&gt;strbuf);</span>
+<span class="lineNum">     356 </span><span class="lineCov">         18 :     text = p_strdup(parser-&gt;reply_pool, text);</span>
+<span class="lineNum">     357 </span><span class="lineCov">         18 :     array_append(&amp;parser-&gt;state.reply_lines, &amp;text, 1);</span>
+<span class="lineNum">     358 </span><span class="lineCov">         18 :     str_truncate(parser-&gt;strbuf, 0);</span>
+<a name="359"><span class="lineNum">     359 </span><span class="lineCov">         18 : }</span></a>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineCov">         38 : static int smtp_reply_parse_more(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     362 </span>            : {
+<span class="lineNum">     363 </span>            :     unsigned int status;
+<span class="lineNum">     364 </span>            :     int ret;
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span>            :     /*
+<span class="lineNum">     367 </span>            :        Reply-line     = *( Reply-code &quot;-&quot; [ textstring ] CRLF )
+<span class="lineNum">     368 </span>            :                          Reply-code [ SP textstring ] CRLF
+<span class="lineNum">     369 </span>            :        Reply-code     = %x32-35 %x30-35 %x30-39
+<span class="lineNum">     370 </span>            : 
+<span class="lineNum">     371 </span>            :        ehlo-ok-rsp    = ( &quot;250&quot; SP Domain [ SP ehlo-greet ] CRLF )
+<span class="lineNum">     372 </span>            :                          / ( &quot;250-&quot; Domain [ SP ehlo-greet ] CRLF
+<span class="lineNum">     373 </span>            :                           *( &quot;250-&quot; ehlo-line CRLF )
+<span class="lineNum">     374 </span>            :                          &quot;250&quot; SP ehlo-line CRLF )
+<span class="lineNum">     375 </span>            :      */
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span>            :     for (;;) {
+<span class="lineNum">     378 </span><span class="lineCov">         38 :         switch (parser-&gt;state.state) {</span>
+<span class="lineNum">     379 </span>            :         case SMTP_REPLY_PARSE_STATE_INIT:
+<span class="lineNum">     380 </span><span class="lineCov">         20 :             smtp_reply_parser_restart(parser);</span>
+<span class="lineNum">     381 </span><span class="lineCov">         20 :             parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_CODE;</span>
+<span class="lineNum">     382 </span>            :             /* fall through */
+<span class="lineNum">     383 </span>            :         /* Reply-code */
+<span class="lineNum">     384 </span>            :         case SMTP_REPLY_PARSE_STATE_CODE:
+<span class="lineNum">     385 </span><span class="lineCov">         29 :             if ((ret=smtp_reply_parse_code(parser, &amp;status)) &lt;= 0) {</span>
+<span class="lineNum">     386 </span><span class="lineCov">          3 :                 if (ret &lt; 0) {</span>
+<span class="lineNum">     387 </span><span class="lineCov">          3 :                     smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     388 </span>            :                         &quot;Invalid status code in reply&quot;);
+<span class="lineNum">     389 </span>            :                 }
+<span class="lineNum">     390 </span><span class="lineCov">          3 :                 return ret;</span>
+<span class="lineNum">     391 </span>            :             }
+<span class="lineNum">     392 </span><span class="lineCov">         26 :             if (parser-&gt;state.line == 0) {</span>
+<span class="lineNum">     393 </span><span class="lineCov">         17 :                 parser-&gt;state.reply-&gt;status = status;</span>
+<span class="lineNum">     394 </span><span class="lineCov">          9 :             } else if (status != parser-&gt;state.reply-&gt;status) {</span>
+<span class="lineNum">     395 </span><span class="lineCov">          1 :                 smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     396 </span>            :                     &quot;Inconsistent status codes in reply&quot;);
+<span class="lineNum">     397 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     398 </span>            :             }
+<span class="lineNum">     399 </span><span class="lineCov">         25 :             parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_SEP;</span>
+<span class="lineNum">     400 </span><span class="lineCov">         25 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     402 </span>            :             /* fall through */
+<span class="lineNum">     403 </span>            :         /* &quot;-&quot; / SP / CRLF */
+<span class="lineNum">     404 </span>            :         case SMTP_REPLY_PARSE_STATE_SEP:
+<span class="lineNum">     405 </span><span class="lineCov">         25 :             switch (*parser-&gt;cur) {</span>
+<span class="lineNum">     406 </span>            :             /* &quot;-&quot; [ textstring ] CRLF */
+<span class="lineNum">     407 </span>            :             case '-': 
+<span class="lineNum">     408 </span><span class="lineCov">          9 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     409 </span><span class="lineCov">          9 :                 parser-&gt;state.last_line = FALSE;</span>
+<span class="lineNum">     410 </span><span class="lineCov">          9 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     411 </span>            :                     SMTP_REPLY_PARSE_STATE_TEXT;
+<span class="lineNum">     412 </span><span class="lineCov">          9 :                 break;</span>
+<span class="lineNum">     413 </span>            :             /* SP [ textstring ] CRLF ; allow missing text */
+<span class="lineNum">     414 </span>            :             case ' ': 
+<span class="lineNum">     415 </span><span class="lineCov">         14 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     416 </span><span class="lineCov">         14 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     417 </span>            :                     SMTP_REPLY_PARSE_STATE_TEXT;
+<span class="lineNum">     418 </span><span class="lineCov">         14 :                 parser-&gt;state.last_line = TRUE;</span>
+<span class="lineNum">     419 </span><span class="lineCov">         14 :                 break;</span>
+<span class="lineNum">     420 </span>            :             /* CRLF */
+<span class="lineNum">     421 </span>            :             case '\r': 
+<span class="lineNum">     422 </span>            :             case '\n':
+<span class="lineNum">     423 </span><span class="lineCov">          1 :                 parser-&gt;state.last_line = TRUE;</span>
+<span class="lineNum">     424 </span><span class="lineCov">          1 :                 parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_CR;</span>
+<span class="lineNum">     425 </span><span class="lineCov">          1 :                 break;</span>
+<span class="lineNum">     426 </span>            :             default:
+<span class="lineNum">     427 </span><span class="lineCov">          1 :                 smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     428 </span>            :                     &quot;Encountered unexpected %s after reply status code&quot;,
+<span class="lineNum">     429 </span><span class="lineCov">          1 :                     _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     430 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     431 </span>            :             }
+<span class="lineNum">     432 </span><span class="lineCov">         24 :             if (parser-&gt;state.state != SMTP_REPLY_PARSE_STATE_TEXT)</span>
+<span class="lineNum">     433 </span><span class="lineCov">          1 :                 break;</span>
+<span class="lineNum">     434 </span>            :             /* fall through */
+<span class="lineNum">     435 </span>            :         /* textstring / (Domain [ SP ehlo-greet ]) */
+<span class="lineNum">     436 </span>            :         case SMTP_REPLY_PARSE_STATE_TEXT:
+<span class="lineNum">     437 </span><span class="lineCov">         34 :             if (parser-&gt;ehlo &amp;&amp;</span>
+<span class="lineNum">     438 </span><span class="lineCov">         21 :                 parser-&gt;state.reply-&gt;status == 250 &amp;&amp;</span>
+<span class="lineNum">     439 </span><span class="lineCov">         10 :                 parser-&gt;state.line == 0) {</span>
+<span class="lineNum">     440 </span>            :                 /* handle first line of EHLO success response
+<span class="lineNum">     441 </span>            :                    differently because it can contain control
+<span class="lineNum">     442 </span>            :                    characters (WHY??!) */
+<span class="lineNum">     443 </span><span class="lineCov">          4 :                 if ((ret=smtp_reply_parse_ehlo_domain(parser)) &lt;= 0)</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :                     return ret;</span>
+<span class="lineNum">     445 </span><span class="lineCov">          4 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     446 </span>            :                     SMTP_REPLY_PARSE_STATE_EHLO_SPACE;
+<span class="lineNum">     447 </span><span class="lineCov">          4 :                 if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :                     return 0;</span>
+<span class="lineNum">     449 </span><span class="lineCov">          4 :                 break;</span>
+<span class="lineNum">     450 </span>            :             }
+<span class="lineNum">     451 </span><span class="lineCov">         19 :             if ((ret=smtp_reply_parse_textstring(parser)) &lt;= 0)</span>
+<span class="lineNum">     452 </span><span class="lineCov">          1 :                 return ret;</span>
+<span class="lineNum">     453 </span><span class="lineCov">         18 :             parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_CR;</span>
+<span class="lineNum">     454 </span><span class="lineCov">         18 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     456 </span>            :             /* fall through */
+<span class="lineNum">     457 </span>            :         /* CR */
+<span class="lineNum">     458 </span>            :         case SMTP_REPLY_PARSE_STATE_CR:
+<span class="lineNum">     459 </span><span class="lineCov">         23 :             if (*parser-&gt;cur == '\r') {</span>
+<span class="lineNum">     460 </span><span class="lineCov">         20 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     461 </span><span class="lineCov">         20 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     462 </span>            :                     SMTP_REPLY_PARSE_STATE_CRLF;
+<span class="lineNum">     463 </span>            :             } else {
+<span class="lineNum">     464 </span><span class="lineCov">          3 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     465 </span>            :                     SMTP_REPLY_PARSE_STATE_LF;
+<span class="lineNum">     466 </span>            :             }
+<span class="lineNum">     467 </span><span class="lineCov">         23 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     468 </span><span class="lineCov">          1 :                 return 0;</span>
+<span class="lineNum">     469 </span>            :             /* fall through */
+<span class="lineNum">     470 </span>            :         /* CRLF / LF */
+<span class="lineNum">     471 </span>            :         case SMTP_REPLY_PARSE_STATE_CRLF:
+<span class="lineNum">     472 </span>            :         case SMTP_REPLY_PARSE_STATE_LF:
+<span class="lineNum">     473 </span><span class="lineCov">         22 :             if (*parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     474 </span><span class="lineCov">          4 :                 if (parser-&gt;state.state ==</span>
+<span class="lineNum">     475 </span>            :                     SMTP_REPLY_PARSE_STATE_CRLF) {
+<span class="lineNum">     476 </span><span class="lineCov">          1 :                     smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     477 </span>            :                         &quot;Encountered stray CR in reply text&quot;);
+<span class="lineNum">     478 </span>            :                 } else {
+<span class="lineNum">     479 </span><span class="lineCov">          3 :                     smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     480 </span>            :                         &quot;Encountered stray %s in reply text&quot;,
+<span class="lineNum">     481 </span><span class="lineCov">          3 :                         _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     482 </span>            :                 }
+<span class="lineNum">     483 </span><span class="lineCov">          4 :                 return -1;</span>
+<span class="lineNum">     484 </span>            :             }
+<span class="lineNum">     485 </span><span class="lineCov">         18 :             parser-&gt;cur++;</span>
+<span class="lineNum">     486 </span><span class="lineCov">         18 :             smtp_reply_parser_finish_line(parser);</span>
+<span class="lineNum">     487 </span><span class="lineCov">         18 :             if (parser-&gt;state.last_line) {</span>
+<span class="lineNum">     488 </span><span class="lineCov">          9 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     489 </span>            :                     SMTP_REPLY_PARSE_STATE_INIT;
+<span class="lineNum">     490 </span><span class="lineCov">          9 :                 return 1;</span>
+<span class="lineNum">     491 </span>            :             }
+<span class="lineNum">     492 </span><span class="lineCov">          9 :             parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_CODE;</span>
+<span class="lineNum">     493 </span><span class="lineCov">          9 :             break;</span>
+<span class="lineNum">     494 </span>            :         /* SP ehlo-greet */
+<span class="lineNum">     495 </span>            :         case SMTP_REPLY_PARSE_STATE_EHLO_SPACE:
+<span class="lineNum">     496 </span><span class="lineCov">          4 :             if (*parser-&gt;cur != ' ') {</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :                 parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_CR;</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     499 </span>            :             }
+<span class="lineNum">     500 </span><span class="lineCov">          4 :             parser-&gt;cur++;</span>
+<span class="lineNum">     501 </span><span class="lineCov">          4 :             str_append_c(parser-&gt;strbuf, ' ');</span>
+<span class="lineNum">     502 </span><span class="lineCov">          4 :             parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_EHLO_GREET;</span>
+<span class="lineNum">     503 </span><span class="lineCov">          4 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     505 </span>            :             /* fall through */
+<span class="lineNum">     506 </span>            :         /* ehlo-greet */
+<span class="lineNum">     507 </span>            :         case SMTP_REPLY_PARSE_STATE_EHLO_GREET:
+<span class="lineNum">     508 </span><span class="lineCov">          4 :             if ((ret=smtp_reply_parse_ehlo_greet(parser)) &lt;= 0)</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :                 return ret;</span>
+<span class="lineNum">     510 </span><span class="lineCov">          4 :             parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_CR;</span>
+<span class="lineNum">     511 </span><span class="lineCov">          4 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     513 </span><span class="lineCov">          4 :             break;</span>
+<span class="lineNum">     514 </span>            :         default:
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     516 </span>            :         }
+<span class="lineNum">     517 </span><span class="lineCov">         18 :     }</span>
+<span class="lineNum">     518 </span>            : 
+<span class="lineNum">     519 </span>            :     i_unreached();
+<span class="lineNum">     520 </span>            :     return -1;
+<a name="521"><span class="lineNum">     521 </span>            : }</a>
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span><span class="lineCov">         29 : static int smtp_reply_parse(struct smtp_reply_parser *parser)</span>
+<span class="lineNum">     524 </span>            : {
+<span class="lineNum">     525 </span>            :     size_t size;
+<span class="lineNum">     526 </span>            :     int ret;
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineCov">         59 :     while ((ret = i_stream_read_more(parser-&gt;input,</span>
+<span class="lineNum">     529 </span>            :                      &amp;parser-&gt;begin, &amp;size)) &gt; 0) {
+<span class="lineNum">     530 </span><span class="lineCov">         20 :         parser-&gt;cur = parser-&gt;begin;</span>
+<span class="lineNum">     531 </span><span class="lineCov">         20 :         parser-&gt;end = parser-&gt;cur + size;</span>
+<span class="lineNum">     532 </span>            : 
+<span class="lineNum">     533 </span><span class="lineCov">         20 :         if ((ret = smtp_reply_parse_more(parser)) &lt; 0)</span>
+<span class="lineNum">     534 </span><span class="lineCov">         10 :             return -1;</span>
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineCov">         10 :         i_stream_skip(parser-&gt;input, parser-&gt;cur - parser-&gt;begin);</span>
+<span class="lineNum">     537 </span><span class="lineCov">         10 :         if (ret &gt; 0)</span>
+<span class="lineNum">     538 </span><span class="lineCov">          9 :             return 1;</span>
+<span class="lineNum">     539 </span>            :     }
+<span class="lineNum">     540 </span>            : 
+<span class="lineNum">     541 </span><span class="lineCov">         10 :     i_assert(ret != -2);</span>
+<span class="lineNum">     542 </span><span class="lineCov">         10 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     543 </span><span class="lineCov">         10 :         i_assert(parser-&gt;input-&gt;eof);</span>
+<span class="lineNum">     544 </span><span class="lineCov">         10 :         if (parser-&gt;input-&gt;stream_errno == 0) {</span>
+<span class="lineNum">     545 </span><span class="lineCov">         10 :             if (parser-&gt;state.state == SMTP_REPLY_PARSE_STATE_INIT)</span>
+<span class="lineNum">     546 </span><span class="lineCov">          9 :                 return 0;</span>
+<span class="lineNum">     547 </span><span class="lineCov">          1 :             smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     548 </span>            :                 &quot;Premature end of input&quot;);
+<span class="lineNum">     549 </span>            :         } else {
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :             smtp_reply_parser_error(parser,</span>
+<span class="lineNum">     551 </span>            :                 &quot;Stream error: %s&quot;,
+<span class="lineNum">     552 </span>            :                 i_stream_get_error(parser-&gt;input));
+<span class="lineNum">     553 </span>            :         }
+<span class="lineNum">     554 </span>            :     }
+<span class="lineNum">     555 </span><span class="lineCov">          1 :     return ret;</span>
+<a name="556"><span class="lineNum">     556 </span>            : }</a>
+<span class="lineNum">     557 </span>            : 
+<span class="lineNum">     558 </span><span class="lineCov">         21 : int smtp_reply_parse_next(struct smtp_reply_parser *parser,</span>
+<span class="lineNum">     559 </span>            :               bool enhanced_codes, struct smtp_reply **reply_r,
+<span class="lineNum">     560 </span>            :               const char **error_r)
+<span class="lineNum">     561 </span>            : {
+<span class="lineNum">     562 </span>            :     int ret;
+<span class="lineNum">     563 </span>            : 
+<span class="lineNum">     564 </span><span class="lineCov">         21 :     i_assert(parser-&gt;state.state == SMTP_REPLY_PARSE_STATE_INIT ||</span>
+<span class="lineNum">     565 </span>            :         (parser-&gt;enhanced_codes == enhanced_codes &amp;&amp; !parser-&gt;ehlo));
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineCov">         21 :     parser-&gt;enhanced_codes = enhanced_codes;</span>
+<span class="lineNum">     568 </span><span class="lineCov">         21 :     parser-&gt;ehlo = FALSE;</span>
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span><span class="lineCov">         21 :     i_free_and_null(parser-&gt;error);</span>
+<span class="lineNum">     571 </span>            : 
+<span class="lineNum">     572 </span>            :     /*
+<span class="lineNum">     573 </span>            :        Reply-line     = *( Reply-code &quot;-&quot; [ textstring ] CRLF )
+<span class="lineNum">     574 </span>            :                         Reply-code [ SP textstring ] CRLF
+<span class="lineNum">     575 </span>            :        Reply-code     = %x32-35 %x30-35 %x30-39
+<span class="lineNum">     576 </span>            :        textstring     = 1*(%d09 / %d32-126) ; HT, SP, Printable US-ASCII
+<span class="lineNum">     577 </span>            : 
+<span class="lineNum">     578 </span>            :        Greeting is not handled specially here.
+<span class="lineNum">     579 </span>            :      */
+<span class="lineNum">     580 </span><span class="lineCov">         21 :     if ((ret=smtp_reply_parse(parser)) &lt;= 0) {</span>
+<span class="lineNum">     581 </span><span class="lineCov">         15 :         *error_r = parser-&gt;error;</span>
+<span class="lineNum">     582 </span><span class="lineCov">         15 :         return ret;</span>
+<span class="lineNum">     583 </span>            :     }
+<span class="lineNum">     584 </span>            : 
+<span class="lineNum">     585 </span><span class="lineCov">          6 :     parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_INIT;</span>
+<span class="lineNum">     586 </span><span class="lineCov">         12 :     parser-&gt;state.reply-&gt;text_lines =</span>
+<span class="lineNum">     587 </span><span class="lineCov">          6 :         array_idx(&amp;parser-&gt;state.reply_lines, 0);</span>
+<span class="lineNum">     588 </span><span class="lineCov">          6 :     *reply_r = parser-&gt;state.reply;</span>
+<span class="lineNum">     589 </span><span class="lineCov">          6 :     return 1;</span>
+<a name="590"><span class="lineNum">     590 </span>            : }</a>
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span><span class="lineCov">          8 : int smtp_reply_parse_ehlo(struct smtp_reply_parser *parser,</span>
+<span class="lineNum">     593 </span>            :               struct smtp_reply **reply_r, const char **error_r)
+<span class="lineNum">     594 </span>            : {
+<span class="lineNum">     595 </span>            :     int ret;
+<span class="lineNum">     596 </span>            : 
+<span class="lineNum">     597 </span><span class="lineCov">          8 :     i_assert(parser-&gt;state.state == SMTP_REPLY_PARSE_STATE_INIT ||</span>
+<span class="lineNum">     598 </span>            :         (!parser-&gt;enhanced_codes &amp;&amp; parser-&gt;ehlo));
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span><span class="lineCov">          8 :     parser-&gt;enhanced_codes = FALSE;</span>
+<span class="lineNum">     601 </span><span class="lineCov">          8 :     parser-&gt;ehlo = TRUE;</span>
+<span class="lineNum">     602 </span>            : 
+<span class="lineNum">     603 </span><span class="lineCov">          8 :     i_free_and_null(parser-&gt;error);</span>
+<span class="lineNum">     604 </span>            : 
+<span class="lineNum">     605 </span>            :     /*
+<span class="lineNum">     606 </span>            :        ehlo-ok-rsp    = ( &quot;250&quot; SP Domain [ SP ehlo-greet ] CRLF )
+<span class="lineNum">     607 </span>            :                         / ( &quot;250-&quot; Domain [ SP ehlo-greet ] CRLF
+<span class="lineNum">     608 </span>            :                           *( &quot;250-&quot; ehlo-line CRLF )
+<span class="lineNum">     609 </span>            :                         &quot;250&quot; SP ehlo-line CRLF )
+<span class="lineNum">     610 </span>            :        ehlo-greet     = 1*(%d0-9 / %d11-12 / %d14-127)
+<span class="lineNum">     611 </span>            :                         ; string of any characters other than CR or LF
+<span class="lineNum">     612 </span>            :        ehlo-line      = ehlo-keyword *( SP ehlo-param )
+<span class="lineNum">     613 </span>            :        ehlo-keyword   = (ALPHA / DIGIT) *(ALPHA / DIGIT / &quot;-&quot;)
+<span class="lineNum">     614 </span>            :                         ; additional syntax of ehlo-params depends on
+<span class="lineNum">     615 </span>            :                         ; ehlo-keyword
+<span class="lineNum">     616 </span>            :        ehlo-param     = 1*(%d33-126)
+<span class="lineNum">     617 </span>            :                         ; any CHAR excluding &lt;SP&gt; and all
+<span class="lineNum">     618 </span>            :                         ; control characters (US-ASCII 0-31 and 127
+<span class="lineNum">     619 </span>            :                         ; inclusive)
+<span class="lineNum">     620 </span>            :      */
+<span class="lineNum">     621 </span><span class="lineCov">          8 :     if ((ret=smtp_reply_parse(parser)) &lt;= 0) {</span>
+<span class="lineNum">     622 </span><span class="lineCov">          5 :         *error_r = parser-&gt;error;</span>
+<span class="lineNum">     623 </span><span class="lineCov">          5 :         return ret;</span>
+<span class="lineNum">     624 </span>            :     }
+<span class="lineNum">     625 </span>            : 
+<span class="lineNum">     626 </span><span class="lineCov">          3 :     parser-&gt;state.state = SMTP_REPLY_PARSE_STATE_INIT;</span>
+<span class="lineNum">     627 </span><span class="lineCov">          6 :     parser-&gt;state.reply-&gt;text_lines =</span>
+<span class="lineNum">     628 </span><span class="lineCov">          3 :         array_idx(&amp;parser-&gt;state.reply_lines, 0);</span>
+<span class="lineNum">     629 </span><span class="lineCov">          3 :     *reply_r = parser-&gt;state.reply;</span>
+<span class="lineNum">     630 </span><span class="lineCov">          3 :     return 1;</span>
+<span class="lineNum">     631 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

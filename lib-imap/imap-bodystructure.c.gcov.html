@@ -1,0 +1,994 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-imap/imap-bodystructure.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-imap</a> - imap-bodystructure.c<span style="font-size: 80%;"> (source / <a href="imap-bodystructure.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">388</td>
+            <td class="headerCovTableEntry">497</td>
+            <td class="headerCovTableEntryMed">78.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;message-part-data.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;rfc822-parser.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;rfc2231-parser.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;imap-parser.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;imap-quote.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;imap-envelope.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;imap-bodystructure.h&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : #define EMPTY_BODY &quot;(\&quot;text\&quot; \&quot;plain\&quot; &quot; \
+<span class="lineNum">      17 </span>            :     &quot;(\&quot;charset\&quot; \&quot;&quot;MESSAGE_PART_DEFAULT_CHARSET&quot;\&quot;) NIL NIL \&quot;7bit\&quot; 0 0)&quot;
+<span class="lineNum">      18 </span>            : #define EMPTY_BODYSTRUCTURE &quot;(\&quot;text\&quot; \&quot;plain\&quot; &quot; \
+<span class="lineNum">      19 </span>            :     &quot;(\&quot;charset\&quot; \&quot;&quot;MESSAGE_PART_DEFAULT_CHARSET&quot;\&quot;) NIL NIL \&quot;7bit\&quot; 0 0 &quot; \
+<span class="lineNum">      20 </span>            :         &quot;NIL NIL NIL NIL)&quot;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : /*
+<span class="lineNum">      23 </span>            :  * IMAP BODY/BODYSTRUCTURE write
+<span class="lineNum">      24 </span>            :  */
+<a name="25"><span class="lineNum">      25 </span>            : </a>
+<span class="lineNum">      26 </span>            : static void
+<span class="lineNum">      27 </span><span class="lineCov">        102 : params_write(const struct message_part_param *params,</span>
+<span class="lineNum">      28 </span>            :     unsigned int params_count, string_t *str,
+<span class="lineNum">      29 </span>            :     bool default_charset)
+<span class="lineNum">      30 </span>            : {
+<span class="lineNum">      31 </span>            :     unsigned int i;
+<span class="lineNum">      32 </span>            :     bool seen_charset;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span><span class="lineCov">        102 :     if (!default_charset &amp;&amp; params_count == 0) {</span>
+<span class="lineNum">      35 </span><span class="lineCov">         18 :         str_append(str, &quot;NIL&quot;);</span>
+<span class="lineNum">      36 </span><span class="lineCov">        120 :         return;</span>
+<span class="lineNum">      37 </span>            :     }
+<span class="lineNum">      38 </span><span class="lineCov">         84 :     str_append_c(str, '(');</span>
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span><span class="lineCov">         84 :     seen_charset = FALSE;</span>
+<span class="lineNum">      41 </span><span class="lineCov">        176 :     for (i = 0; i &lt; params_count; i++) {</span>
+<span class="lineNum">      42 </span><span class="lineCov">         92 :         if (i &gt; 0)</span>
+<span class="lineNum">      43 </span><span class="lineCov">         12 :             str_append_c(str, ' ');</span>
+<span class="lineNum">      44 </span><span class="lineCov">        153 :         if (default_charset &amp;&amp;</span>
+<span class="lineNum">      45 </span><span class="lineCov">         61 :             strcasecmp(params[i].name, &quot;charset&quot;) == 0)</span>
+<span class="lineNum">      46 </span><span class="lineCov">         49 :             seen_charset = TRUE;</span>
+<span class="lineNum">      47 </span><span class="lineCov">         92 :         imap_append_string(str, params[i].name);</span>
+<span class="lineNum">      48 </span><span class="lineCov">         92 :         str_append_c(str, ' ');</span>
+<span class="lineNum">      49 </span><span class="lineCov">         92 :         imap_append_string(str, params[i].value);</span>
+<span class="lineNum">      50 </span>            :     }
+<span class="lineNum">      51 </span><span class="lineCov">         84 :     if (default_charset &amp;&amp; !seen_charset) {</span>
+<span class="lineNum">      52 </span><span class="lineCov">          4 :         if (i &gt; 0)</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :             str_append_c(str, ' ');</span>
+<span class="lineNum">      54 </span><span class="lineCov">          4 :         str_append(str, &quot;\&quot;charset\&quot; &quot;</span>
+<span class="lineNum">      55 </span>            :             &quot;\&quot;&quot;MESSAGE_PART_DEFAULT_CHARSET&quot;\&quot;&quot;);
+<span class="lineNum">      56 </span>            :     }
+<span class="lineNum">      57 </span><span class="lineCov">         84 :     str_append_c(str, ')');</span>
+<span class="lineNum">      58 </span>            : }
+<a name="59"><span class="lineNum">      59 </span>            : </a>
+<span class="lineNum">      60 </span>            : static void
+<span class="lineNum">      61 </span><span class="lineCov">         43 : part_write_bodystructure_siblings(const struct message_part *part,</span>
+<span class="lineNum">      62 </span>            :                   string_t *dest, bool extended)
+<span class="lineNum">      63 </span>            : {
+<span class="lineNum">      64 </span><span class="lineCov">        107 :     for (; part != NULL; part = part-&gt;next) {</span>
+<span class="lineNum">      65 </span><span class="lineCov">         64 :         str_append_c(dest, '(');</span>
+<span class="lineNum">      66 </span><span class="lineCov">         64 :         imap_bodystructure_write(part, dest, extended);</span>
+<span class="lineNum">      67 </span><span class="lineCov">         64 :         str_append_c(dest, ')');</span>
+<span class="lineNum">      68 </span>            :     }
+<span class="lineNum">      69 </span><span class="lineCov">         43 : }</span>
+<a name="70"><span class="lineNum">      70 </span>            : </a>
+<span class="lineNum">      71 </span>            : static void
+<span class="lineNum">      72 </span><span class="lineCov">         81 : part_write_bodystructure_common(const struct message_part_data *data,</span>
+<span class="lineNum">      73 </span>            :                      string_t *str)
+<span class="lineNum">      74 </span>            : {
+<span class="lineNum">      75 </span><span class="lineCov">         81 :     str_append_c(str, ' ');</span>
+<span class="lineNum">      76 </span><span class="lineCov">         81 :     if (data-&gt;content_disposition == NULL)</span>
+<span class="lineNum">      77 </span><span class="lineCov">         75 :         str_append(str, &quot;NIL&quot;);</span>
+<span class="lineNum">      78 </span>            :     else {
+<span class="lineNum">      79 </span><span class="lineCov">          6 :         str_append_c(str, '(');</span>
+<span class="lineNum">      80 </span><span class="lineCov">          6 :         imap_append_string(str, data-&gt;content_disposition);</span>
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineCov">          6 :         str_append_c(str, ' ');</span>
+<span class="lineNum">      83 </span><span class="lineCov">          6 :         params_write(data-&gt;content_disposition_params,</span>
+<span class="lineNum">      84 </span>            :             data-&gt;content_disposition_params_count, str, FALSE);
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span><span class="lineCov">          6 :         str_append_c(str, ')');</span>
+<span class="lineNum">      87 </span>            :     }
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">         81 :     str_append_c(str, ' ');</span>
+<span class="lineNum">      90 </span><span class="lineCov">         81 :     if (data-&gt;content_language == NULL)</span>
+<span class="lineNum">      91 </span><span class="lineCov">         74 :         str_append(str, &quot;NIL&quot;);</span>
+<span class="lineNum">      92 </span>            :     else {
+<span class="lineNum">      93 </span><span class="lineCov">          7 :         const char *const *lang = data-&gt;content_language;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineCov">          7 :         i_assert(*lang != NULL);</span>
+<span class="lineNum">      96 </span><span class="lineCov">          7 :         str_append_c(str, '(');</span>
+<span class="lineNum">      97 </span><span class="lineCov">          7 :         imap_append_string(str, *lang);</span>
+<span class="lineNum">      98 </span><span class="lineCov">          7 :         lang++;</span>
+<span class="lineNum">      99 </span><span class="lineCov">         20 :         while (*lang != NULL) {</span>
+<span class="lineNum">     100 </span><span class="lineCov">          6 :             str_append_c(str, ' ');</span>
+<span class="lineNum">     101 </span><span class="lineCov">          6 :             imap_append_string(str, *lang);</span>
+<span class="lineNum">     102 </span><span class="lineCov">          6 :             lang++;</span>
+<span class="lineNum">     103 </span>            :         }
+<span class="lineNum">     104 </span><span class="lineCov">          7 :         str_append_c(str, ')');</span>
+<span class="lineNum">     105 </span>            :     }
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span><span class="lineCov">         81 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     108 </span><span class="lineCov">         81 :     imap_append_nstring_nolf(str, data-&gt;content_location);</span>
+<a name="109"><span class="lineNum">     109 </span><span class="lineCov">         81 : }</span></a>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">         33 : static void part_write_body_multipart(const struct message_part *part,</span>
+<span class="lineNum">     112 </span>            :                       string_t *str, bool extended)
+<span class="lineNum">     113 </span>            : {
+<span class="lineNum">     114 </span><span class="lineCov">         33 :     const struct message_part_data *data = part-&gt;data;</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineCov">         33 :     i_assert(part-&gt;data != NULL);</span>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineCov">         33 :     if (part-&gt;children != NULL)</span>
+<span class="lineNum">     119 </span><span class="lineCov">         30 :         part_write_bodystructure_siblings(part-&gt;children, str, extended);</span>
+<span class="lineNum">     120 </span>            :     else {
+<span class="lineNum">     121 </span>            :         /* no parts in multipart message,
+<span class="lineNum">     122 </span>            :            that's not allowed. write a single
+<span class="lineNum">     123 </span>            :            0-length text/plain structure */
+<span class="lineNum">     124 </span><span class="lineCov">          3 :         if (!extended)</span>
+<span class="lineNum">     125 </span><span class="lineCov">          1 :             str_append(str, EMPTY_BODY);</span>
+<span class="lineNum">     126 </span>            :         else
+<span class="lineNum">     127 </span><span class="lineCov">          2 :             str_append(str, EMPTY_BODYSTRUCTURE);</span>
+<span class="lineNum">     128 </span>            :     }
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineCov">         33 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     131 </span><span class="lineCov">         33 :     if (data-&gt;content_subtype != NULL)</span>
+<span class="lineNum">     132 </span><span class="lineCov">         33 :         imap_append_string(str, data-&gt;content_subtype);</span>
+<span class="lineNum">     133 </span>            :     else
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         str_append(str, &quot;\&quot;x-unknown\&quot;&quot;);</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineCov">         33 :     if (!extended)</span>
+<span class="lineNum">     137 </span><span class="lineCov">         40 :         return;</span>
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span>            :     /* BODYSTRUCTURE data */
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineCov">         26 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     142 </span><span class="lineCov">         26 :     params_write(data-&gt;content_type_params,</span>
+<span class="lineNum">     143 </span>            :         data-&gt;content_type_params_count, str, FALSE);
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">         26 :     part_write_bodystructure_common(data, str);</span>
+<a name="146"><span class="lineNum">     146 </span>            : }</a>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineCov">         70 : static void part_write_body(const struct message_part *part,</span>
+<span class="lineNum">     149 </span>            :                 string_t *str, bool extended)
+<span class="lineNum">     150 </span>            : {
+<span class="lineNum">     151 </span><span class="lineCov">         70 :     const struct message_part_data *data = part-&gt;data;</span>
+<span class="lineNum">     152 </span>            :     bool text;
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineCov">         70 :     i_assert(part-&gt;data != NULL);</span>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineCov">         70 :     if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) != 0) {</span>
+<span class="lineNum">     157 </span><span class="lineCov">         13 :         str_append(str, &quot;\&quot;message\&quot; \&quot;rfc822\&quot;&quot;);</span>
+<span class="lineNum">     158 </span><span class="lineCov">         13 :         text = FALSE;</span>
+<span class="lineNum">     159 </span>            :     } else {
+<span class="lineNum">     160 </span>            :         /* &quot;content type&quot; &quot;subtype&quot; */
+<span class="lineNum">     161 </span><span class="lineCov">         57 :         if (data-&gt;content_type == NULL) {</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :             text = TRUE;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :             str_append(str, &quot;\&quot;text\&quot;&quot;);</span>
+<span class="lineNum">     164 </span>            :         } else {
+<span class="lineNum">     165 </span><span class="lineCov">         57 :             text = (strcasecmp(data-&gt;content_type, &quot;text&quot;) == 0);</span>
+<span class="lineNum">     166 </span><span class="lineCov">         57 :             imap_append_string(str, data-&gt;content_type);</span>
+<span class="lineNum">     167 </span>            :         }
+<span class="lineNum">     168 </span><span class="lineCov">         57 :         str_append_c(str, ' ');</span>
+<span class="lineNum">     169 </span>            : 
+<span class="lineNum">     170 </span><span class="lineCov">         57 :         if (data-&gt;content_subtype != NULL)</span>
+<span class="lineNum">     171 </span><span class="lineCov">         57 :             imap_append_string(str, data-&gt;content_subtype);</span>
+<span class="lineNum">     172 </span>            :         else {
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :             if (text)</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :                 str_append(str, &quot;\&quot;plain\&quot;&quot;);</span>
+<span class="lineNum">     175 </span>            :             else
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :                 str_append(str, &quot;\&quot;unknown\&quot;&quot;);</span>
+<span class="lineNum">     177 </span>            :         }
+<span class="lineNum">     178 </span>            :     }
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span>            :     /* (&quot;content type param key&quot; &quot;value&quot; ...) */
+<span class="lineNum">     181 </span><span class="lineCov">         70 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     182 </span><span class="lineCov">         70 :     params_write(data-&gt;content_type_params,</span>
+<span class="lineNum">     183 </span>            :         data-&gt;content_type_params_count, str, text);
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">         70 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     186 </span><span class="lineCov">         70 :     imap_append_nstring_nolf(str, data-&gt;content_id);</span>
+<span class="lineNum">     187 </span><span class="lineCov">         70 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     188 </span><span class="lineCov">         70 :     imap_append_nstring_nolf(str, data-&gt;content_description);</span>
+<span class="lineNum">     189 </span><span class="lineCov">         70 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     190 </span><span class="lineCov">         70 :     if (data-&gt;content_transfer_encoding != NULL)</span>
+<span class="lineNum">     191 </span><span class="lineCov">         46 :         imap_append_string(str, data-&gt;content_transfer_encoding);</span>
+<span class="lineNum">     192 </span>            :     else
+<span class="lineNum">     193 </span><span class="lineCov">         24 :         str_append(str, &quot;\&quot;7bit\&quot;&quot;);</span>
+<span class="lineNum">     194 </span><span class="lineCov">         70 :     str_printfa(str, &quot; %&quot;PRIuUOFF_T, part-&gt;body_size.virtual_size);</span>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineCov">         70 :     if (text) {</span>
+<span class="lineNum">     197 </span>            :         /* text/.. contains line count */
+<span class="lineNum">     198 </span><span class="lineCov">         53 :         str_printfa(str, &quot; %u&quot;, part-&gt;body_size.lines);</span>
+<span class="lineNum">     199 </span><span class="lineCov">         17 :     } else if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) != 0) {</span>
+<span class="lineNum">     200 </span>            :         /* message/rfc822 contains envelope + body + line count */
+<span class="lineNum">     201 </span>            :         const struct message_part_data *child_data;
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineCov">         13 :         i_assert(part-&gt;children != NULL);</span>
+<span class="lineNum">     204 </span><span class="lineCov">         13 :         i_assert(part-&gt;children-&gt;next == NULL);</span>
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span><span class="lineCov">         13 :         child_data = part-&gt;children-&gt;data;</span>
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineCov">         13 :         str_append(str, &quot; (&quot;);</span>
+<span class="lineNum">     209 </span><span class="lineCov">         13 :         imap_envelope_write(child_data-&gt;envelope, str);</span>
+<span class="lineNum">     210 </span><span class="lineCov">         13 :         str_append(str, &quot;) &quot;);</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineCov">         13 :         part_write_bodystructure_siblings(part-&gt;children, str, extended);</span>
+<span class="lineNum">     213 </span><span class="lineCov">         13 :         str_printfa(str, &quot; %u&quot;, part-&gt;body_size.lines);</span>
+<span class="lineNum">     214 </span>            :     }
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineCov">         70 :     if (!extended)</span>
+<span class="lineNum">     217 </span><span class="lineCov">         85 :         return;</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span>            :     /* BODYSTRUCTURE data */
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span>            :     /* &quot;md5&quot; (&quot;content disposition&quot; (&quot;disposition&quot; &quot;params&quot;))
+<span class="lineNum">     222 </span>            :        (&quot;body&quot; &quot;language&quot; &quot;params&quot;) &quot;location&quot; */
+<span class="lineNum">     223 </span><span class="lineCov">         55 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     224 </span><span class="lineCov">         55 :     imap_append_nstring_nolf(str, data-&gt;content_md5);</span>
+<span class="lineNum">     225 </span><span class="lineCov">         55 :     part_write_bodystructure_common(data, str);</span>
+<a name="226"><span class="lineNum">     226 </span>            : }</a>
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span><span class="lineCov">        103 : void imap_bodystructure_write(const struct message_part *part,</span>
+<span class="lineNum">     229 </span>            :                   string_t *dest, bool extended)
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span><span class="lineCov">        103 :     if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MULTIPART) != 0)</span>
+<span class="lineNum">     232 </span><span class="lineCov">         33 :         part_write_body_multipart(part, dest, extended);</span>
+<span class="lineNum">     233 </span>            :     else
+<span class="lineNum">     234 </span><span class="lineCov">         70 :         part_write_body(part, dest, extended);</span>
+<span class="lineNum">     235 </span><span class="lineCov">        103 : }</span>
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span>            : /*
+<span class="lineNum">     238 </span>            :  * IMAP BODYSTRUCTURE parsing
+<span class="lineNum">     239 </span>            :  */
+<a name="240"><span class="lineNum">     240 </span>            : </a>
+<span class="lineNum">     241 </span>            : static int
+<span class="lineNum">     242 </span><span class="lineCov">         48 : imap_bodystructure_strlist_parse(const struct imap_arg *arg,</span>
+<span class="lineNum">     243 </span>            :     pool_t pool, const char *const **list_r)
+<span class="lineNum">     244 </span>            : {
+<span class="lineNum">     245 </span>            :     const char *item, **list;
+<span class="lineNum">     246 </span>            :     const struct imap_arg *list_args;
+<span class="lineNum">     247 </span>            :     unsigned int list_count, i;
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineCov">         48 :     if (arg-&gt;type == IMAP_ARG_NIL) {</span>
+<span class="lineNum">     250 </span><span class="lineCov">         43 :         *list_r = NULL;</span>
+<span class="lineNum">     251 </span><span class="lineCov">         43 :         return 0;</span>
+<span class="lineNum">     252 </span>            :     }
+<span class="lineNum">     253 </span><span class="lineCov">          5 :     if (imap_arg_get_nstring(arg, &amp;item)) {</span>
+<span class="lineNum">     254 </span><span class="lineCov">          1 :         list = p_new(pool, const char *, 2);</span>
+<span class="lineNum">     255 </span><span class="lineCov">          1 :         list[0] = p_strdup(pool, item);</span>
+<span class="lineNum">     256 </span>            :     } else {
+<span class="lineNum">     257 </span><span class="lineCov">          4 :         if (!imap_arg_get_list_full(arg, &amp;list_args, &amp;list_count))</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineCov">          4 :         list = p_new(pool, const char *, list_count+1);</span>
+<span class="lineNum">     261 </span><span class="lineCov">         12 :         for (i = 0; i &lt; list_count; i++) {</span>
+<span class="lineNum">     262 </span><span class="lineCov">          8 :             if (!imap_arg_get_nstring(&amp;list_args[i], &amp;item))</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     264 </span><span class="lineCov">          8 :             list[i] = p_strdup(pool, item);</span>
+<span class="lineNum">     265 </span>            :         }
+<span class="lineNum">     266 </span>            :     }
+<span class="lineNum">     267 </span><span class="lineCov">          5 :     *list_r = list;</span>
+<span class="lineNum">     268 </span><span class="lineCov">          5 :     return 0;</span>
+<span class="lineNum">     269 </span>            : }
+<a name="270"><span class="lineNum">     270 </span>            : </a>
+<span class="lineNum">     271 </span>            : static int
+<span class="lineNum">     272 </span><span class="lineCov">         63 : imap_bodystructure_params_parse(const struct imap_arg *arg,</span>
+<span class="lineNum">     273 </span>            :     pool_t pool, const struct message_part_param **params_r,
+<span class="lineNum">     274 </span>            :     unsigned int *count_r)
+<span class="lineNum">     275 </span>            : {
+<span class="lineNum">     276 </span>            :     struct message_part_param *params;
+<span class="lineNum">     277 </span>            :     const struct imap_arg *list_args;
+<span class="lineNum">     278 </span>            :     unsigned int list_count, params_count, i;
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineCov">         63 :     if (arg-&gt;type == IMAP_ARG_NIL) {</span>
+<span class="lineNum">     281 </span><span class="lineCov">          9 :         *params_r = NULL;</span>
+<span class="lineNum">     282 </span><span class="lineCov">          9 :         return 0;</span>
+<span class="lineNum">     283 </span>            :     }
+<span class="lineNum">     284 </span><span class="lineCov">         54 :     if (!imap_arg_get_list_full(arg, &amp;list_args, &amp;list_count))</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     286 </span><span class="lineCov">         54 :     if ((list_count % 2) != 0)</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     288 </span>            : 
+<span class="lineNum">     289 </span><span class="lineCov">         54 :     params_count = list_count/2;</span>
+<span class="lineNum">     290 </span><span class="lineCov">         54 :     params = p_new(pool, struct message_part_param, params_count+1);</span>
+<span class="lineNum">     291 </span><span class="lineCov">        228 :     for (i = 0; i &lt; params_count; i++) {</span>
+<span class="lineNum">     292 </span>            :         const char *name, *value;
+<span class="lineNum">     293 </span>            : 
+<span class="lineNum">     294 </span><span class="lineCov">         60 :         if (!imap_arg_get_nstring(&amp;list_args[i*2+0], &amp;name))</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     296 </span><span class="lineCov">         60 :         if (!imap_arg_get_nstring(&amp;list_args[i*2+1], &amp;value))</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     298 </span><span class="lineCov">         60 :         params[i].name = p_strdup(pool, name);</span>
+<span class="lineNum">     299 </span><span class="lineCov">         60 :         params[i].value = p_strdup(pool, value);</span>
+<span class="lineNum">     300 </span>            :     }
+<span class="lineNum">     301 </span><span class="lineCov">         54 :     *params_r = params;</span>
+<span class="lineNum">     302 </span><span class="lineCov">         54 :     *count_r = params_count;</span>
+<span class="lineNum">     303 </span><span class="lineCov">         54 :     return 0;</span>
+<span class="lineNum">     304 </span>            : }
+<a name="305"><span class="lineNum">     305 </span>            : </a>
+<span class="lineNum">     306 </span>            : static int
+<span class="lineNum">     307 </span><span class="lineCov">         54 : imap_bodystructure_parse_args_common(struct message_part *part,</span>
+<span class="lineNum">     308 </span>            :                      pool_t pool, const struct imap_arg *args,
+<span class="lineNum">     309 </span>            :                      const char **error_r)
+<span class="lineNum">     310 </span>            : {
+<span class="lineNum">     311 </span><span class="lineCov">         54 :     struct message_part_data *data = part-&gt;data;</span>
+<span class="lineNum">     312 </span>            :     const struct imap_arg *list_args;
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span><span class="lineCov">         54 :     if (args-&gt;type == IMAP_ARG_EOL)</span>
+<span class="lineNum">     315 </span><span class="lineCov">          6 :         return 0;</span>
+<span class="lineNum">     316 </span><span class="lineCov">         48 :     if (args-&gt;type == IMAP_ARG_NIL)</span>
+<span class="lineNum">     317 </span><span class="lineCov">         44 :         args++;</span>
+<span class="lineNum">     318 </span><span class="lineCov">          4 :     else if (!imap_arg_get_list(args, &amp;list_args)) {</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-disposition list&quot;;</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     321 </span>            :     } else {
+<span class="lineNum">     322 </span><span class="lineCov">          4 :         if (!imap_arg_get_nstring</span>
+<span class="lineNum">     323 </span><span class="lineCov">          4 :             (list_args++, &amp;data-&gt;content_disposition)) {</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid content-disposition&quot;;</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     326 </span>            :         }
+<span class="lineNum">     327 </span><span class="lineCov">          4 :         data-&gt;content_disposition = p_strdup(pool, data-&gt;content_disposition);</span>
+<span class="lineNum">     328 </span><span class="lineCov">          4 :         if (imap_bodystructure_params_parse(list_args, pool,</span>
+<span class="lineNum">     329 </span>            :             &amp;data-&gt;content_disposition_params,
+<span class="lineNum">     330 </span>            :             &amp;data-&gt;content_disposition_params_count) &lt; 0) {
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid content-disposition params&quot;;</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     333 </span>            :         }
+<span class="lineNum">     334 </span><span class="lineCov">          4 :         args++;</span>
+<span class="lineNum">     335 </span>            :     }
+<span class="lineNum">     336 </span><span class="lineCov">         48 :     if (args-&gt;type == IMAP_ARG_EOL)</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     338 </span><span class="lineCov">         48 :     if (imap_bodystructure_strlist_parse</span>
+<span class="lineNum">     339 </span><span class="lineCov">         48 :         (args++, pool, &amp;data-&gt;content_language) &lt; 0) {</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-language&quot;;</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     342 </span>            :     }
+<span class="lineNum">     343 </span><span class="lineCov">         48 :     if (args-&gt;type == IMAP_ARG_EOL)</span>
+<span class="lineNum">     344 </span><span class="lineCov">          1 :         return 0;</span>
+<span class="lineNum">     345 </span><span class="lineCov">         47 :     if (!imap_arg_get_nstring</span>
+<span class="lineNum">     346 </span><span class="lineCov">         47 :         (args++, &amp;data-&gt;content_location)) {</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-location&quot;;</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     349 </span>            :     }
+<span class="lineNum">     350 </span><span class="lineCov">         47 :     data-&gt;content_location = p_strdup(pool, data-&gt;content_location);</span>
+<span class="lineNum">     351 </span><span class="lineCov">         47 :     return 0;</span>
+<span class="lineNum">     352 </span>            : }
+<a name="353"><span class="lineNum">     353 </span>            : </a>
+<span class="lineNum">     354 </span>            : int
+<span class="lineNum">     355 </span><span class="lineCov">         60 : imap_bodystructure_parse_args(const struct imap_arg *args, pool_t pool,</span>
+<span class="lineNum">     356 </span>            :                   struct message_part **_part,
+<span class="lineNum">     357 </span>            :                   const char **error_r)
+<span class="lineNum">     358 </span>            : {
+<span class="lineNum">     359 </span><span class="lineCov">         60 :     struct message_part *part = *_part, *child_part;;</span>
+<span class="lineNum">     360 </span>            :     struct message_part **child_part_p;
+<span class="lineNum">     361 </span>            :     struct message_part_data *data;
+<span class="lineNum">     362 </span>            :     const struct imap_arg *list_args;
+<span class="lineNum">     363 </span>            :     const char *value, *content_type, *subtype, *error;
+<span class="lineNum">     364 </span>            :     bool multipart, text, message_rfc822, parsing_tree, has_lines;
+<span class="lineNum">     365 </span>            :     unsigned int lines;
+<span class="lineNum">     366 </span>            :     uoff_t vsize;
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span><span class="lineCov">         60 :     if (part != NULL) {</span>
+<span class="lineNum">     369 </span>            :         /* parsing with pre-existing message_part tree */
+<span class="lineNum">     370 </span><span class="lineCov">         37 :         parsing_tree = FALSE;</span>
+<span class="lineNum">     371 </span>            :     } else {
+<span class="lineNum">     372 </span>            :         /* parsing message_part tree from BODYSTRUCTURE as well */
+<span class="lineNum">     373 </span><span class="lineCov">         23 :         part = *_part = p_new(pool, struct message_part, 1);</span>
+<span class="lineNum">     374 </span><span class="lineCov">         23 :         parsing_tree = TRUE;</span>
+<span class="lineNum">     375 </span>            :     }
+<span class="lineNum">     376 </span><span class="lineCov">         60 :     part-&gt;data = data = p_new(pool, struct message_part_data, 1);</span>
+<span class="lineNum">     377 </span>            : 
+<span class="lineNum">     378 </span><span class="lineCov">         60 :     multipart = FALSE;</span>
+<span class="lineNum">     379 </span><span class="lineCov">         60 :     if (!parsing_tree) {</span>
+<span class="lineNum">     380 </span><span class="lineCov">         49 :         if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MULTIPART) != 0 &amp;&amp;</span>
+<span class="lineNum">     381 </span><span class="lineCov">         13 :             part-&gt;children == NULL) {</span>
+<span class="lineNum">     382 </span><span class="lineCov">          1 :             struct message_part_data dummy_part_data = {</span>
+<span class="lineNum">     383 </span>            :                 .content_type = &quot;text&quot;,
+<span class="lineNum">     384 </span>            :                 .content_subtype = &quot;plain&quot;,
+<span class="lineNum">     385 </span>            :                 .content_transfer_encoding = &quot;7bit&quot;
+<span class="lineNum">     386 </span>            :             };
+<span class="lineNum">     387 </span><span class="lineCov">          1 :             struct message_part dummy_part = {</span>
+<span class="lineNum">     388 </span>            :                 .parent = part,
+<span class="lineNum">     389 </span>            :                 .data = &amp;dummy_part_data,
+<span class="lineNum">     390 </span>            :                 .flags = MESSAGE_PART_FLAG_TEXT
+<span class="lineNum">     391 </span>            :             };
+<span class="lineNum">     392 </span><span class="lineCov">          1 :             struct message_part *dummy_partp = &amp;dummy_part;</span>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span>            :             /* no parts in multipart message,
+<span class="lineNum">     395 </span>            :                that's not allowed. expect a single
+<span class="lineNum">     396 </span>            :                0-length text/plain structure */
+<span class="lineNum">     397 </span><span class="lineCov">          2 :             if (args-&gt;type != IMAP_ARG_LIST ||</span>
+<span class="lineNum">     398 </span><span class="lineCov">          1 :                 (args+1)-&gt;type == IMAP_ARG_LIST) {</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :                 *error_r = &quot;message_part hierarchy &quot;</span>
+<span class="lineNum">     400 </span>            :                     &quot;doesn't match BODYSTRUCTURE&quot;;
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     402 </span>            :             }
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span><span class="lineCov">          1 :             list_args = imap_arg_as_list(args);</span>
+<span class="lineNum">     405 </span><span class="lineCov">          1 :             if (imap_bodystructure_parse_args(list_args, pool,</span>
+<span class="lineNum">     406 </span>            :                                 &amp;dummy_partp, error_r) &lt; 0)
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     408 </span><span class="lineCov">          1 :             child_part = NULL;</span>
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineCov">          1 :             multipart = TRUE;</span>
+<span class="lineNum">     411 </span><span class="lineCov">          1 :             args++;</span>
+<span class="lineNum">     412 </span>            : 
+<span class="lineNum">     413 </span>            :         } else {
+<span class="lineNum">     414 </span><span class="lineCov">         36 :             child_part = part-&gt;children;</span>
+<span class="lineNum">     415 </span><span class="lineCov">         89 :             while (args-&gt;type == IMAP_ARG_LIST) {</span>
+<span class="lineNum">     416 </span><span class="lineCov">         34 :                 if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MULTIPART) == 0 ||</span>
+<span class="lineNum">     417 </span><span class="lineCov">         17 :                         child_part == NULL) {</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :                     *error_r = &quot;message_part hierarchy &quot;</span>
+<span class="lineNum">     419 </span>            :                         &quot;doesn't match BODYSTRUCTURE&quot;;
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     421 </span>            :                 }
+<span class="lineNum">     422 </span>            : 
+<span class="lineNum">     423 </span><span class="lineCov">         17 :                 list_args = imap_arg_as_list(args);</span>
+<span class="lineNum">     424 </span><span class="lineCov">         17 :                 if (imap_bodystructure_parse_args(list_args, pool,</span>
+<span class="lineNum">     425 </span>            :                                     &amp;child_part, error_r) &lt; 0)
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     427 </span><span class="lineCov">         17 :                 child_part = child_part-&gt;next;</span>
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineCov">         17 :                 multipart = TRUE;</span>
+<span class="lineNum">     430 </span><span class="lineCov">         17 :                 args++;</span>
+<span class="lineNum">     431 </span>            :             }
+<span class="lineNum">     432 </span>            :         }
+<span class="lineNum">     433 </span><span class="lineCov">         37 :         if (multipart) {</span>
+<span class="lineNum">     434 </span><span class="lineCov">         12 :             if (child_part != NULL) {</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :                 *error_r = &quot;message_part hierarchy &quot;</span>
+<span class="lineNum">     436 </span>            :                     &quot;doesn't match BODYSTRUCTURE&quot;;
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     438 </span>            :             }
+<span class="lineNum">     439 </span><span class="lineCov">         25 :         } else  if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MULTIPART) != 0) {</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :             *error_r = &quot;message_part multipart flag &quot;</span>
+<span class="lineNum">     441 </span>            :                 &quot;doesn't match BODYSTRUCTURE&quot;;
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     443 </span>            :         }
+<span class="lineNum">     444 </span>            :     } else {
+<span class="lineNum">     445 </span><span class="lineCov">         23 :         child_part_p = &amp;part-&gt;children;</span>
+<span class="lineNum">     446 </span><span class="lineCov">         58 :         while (args-&gt;type == IMAP_ARG_LIST) {</span>
+<span class="lineNum">     447 </span><span class="lineCov">         12 :             list_args = imap_arg_as_list(args);</span>
+<span class="lineNum">     448 </span><span class="lineCov">         12 :             if (imap_bodystructure_parse_args(list_args, pool,</span>
+<span class="lineNum">     449 </span>            :                                 child_part_p, error_r) &lt; 0)
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     451 </span><span class="lineCov">         12 :             (*child_part_p)-&gt;parent = part;</span>
+<span class="lineNum">     452 </span><span class="lineCov">         12 :             child_part_p = &amp;(*child_part_p)-&gt;next;</span>
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineCov">         12 :             multipart = TRUE;</span>
+<span class="lineNum">     455 </span><span class="lineCov">         12 :             args++;</span>
+<span class="lineNum">     456 </span>            :         }
+<span class="lineNum">     457 </span><span class="lineCov">         23 :         if (multipart) {</span>
+<span class="lineNum">     458 </span><span class="lineCov">          7 :             part-&gt;flags |= MESSAGE_PART_FLAG_MULTIPART;</span>
+<span class="lineNum">     459 </span>            :         }
+<span class="lineNum">     460 </span>            :     }
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span><span class="lineCov">         60 :     if (multipart) {</span>
+<span class="lineNum">     463 </span><span class="lineCov">         19 :         data-&gt;content_type = &quot;multipart&quot;;</span>
+<span class="lineNum">     464 </span><span class="lineCov">         19 :         if (!imap_arg_get_nstring(args++, &amp;data-&gt;content_subtype)) {</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid multipart content-type&quot;;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     467 </span>            :         }
+<span class="lineNum">     468 </span><span class="lineCov">         19 :         data-&gt;content_subtype = p_strdup(pool, data-&gt;content_subtype);</span>
+<span class="lineNum">     469 </span><span class="lineCov">         19 :         if (args-&gt;type == IMAP_ARG_EOL)</span>
+<span class="lineNum">     470 </span><span class="lineCov">          1 :             return 0;</span>
+<span class="lineNum">     471 </span><span class="lineCov">         18 :         if (imap_bodystructure_params_parse(args++, pool,</span>
+<span class="lineNum">     472 </span>            :             &amp;data-&gt;content_type_params,
+<span class="lineNum">     473 </span>            :             &amp;data-&gt;content_type_params_count) &lt; 0) {
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid content params&quot;;</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     476 </span>            :         }
+<span class="lineNum">     477 </span><span class="lineCov">         18 :         return imap_bodystructure_parse_args_common</span>
+<span class="lineNum">     478 </span>            :             (part, pool, args, error_r);
+<span class="lineNum">     479 </span>            :     }
+<span class="lineNum">     480 </span>            : 
+<span class="lineNum">     481 </span>            :     /* &quot;content type&quot; &quot;subtype&quot; */
+<span class="lineNum">     482 </span><span class="lineCov">         82 :     if (!imap_arg_get_astring(&amp;args[0], &amp;content_type) ||</span>
+<span class="lineNum">     483 </span><span class="lineCov">         41 :         !imap_arg_get_astring(&amp;args[1], &amp;subtype)) {</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-type&quot;;</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     486 </span>            :     }
+<span class="lineNum">     487 </span><span class="lineCov">         41 :     data-&gt;content_type = p_strdup(pool, content_type);</span>
+<span class="lineNum">     488 </span><span class="lineCov">         41 :     data-&gt;content_subtype = p_strdup(pool, subtype);</span>
+<span class="lineNum">     489 </span><span class="lineCov">         41 :     args += 2;</span>
+<span class="lineNum">     490 </span>            : 
+<span class="lineNum">     491 </span><span class="lineCov">         41 :     text = strcasecmp(content_type, &quot;text&quot;) == 0;</span>
+<span class="lineNum">     492 </span><span class="lineCov">         48 :     message_rfc822 = strcasecmp(content_type, &quot;message&quot;) == 0 &amp;&amp;</span>
+<span class="lineNum">     493 </span><span class="lineCov">          7 :         strcasecmp(subtype, &quot;rfc822&quot;) == 0;</span>
+<span class="lineNum">     494 </span>            : 
+<span class="lineNum">     495 </span><span class="lineCov">         41 :     if (!parsing_tree) {</span>
+<span class="lineNum">     496 </span>            : #if 0
+<span class="lineNum">     497 </span>            :         /* Disabled for now. Earlier Dovecot versions handled broken
+<span class="lineNum">     498 </span>            :            Content-Type headers by writing them as &quot;text&quot; &quot;plain&quot; to
+<span class="lineNum">     499 </span>            :            BODYSTRUCTURE reply, but the message_part didn't have
+<span class="lineNum">     500 </span>            :            MESSAGE_PART_FLAG_TEXT. */
+<span class="lineNum">     501 </span>            :         if (text != ((part-&gt;flags &amp; MESSAGE_PART_FLAG_TEXT) != 0)) {
+<span class="lineNum">     502 </span>            :             *error_r = &quot;message_part text flag &quot;
+<span class="lineNum">     503 </span>            :                 &quot;doesn't match BODYSTRUCTURE&quot;;
+<span class="lineNum">     504 </span>            :             return -1;
+<span class="lineNum">     505 </span>            :         }
+<span class="lineNum">     506 </span>            : #endif
+<span class="lineNum">     507 </span><span class="lineCov">         50 :         if (message_rfc822 !=</span>
+<span class="lineNum">     508 </span><span class="lineCov">         25 :             ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) != 0)) {</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :             *error_r = &quot;message_part message/rfc822 flag &quot;</span>
+<span class="lineNum">     510 </span>            :                 &quot;doesn't match BODYSTRUCTURE&quot;;
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     512 </span>            :         }
+<span class="lineNum">     513 </span>            :     } else {
+<span class="lineNum">     514 </span><span class="lineCov">         16 :         if (text)</span>
+<span class="lineNum">     515 </span><span class="lineCov">         12 :             part-&gt;flags |= MESSAGE_PART_FLAG_TEXT;</span>
+<span class="lineNum">     516 </span><span class="lineCov">         16 :         if (message_rfc822)</span>
+<span class="lineNum">     517 </span><span class="lineCov">          3 :             part-&gt;flags |= MESSAGE_PART_FLAG_MESSAGE_RFC822;</span>
+<span class="lineNum">     518 </span>            :     }
+<span class="lineNum">     519 </span>            : 
+<span class="lineNum">     520 </span>            :     /* (&quot;content type param key&quot; &quot;value&quot; ...) | NIL */
+<span class="lineNum">     521 </span><span class="lineCov">         41 :     if (imap_bodystructure_params_parse(args++, pool,</span>
+<span class="lineNum">     522 </span>            :         &amp;data-&gt;content_type_params,
+<span class="lineNum">     523 </span>            :         &amp;data-&gt;content_type_params_count) &lt; 0) {
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content params&quot;;</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     526 </span>            :     }
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span>            :     /* &quot;content id&quot; &quot;content description&quot; &quot;transfer encoding&quot; size */
+<span class="lineNum">     529 </span><span class="lineCov">         41 :     if (!imap_arg_get_nstring(args++, &amp;data-&gt;content_id)) {</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-id&quot;;</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     532 </span>            :     }
+<span class="lineNum">     533 </span><span class="lineCov">         41 :     if (!imap_arg_get_nstring(args++, &amp;data-&gt;content_description)) {</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-description&quot;;</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     536 </span>            :     }
+<span class="lineNum">     537 </span><span class="lineCov">         41 :     if (!imap_arg_get_nstring(args++, &amp;data-&gt;content_transfer_encoding)) {</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-transfer-encoding&quot;;</span>
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     540 </span>            :     }
+<span class="lineNum">     541 </span><span class="lineCov">         41 :     data-&gt;content_id = p_strdup(pool, data-&gt;content_id);</span>
+<span class="lineNum">     542 </span><span class="lineCov">         41 :     data-&gt;content_description = p_strdup(pool, data-&gt;content_description);</span>
+<span class="lineNum">     543 </span><span class="lineCov">         41 :     data-&gt;content_transfer_encoding =</span>
+<span class="lineNum">     544 </span><span class="lineCov">         41 :         p_strdup(pool, data-&gt;content_transfer_encoding);</span>
+<span class="lineNum">     545 </span><span class="lineCov">         82 :     if (!imap_arg_get_atom(args++, &amp;value) ||</span>
+<span class="lineNum">     546 </span><span class="lineCov">         41 :         str_to_uoff(value, &amp;vsize) &lt; 0) {</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid size field&quot;;</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     549 </span>            :     }
+<span class="lineNum">     550 </span><span class="lineCov">         41 :     if (!parsing_tree) {</span>
+<span class="lineNum">     551 </span><span class="lineCov">         25 :         if (vsize != part-&gt;body_size.virtual_size) {</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :             *error_r = &quot;message_part virtual_size doesn't match &quot;</span>
+<span class="lineNum">     553 </span>            :                 &quot;size in BODYSTRUCTURE&quot;;
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     555 </span>            :         }
+<span class="lineNum">     556 </span>            :     } else {
+<span class="lineNum">     557 </span><span class="lineCov">         16 :         part-&gt;body_size.virtual_size = vsize;</span>
+<span class="lineNum">     558 </span>            :     }
+<span class="lineNum">     559 </span>            : 
+<span class="lineNum">     560 </span><span class="lineCov">         41 :     if (text) {</span>
+<span class="lineNum">     561 </span>            :         /* text/xxx - text lines */
+<span class="lineNum">     562 </span><span class="lineCov">         64 :         if (!imap_arg_get_atom(args++, &amp;value) ||</span>
+<span class="lineNum">     563 </span><span class="lineCov">         32 :             str_to_uint(value, &amp;lines) &lt; 0) {</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid lines field&quot;;</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     566 </span>            :         }
+<span class="lineNum">     567 </span><span class="lineCov">         32 :         i_assert(part-&gt;children == NULL);</span>
+<span class="lineNum">     568 </span><span class="lineCov">         32 :         has_lines = TRUE;</span>
+<span class="lineNum">     569 </span><span class="lineCov">          9 :     } else if (message_rfc822) {</span>
+<span class="lineNum">     570 </span>            :         /* message/rfc822 - envelope + bodystructure + text lines */
+<span class="lineNum">     571 </span>            : 
+<span class="lineNum">     572 </span><span class="lineCov">          7 :         if (!parsing_tree) {</span>
+<span class="lineNum">     573 </span><span class="lineCov">          4 :             i_assert(part-&gt;children != NULL &amp;&amp;</span>
+<span class="lineNum">     574 </span>            :                  part-&gt;children-&gt;next == NULL);
+<span class="lineNum">     575 </span>            :         }
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineCov">          7 :         if (!imap_arg_get_list(&amp;args[1], &amp;list_args)) {</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :             *error_r = &quot;Child bodystructure list expected&quot;;</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     580 </span>            :         }
+<span class="lineNum">     581 </span><span class="lineCov">          7 :         if (imap_bodystructure_parse_args</span>
+<span class="lineNum">     582 </span><span class="lineCov">          7 :             (list_args, pool, &amp;part-&gt;children, error_r) &lt; 0)</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     584 </span><span class="lineCov">          7 :         if (parsing_tree) {</span>
+<span class="lineNum">     585 </span><span class="lineCov">          3 :             i_assert(part-&gt;children != NULL &amp;&amp;</span>
+<span class="lineNum">     586 </span>            :                  part-&gt;children-&gt;next == NULL);
+<span class="lineNum">     587 </span><span class="lineCov">          3 :             part-&gt;children-&gt;parent = part;</span>
+<span class="lineNum">     588 </span>            :         }
+<span class="lineNum">     589 </span>            : 
+<span class="lineNum">     590 </span><span class="lineCov">          7 :         if (!imap_arg_get_list(&amp;args[0], &amp;list_args)) {</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :             *error_r = &quot;Envelope list expected&quot;;</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     593 </span>            :         }
+<span class="lineNum">     594 </span><span class="lineCov">          7 :         if (!imap_envelope_parse_args(list_args, pool,</span>
+<span class="lineNum">     595 </span><span class="lineCov">          7 :             &amp;part-&gt;children-&gt;data-&gt;envelope, &amp;error)) {</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :                 (&quot;Invalid envelope list: %s&quot;, error);</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     599 </span>            :         }
+<span class="lineNum">     600 </span><span class="lineCov">          7 :         args += 2;</span>
+<span class="lineNum">     601 </span><span class="lineCov">         14 :         if (!imap_arg_get_atom(args++, &amp;value) ||</span>
+<span class="lineNum">     602 </span><span class="lineCov">          7 :             str_to_uint(value, &amp;lines) &lt; 0) {</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid lines field&quot;;</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     605 </span>            :         }
+<span class="lineNum">     606 </span><span class="lineCov">          7 :         has_lines = TRUE;</span>
+<span class="lineNum">     607 </span>            :     } else {
+<span class="lineNum">     608 </span><span class="lineCov">          2 :         i_assert(part-&gt;children == NULL);</span>
+<span class="lineNum">     609 </span><span class="lineCov">          2 :         lines = 0;</span>
+<span class="lineNum">     610 </span><span class="lineCov">          2 :         has_lines = FALSE;</span>
+<span class="lineNum">     611 </span>            :     }
+<span class="lineNum">     612 </span><span class="lineCov">         41 :     if (!parsing_tree) {</span>
+<span class="lineNum">     613 </span><span class="lineCov">         25 :         if (has_lines &amp;&amp; lines != part-&gt;body_size.lines) {</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :             *error_r = &quot;message_part lines &quot;</span>
+<span class="lineNum">     615 </span>            :                 &quot;doesn't match lines in BODYSTRUCTURE&quot;;
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     617 </span>            :         }
+<span class="lineNum">     618 </span>            :     } else {
+<span class="lineNum">     619 </span><span class="lineCov">         16 :         part-&gt;body_size.lines = lines;</span>
+<span class="lineNum">     620 </span>            :     }
+<span class="lineNum">     621 </span><span class="lineCov">         41 :     if (args-&gt;type == IMAP_ARG_EOL)</span>
+<span class="lineNum">     622 </span><span class="lineCov">          5 :         return 0;</span>
+<span class="lineNum">     623 </span><span class="lineCov">         36 :     if (!imap_arg_get_nstring(args++, &amp;data-&gt;content_md5)) {</span>
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-md5&quot;;</span>
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     626 </span>            :     }
+<span class="lineNum">     627 </span><span class="lineCov">         36 :     data-&gt;content_md5 = p_strdup(pool, data-&gt;content_md5);</span>
+<span class="lineNum">     628 </span><span class="lineCov">         36 :     return imap_bodystructure_parse_args_common</span>
+<span class="lineNum">     629 </span>            :         (part, pool, args, error_r);
+<a name="630"><span class="lineNum">     630 </span>            : }</a>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineCov">         23 : int imap_bodystructure_parse_full(const char *bodystructure,</span>
+<span class="lineNum">     633 </span>            :     pool_t pool, struct message_part **parts,
+<span class="lineNum">     634 </span>            :     const char **error_r)
+<span class="lineNum">     635 </span>            : {
+<span class="lineNum">     636 </span>            :     struct istream *input;
+<span class="lineNum">     637 </span>            :     struct imap_parser *parser;
+<span class="lineNum">     638 </span>            :     const struct imap_arg *args;
+<span class="lineNum">     639 </span><span class="lineCov">         23 :     char *error = NULL;</span>
+<span class="lineNum">     640 </span>            :     int ret;
+<span class="lineNum">     641 </span>            : 
+<span class="lineNum">     642 </span><span class="lineCov">         23 :     i_assert(*parts == NULL || (*parts)-&gt;next == NULL);</span>
+<span class="lineNum">     643 </span>            : 
+<span class="lineNum">     644 </span><span class="lineCov">         23 :     input = i_stream_create_from_data(bodystructure, strlen(bodystructure));</span>
+<span class="lineNum">     645 </span><span class="lineCov">         23 :     (void)i_stream_read(input);</span>
+<span class="lineNum">     646 </span>            : 
+<span class="lineNum">     647 </span><span class="lineCov">         23 :     parser = imap_parser_create(input, NULL, (size_t)-1);</span>
+<span class="lineNum">     648 </span><span class="lineCov">         23 :     ret = imap_parser_finish_line(parser, 0,</span>
+<span class="lineNum">     649 </span>            :                       IMAP_PARSE_FLAG_LITERAL_TYPE, &amp;args);
+<span class="lineNum">     650 </span><span class="lineCov">         23 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;IMAP parser failed: %s&quot;,</span>
+<span class="lineNum">     652 </span>            :                        imap_parser_get_error(parser, NULL));
+<span class="lineNum">     653 </span><span class="lineCov">         23 :     } else if (ret == 0) {</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :         *error_r = &quot;Empty bodystructure&quot;;</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     656 </span>            :     } else {
+<span class="lineNum">     657 </span><span class="lineCov">         23 :         T_BEGIN {</span>
+<span class="lineNum">     658 </span><span class="lineCov">         23 :             ret = imap_bodystructure_parse_args</span>
+<span class="lineNum">     659 </span><span class="lineCov">         23 :                 (args, pool, parts, error_r);</span>
+<span class="lineNum">     660 </span><span class="lineCov">         23 :             if (ret &lt; 0)</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :                 error = i_strdup(*error_r);</span>
+<span class="lineNum">     662 </span><span class="lineCov">         23 :         } T_END;</span>
+<span class="lineNum">     663 </span>            : 
+<span class="lineNum">     664 </span><span class="lineCov">         23 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :             *error_r = t_strdup(error);</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :             i_free(error);</span>
+<span class="lineNum">     667 </span>            :         }
+<span class="lineNum">     668 </span>            :     }
+<span class="lineNum">     669 </span>            : 
+<span class="lineNum">     670 </span><span class="lineCov">         23 :     imap_parser_unref(&amp;parser);</span>
+<span class="lineNum">     671 </span><span class="lineCov">         23 :     i_stream_destroy(&amp;input);</span>
+<span class="lineNum">     672 </span><span class="lineCov">         23 :     return ret;</span>
+<a name="673"><span class="lineNum">     673 </span>            : }</a>
+<span class="lineNum">     674 </span>            : 
+<span class="lineNum">     675 </span><span class="lineCov">         15 : int imap_bodystructure_parse(const char *bodystructure,</span>
+<span class="lineNum">     676 </span>            :     pool_t pool, struct message_part *parts,
+<span class="lineNum">     677 </span>            :     const char **error_r)
+<span class="lineNum">     678 </span>            : {
+<span class="lineNum">     679 </span><span class="lineCov">         15 :     i_assert(parts != NULL);</span>
+<span class="lineNum">     680 </span>            : 
+<span class="lineNum">     681 </span><span class="lineCov">         15 :     return imap_bodystructure_parse_full(bodystructure,</span>
+<span class="lineNum">     682 </span>            :         pool, &amp;parts, error_r);
+<span class="lineNum">     683 </span>            : }
+<span class="lineNum">     684 </span>            : 
+<span class="lineNum">     685 </span>            : /*
+<span class="lineNum">     686 </span>            :  * IMAP BODYSTRUCTURE to BODY conversion
+<a name="687"><span class="lineNum">     687 </span>            :  */</a>
+<span class="lineNum">     688 </span>            : 
+<span class="lineNum">     689 </span><span class="lineCov">        218 : static bool str_append_nstring(string_t *str, const struct imap_arg *arg)</span>
+<span class="lineNum">     690 </span>            : {
+<span class="lineNum">     691 </span>            :     const char *cstr;
+<span class="lineNum">     692 </span>            : 
+<span class="lineNum">     693 </span><span class="lineCov">        218 :     if (!imap_arg_get_nstring(arg, &amp;cstr))</span>
+<span class="lineNum">     694 </span><span class="lineCov">         21 :         return FALSE;</span>
+<span class="lineNum">     695 </span>            : 
+<span class="lineNum">     696 </span><span class="lineCov">        197 :     switch (arg-&gt;type) {</span>
+<span class="lineNum">     697 </span>            :     case IMAP_ARG_NIL:
+<span class="lineNum">     698 </span><span class="lineCov">         64 :         str_append(str, &quot;NIL&quot;);</span>
+<span class="lineNum">     699 </span><span class="lineCov">         64 :         break;</span>
+<span class="lineNum">     700 </span>            :     case IMAP_ARG_ATOM:
+<span class="lineNum">     701 </span><span class="lineCov">         16 :         str_append(str, cstr);</span>
+<span class="lineNum">     702 </span><span class="lineCov">         16 :         break;</span>
+<span class="lineNum">     703 </span>            :     case IMAP_ARG_STRING:
+<span class="lineNum">     704 </span><span class="lineCov">        117 :         str_append_c(str, '&quot;');</span>
+<span class="lineNum">     705 </span>            :         /* NOTE: we're parsing with no-unescape flag,
+<span class="lineNum">     706 </span>            :            so don't double-escape it here */
+<span class="lineNum">     707 </span><span class="lineCov">        117 :         str_append(str, cstr);</span>
+<span class="lineNum">     708 </span><span class="lineCov">        117 :         str_append_c(str, '&quot;');</span>
+<span class="lineNum">     709 </span><span class="lineCov">        117 :         break;</span>
+<span class="lineNum">     710 </span>            :     case IMAP_ARG_LITERAL: {
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;{%&quot;PRIuSIZE_T&quot;}\r\n&quot;, strlen(cstr));</span>
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :         str_append(str, cstr);</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     714 </span>            :     }
+<span class="lineNum">     715 </span>            :     default:
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     717 </span>            :         return FALSE;
+<span class="lineNum">     718 </span>            :     }
+<span class="lineNum">     719 </span><span class="lineCov">        197 :     return TRUE;</span>
+<span class="lineNum">     720 </span>            : }
+<a name="721"><span class="lineNum">     721 </span>            : </a>
+<span class="lineNum">     722 </span>            : static void
+<span class="lineNum">     723 </span><span class="lineCov">         24 : imap_write_envelope_list(const struct imap_arg *args, string_t *str,</span>
+<span class="lineNum">     724 </span>            :     bool toplevel)
+<span class="lineNum">     725 </span>            : {
+<span class="lineNum">     726 </span>            :     const struct imap_arg *children;
+<span class="lineNum">     727 </span>            : 
+<span class="lineNum">     728 </span>            :     /* don't do any typechecking, just write it out */
+<span class="lineNum">     729 </span><span class="lineCov">        133 :     while (!IMAP_ARG_IS_EOL(args)) {</span>
+<span class="lineNum">     730 </span><span class="lineCov">         85 :         bool list = FALSE;</span>
+<span class="lineNum">     731 </span>            : 
+<span class="lineNum">     732 </span><span class="lineCov">         85 :         if (!str_append_nstring(str, args)) {</span>
+<span class="lineNum">     733 </span><span class="lineCov">         21 :             if (!imap_arg_get_list(args, &amp;children)) {</span>
+<span class="lineNum">     734 </span>            :                 /* everything is either nstring or list */
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :                 i_unreached();</span>
+<span class="lineNum">     736 </span>            :             }
+<span class="lineNum">     737 </span>            : 
+<span class="lineNum">     738 </span><span class="lineCov">         21 :             str_append_c(str, '(');</span>
+<span class="lineNum">     739 </span><span class="lineCov">         21 :             imap_write_envelope_list(children, str, FALSE);</span>
+<span class="lineNum">     740 </span><span class="lineCov">         21 :             str_append_c(str, ')');</span>
+<span class="lineNum">     741 </span>            : 
+<span class="lineNum">     742 </span><span class="lineCov">         21 :             list = TRUE;</span>
+<span class="lineNum">     743 </span>            :         }
+<span class="lineNum">     744 </span><span class="lineCov">         85 :         args++;</span>
+<span class="lineNum">     745 </span>            : 
+<span class="lineNum">     746 </span><span class="lineCov">         85 :         if ((toplevel || !list) &amp;&amp; !IMAP_ARG_IS_EOL(args))</span>
+<span class="lineNum">     747 </span><span class="lineCov">         60 :             str_append_c(str, ' ');</span>
+<span class="lineNum">     748 </span>            :     }
+<span class="lineNum">     749 </span><span class="lineCov">         24 : }</span>
+<a name="750"><span class="lineNum">     750 </span>            : </a>
+<span class="lineNum">     751 </span>            : static void
+<span class="lineNum">     752 </span><span class="lineCov">          3 : imap_write_envelope(const struct imap_arg *args, string_t *str)</span>
+<span class="lineNum">     753 </span>            : {
+<span class="lineNum">     754 </span><span class="lineCov">          3 :     imap_write_envelope_list(args, str, TRUE);</span>
+<a name="755"><span class="lineNum">     755 </span><span class="lineCov">          3 : }</span></a>
+<span class="lineNum">     756 </span>            : 
+<span class="lineNum">     757 </span><span class="lineCov">         23 : static int imap_parse_bodystructure_args(const struct imap_arg *args,</span>
+<span class="lineNum">     758 </span>            :                      string_t *str, const char **error_r)
+<span class="lineNum">     759 </span>            : {
+<span class="lineNum">     760 </span>            :     const struct imap_arg *subargs;
+<span class="lineNum">     761 </span>            :     const struct imap_arg *list_args;
+<span class="lineNum">     762 </span>            :     const char *value, *content_type, *subtype;
+<span class="lineNum">     763 </span>            :     bool multipart, text, message_rfc822;
+<span class="lineNum">     764 </span>            :     int i;
+<span class="lineNum">     765 </span>            : 
+<span class="lineNum">     766 </span><span class="lineCov">         23 :     multipart = FALSE;</span>
+<span class="lineNum">     767 </span><span class="lineCov">         58 :     while (args-&gt;type == IMAP_ARG_LIST) {</span>
+<span class="lineNum">     768 </span><span class="lineCov">         12 :         str_append_c(str, '(');</span>
+<span class="lineNum">     769 </span><span class="lineCov">         12 :         list_args = imap_arg_as_list(args);</span>
+<span class="lineNum">     770 </span><span class="lineCov">         12 :         if (imap_parse_bodystructure_args(list_args, str, error_r) &lt; 0)</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     772 </span><span class="lineCov">         12 :         str_append_c(str, ')');</span>
+<span class="lineNum">     773 </span>            : 
+<span class="lineNum">     774 </span><span class="lineCov">         12 :         multipart = TRUE;</span>
+<span class="lineNum">     775 </span><span class="lineCov">         12 :         args++;</span>
+<span class="lineNum">     776 </span>            :     }
+<span class="lineNum">     777 </span>            : 
+<span class="lineNum">     778 </span><span class="lineCov">         23 :     if (multipart) {</span>
+<span class="lineNum">     779 </span>            :         /* next is subtype of Content-Type. rest is skipped. */
+<span class="lineNum">     780 </span><span class="lineCov">          7 :         str_append_c(str, ' ');</span>
+<span class="lineNum">     781 </span><span class="lineCov">          7 :         if (!str_append_nstring(str, args)) {</span>
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid multipart content-type&quot;;</span>
+<span class="lineNum">     783 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     784 </span>            :         }
+<span class="lineNum">     785 </span><span class="lineCov">          7 :         return 0;</span>
+<span class="lineNum">     786 </span>            :     }
+<span class="lineNum">     787 </span>            : 
+<span class="lineNum">     788 </span>            :     /* &quot;content type&quot; &quot;subtype&quot; */
+<span class="lineNum">     789 </span><span class="lineCov">         32 :     if (!imap_arg_get_astring(&amp;args[0], &amp;content_type) ||</span>
+<span class="lineNum">     790 </span><span class="lineCov">         16 :         !imap_arg_get_astring(&amp;args[1], &amp;subtype)) {</span>
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :         *error_r = &quot;Invalid content-type&quot;;</span>
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     793 </span>            :     }
+<span class="lineNum">     794 </span>            : 
+<span class="lineNum">     795 </span><span class="lineCov">         16 :     if (!str_append_nstring(str, &amp;args[0]))</span>
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     797 </span><span class="lineCov">         16 :     str_append_c(str, ' ');</span>
+<span class="lineNum">     798 </span><span class="lineCov">         16 :     if (!str_append_nstring(str, &amp;args[1]))</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     800 </span>            : 
+<span class="lineNum">     801 </span><span class="lineCov">         16 :     text = strcasecmp(content_type, &quot;text&quot;) == 0;</span>
+<span class="lineNum">     802 </span><span class="lineCov">         19 :     message_rfc822 = strcasecmp(content_type, &quot;message&quot;) == 0 &amp;&amp;</span>
+<span class="lineNum">     803 </span><span class="lineCov">          3 :         strcasecmp(subtype, &quot;rfc822&quot;) == 0;</span>
+<span class="lineNum">     804 </span>            : 
+<span class="lineNum">     805 </span><span class="lineCov">         16 :     args += 2;</span>
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span>            :     /* (&quot;content type param key&quot; &quot;value&quot; ...) | NIL */
+<span class="lineNum">     808 </span><span class="lineCov">         16 :     if (imap_arg_get_list(args, &amp;subargs)) {</span>
+<span class="lineNum">     809 </span><span class="lineCov">         12 :         str_append(str, &quot; (&quot;);</span>
+<span class="lineNum">     810 </span><span class="lineCov">         27 :         while (!IMAP_ARG_IS_EOL(subargs)) {</span>
+<span class="lineNum">     811 </span><span class="lineCov">         15 :             if (!str_append_nstring(str, &amp;subargs[0])) {</span>
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :                 *error_r = &quot;Invalid content param key&quot;;</span>
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     814 </span>            :             }
+<span class="lineNum">     815 </span><span class="lineCov">         15 :             str_append_c(str, ' ');</span>
+<span class="lineNum">     816 </span><span class="lineCov">         15 :             if (!str_append_nstring(str, &amp;subargs[1])) {</span>
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :                 *error_r = &quot;Invalid content param value&quot;;</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     819 </span>            :             }
+<span class="lineNum">     820 </span>            : 
+<span class="lineNum">     821 </span><span class="lineCov">         15 :             subargs += 2;</span>
+<span class="lineNum">     822 </span><span class="lineCov">         15 :             if (IMAP_ARG_IS_EOL(subargs))</span>
+<span class="lineNum">     823 </span><span class="lineCov">         12 :                 break;</span>
+<span class="lineNum">     824 </span><span class="lineCov">          3 :             str_append_c(str, ' ');</span>
+<span class="lineNum">     825 </span>            :         }
+<span class="lineNum">     826 </span><span class="lineCov">         12 :         str_append(str, &quot;)&quot;);</span>
+<span class="lineNum">     827 </span><span class="lineCov">          4 :     } else if (args-&gt;type == IMAP_ARG_NIL) {</span>
+<span class="lineNum">     828 </span><span class="lineCov">          4 :         str_append(str, &quot; NIL&quot;);</span>
+<span class="lineNum">     829 </span>            :     } else {
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :         *error_r = &quot;list/NIL expected&quot;;</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     832 </span>            :     }
+<span class="lineNum">     833 </span><span class="lineCov">         16 :     args++;</span>
+<span class="lineNum">     834 </span>            : 
+<span class="lineNum">     835 </span>            :     /* &quot;content id&quot; &quot;content description&quot; &quot;transfer encoding&quot; size */
+<span class="lineNum">     836 </span><span class="lineCov">         80 :     for (i = 0; i &lt; 4; i++, args++) {</span>
+<span class="lineNum">     837 </span><span class="lineCov">         64 :         str_append_c(str, ' ');</span>
+<span class="lineNum">     838 </span>            : 
+<span class="lineNum">     839 </span><span class="lineCov">         64 :         if (!str_append_nstring(str, args)) {</span>
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :             *error_r = &quot;nstring expected&quot;;</span>
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     842 </span>            :         }
+<span class="lineNum">     843 </span>            :     }
+<span class="lineNum">     844 </span>            : 
+<span class="lineNum">     845 </span><span class="lineCov">         16 :     if (text) {</span>
+<span class="lineNum">     846 </span>            :         /* text/xxx - text lines */
+<span class="lineNum">     847 </span><span class="lineCov">         12 :         if (!imap_arg_get_atom(args, &amp;value)) {</span>
+<span class="lineNum">     848 </span><span class="lineNoCov">          0 :             *error_r = &quot;Text lines expected&quot;;</span>
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     850 </span>            :         }
+<span class="lineNum">     851 </span>            : 
+<span class="lineNum">     852 </span><span class="lineCov">         12 :         str_append_c(str, ' ');</span>
+<span class="lineNum">     853 </span><span class="lineCov">         12 :         str_append(str, value);</span>
+<span class="lineNum">     854 </span><span class="lineCov">          4 :     } else if (message_rfc822) {</span>
+<span class="lineNum">     855 </span>            :         /* message/rfc822 - envelope + bodystructure + text lines */
+<span class="lineNum">     856 </span><span class="lineCov">          3 :         str_append_c(str, ' ');</span>
+<span class="lineNum">     857 </span>            : 
+<span class="lineNum">     858 </span><span class="lineCov">          3 :         if (!imap_arg_get_list(&amp;args[0], &amp;list_args)) {</span>
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :             *error_r = &quot;Envelope list expected&quot;;</span>
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     861 </span>            :         }
+<span class="lineNum">     862 </span><span class="lineCov">          3 :         str_append_c(str, '(');</span>
+<span class="lineNum">     863 </span><span class="lineCov">          3 :         imap_write_envelope(list_args, str);</span>
+<span class="lineNum">     864 </span><span class="lineCov">          3 :         str_append(str, &quot;) (&quot;);</span>
+<span class="lineNum">     865 </span>            : 
+<span class="lineNum">     866 </span><span class="lineCov">          3 :         if (!imap_arg_get_list(&amp;args[1], &amp;list_args)) {</span>
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :             *error_r = &quot;Child bodystructure list expected&quot;;</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     869 </span>            :         }
+<span class="lineNum">     870 </span><span class="lineCov">          3 :         if (imap_parse_bodystructure_args(list_args, str, error_r) &lt; 0)</span>
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     872 </span>            : 
+<span class="lineNum">     873 </span><span class="lineCov">          3 :         str_append(str, &quot;) &quot;);</span>
+<span class="lineNum">     874 </span><span class="lineCov">          3 :         if (!imap_arg_get_atom(&amp;args[2], &amp;value)) {</span>
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :             *error_r = &quot;Text lines expected&quot;;</span>
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     877 </span>            :         }
+<span class="lineNum">     878 </span><span class="lineCov">          3 :         str_append(str, value);</span>
+<span class="lineNum">     879 </span>            :     }
+<span class="lineNum">     880 </span><span class="lineCov">         16 :     return 0;</span>
+<a name="881"><span class="lineNum">     881 </span>            : }</a>
+<span class="lineNum">     882 </span>            : 
+<span class="lineNum">     883 </span><span class="lineCov">          8 : int imap_body_parse_from_bodystructure(const char *bodystructure,</span>
+<span class="lineNum">     884 </span>            :                        string_t *dest, const char **error_r)
+<span class="lineNum">     885 </span>            : {
+<span class="lineNum">     886 </span>            :     struct istream *input;
+<span class="lineNum">     887 </span>            :     struct imap_parser *parser;
+<span class="lineNum">     888 </span>            :     const struct imap_arg *args;
+<span class="lineNum">     889 </span>            :     int ret;
+<span class="lineNum">     890 </span>            : 
+<span class="lineNum">     891 </span><span class="lineCov">          8 :     input = i_stream_create_from_data(bodystructure, strlen(bodystructure));</span>
+<span class="lineNum">     892 </span><span class="lineCov">          8 :     (void)i_stream_read(input);</span>
+<span class="lineNum">     893 </span>            : 
+<span class="lineNum">     894 </span><span class="lineCov">          8 :     parser = imap_parser_create(input, NULL, (size_t)-1);</span>
+<span class="lineNum">     895 </span><span class="lineCov">          8 :     ret = imap_parser_finish_line(parser, 0, IMAP_PARSE_FLAG_NO_UNESCAPE |</span>
+<span class="lineNum">     896 </span>            :                       IMAP_PARSE_FLAG_LITERAL_TYPE, &amp;args);
+<span class="lineNum">     897 </span><span class="lineCov">          8 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     898 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;IMAP parser failed: %s&quot;,</span>
+<span class="lineNum">     899 </span>            :                        imap_parser_get_error(parser, NULL));
+<span class="lineNum">     900 </span><span class="lineCov">          8 :     } else if (ret == 0) {</span>
+<span class="lineNum">     901 </span><span class="lineNoCov">          0 :         *error_r = &quot;Empty bodystructure&quot;;</span>
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     903 </span>            :     } else {
+<span class="lineNum">     904 </span><span class="lineCov">          8 :         ret = imap_parse_bodystructure_args(args, dest, error_r);</span>
+<span class="lineNum">     905 </span>            :     }
+<span class="lineNum">     906 </span>            : 
+<span class="lineNum">     907 </span><span class="lineCov">          8 :     imap_parser_unref(&amp;parser);</span>
+<span class="lineNum">     908 </span><span class="lineCov">          8 :     i_stream_destroy(&amp;input);</span>
+<span class="lineNum">     909 </span><span class="lineCov">          8 :     return ret;</span>
+<span class="lineNum">     910 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

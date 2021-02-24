@@ -1,0 +1,420 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/mountpoint.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - mountpoint.c<span style="font-size: 80%;"> (source / <a href="mountpoint.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">53</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2006-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;mountpoint.h&quot;
+<span class="lineNum">       5 </span>            : 
+<span class="lineNum">       6 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #ifdef HAVE_SYS_VMOUNT_H
+<span class="lineNum">       9 </span>            : #  include &lt;stdio.h&gt;
+<span class="lineNum">      10 </span>            : #  include &lt;sys/vmount.h&gt; /* AIX */
+<span class="lineNum">      11 </span>            : #  define MOUNTPOINT_AIX_MNTCTL
+<span class="lineNum">      12 </span>            : #elif defined(HAVE_STATVFS_MNTFROMNAME)
+<span class="lineNum">      13 </span>            : #  include &lt;sys/statvfs.h&gt; /* NetBSD 3.0+, FreeBSD 5.0+ */
+<span class="lineNum">      14 </span>            : #  define STATVFS_STR &quot;statvfs&quot;
+<span class="lineNum">      15 </span>            : #  define MOUNTPOINT_STATVFS
+<span class="lineNum">      16 </span>            : #elif defined(HAVE_STATFS_MNTFROMNAME)
+<span class="lineNum">      17 </span>            : #  include &lt;sys/param.h&gt; /* Older BSDs */
+<span class="lineNum">      18 </span>            : #  include &lt;sys/mount.h&gt;
+<span class="lineNum">      19 </span>            : #  define statvfs statfs
+<span class="lineNum">      20 </span>            : #  define STATVFS_STR &quot;statfs&quot;
+<span class="lineNum">      21 </span>            : #  define MOUNTPOINT_STATVFS
+<span class="lineNum">      22 </span>            : #elif defined(HAVE_MNTENT_H)
+<span class="lineNum">      23 </span>            : #  include &lt;stdio.h&gt;
+<span class="lineNum">      24 </span>            : #  include &lt;mntent.h&gt; /* Linux */
+<span class="lineNum">      25 </span>            : #  define MOUNTPOINT_LINUX
+<span class="lineNum">      26 </span>            : #elif defined(HAVE_SYS_MNTTAB_H)
+<span class="lineNum">      27 </span>            : #  include &lt;stdio.h&gt;
+<span class="lineNum">      28 </span>            : #  include &lt;sys/mnttab.h&gt; /* Solaris */
+<span class="lineNum">      29 </span>            : #  include &lt;sys/mntent.h&gt;
+<span class="lineNum">      30 </span>            : #  define MOUNTPOINT_SOLARIS
+<span class="lineNum">      31 </span>            : #else
+<span class="lineNum">      32 </span>            : #  define MOUNTPOINT_UNKNOWN
+<span class="lineNum">      33 </span>            : #endif
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : #ifdef MOUNTPOINT_SOLARIS
+<span class="lineNum">      36 </span>            : #  define MTAB_PATH MNTTAB /* Solaris */
+<span class="lineNum">      37 </span>            : #else
+<span class="lineNum">      38 </span>            : #  define MTAB_PATH &quot;/etc/mtab&quot; /* Linux */
+<span class="lineNum">      39 </span>            : #endif
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            : /* AIX doesn't have these defined */
+<span class="lineNum">      42 </span>            : #ifndef MNTTYPE_SWAP
+<span class="lineNum">      43 </span>            : #  define MNTTYPE_SWAP &quot;swap&quot;
+<span class="lineNum">      44 </span>            : #endif
+<span class="lineNum">      45 </span>            : #ifndef MNTTYPE_IGNORE
+<span class="lineNum">      46 </span>            : #  define MNTTYPE_IGNORE &quot;ignore&quot;
+<span class="lineNum">      47 </span>            : #endif
+<span class="lineNum">      48 </span>            : #ifndef MNTTYPE_JFS
+<span class="lineNum">      49 </span>            : #  define MNTTYPE_JFS &quot;jfs&quot;
+<span class="lineNum">      50 </span>            : #endif
+<span class="lineNum">      51 </span>            : #ifndef MNTTYPE_NFS
+<span class="lineNum">      52 </span>            : #  define MNTTYPE_NFS &quot;nfs&quot;
+<span class="lineNum">      53 </span>            : #endif
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            : /* Linux sometimes has mtab entry for &quot;rootfs&quot; as well as the real root
+<span class="lineNum">      56 </span>            :    entry. Skip the rootfs. */
+<span class="lineNum">      57 </span>            : #ifndef MNTTYPE_ROOTFS
+<span class="lineNum">      58 </span>            : #  define MNTTYPE_ROOTFS &quot;rootfs&quot;
+<span class="lineNum">      59 </span>            : #endif
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            : #ifdef MOUNTPOINT_STATVFS
+<span class="lineNum">      62 </span>            : static int
+<span class="lineNum">      63 </span>            : mountpoint_get_statvfs(const char *path, pool_t pool,
+<span class="lineNum">      64 </span>            :                        struct mountpoint *point_r)
+<span class="lineNum">      65 </span>            : {
+<span class="lineNum">      66 </span>            :     struct statvfs buf;
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span>            :     i_zero(point_r);
+<span class="lineNum">      69 </span>            :     if (statvfs(path, &amp;buf) &lt; 0) {
+<span class="lineNum">      70 </span>            :         if (errno == ENOENT)
+<span class="lineNum">      71 </span>            :             return 0;
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span>            :         i_error(STATVFS_STR&quot;(%s) failed: %m&quot;, path);
+<span class="lineNum">      74 </span>            :         return -1;
+<span class="lineNum">      75 </span>            :     }
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :     point_r-&gt;device_path = p_strdup(pool, buf.f_mntfromname);
+<span class="lineNum">      78 </span>            :     point_r-&gt;mount_path = p_strdup(pool, buf.f_mntonname);
+<span class="lineNum">      79 </span>            : #ifdef __osf__ /* Tru64 */
+<span class="lineNum">      80 </span>            :     point_r-&gt;type = p_strdup(pool, getvfsbynumber(buf.f_type));
+<span class="lineNum">      81 </span>            : #else
+<span class="lineNum">      82 </span>            :     point_r-&gt;type = p_strdup(pool, buf.f_fstypename);
+<span class="lineNum">      83 </span>            : #endif
+<span class="lineNum">      84 </span>            :     point_r-&gt;block_size = buf.f_bsize;
+<span class="lineNum">      85 </span>            :     return 1;
+<span class="lineNum">      86 </span>            : }
+<a name="87"><span class="lineNum">      87 </span>            : #endif</a>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 : int mountpoint_get(const char *path, pool_t pool, struct mountpoint *point_r)</span>
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span>            : #ifdef MOUNTPOINT_UNKNOWN
+<span class="lineNum">      92 </span>            :     i_zero(point_r);
+<span class="lineNum">      93 </span>            :     errno = ENOSYS;
+<span class="lineNum">      94 </span>            :     return -1;
+<span class="lineNum">      95 </span>            : #elif defined (MOUNTPOINT_STATVFS)
+<span class="lineNum">      96 </span>            :         /* BSDs, Tru64 */
+<span class="lineNum">      97 </span>            :         return mountpoint_get_statvfs(path, pool, point_r);
+<span class="lineNum">      98 </span>            : #else
+<span class="lineNum">      99 </span>            :     /* find via mount iteration */
+<span class="lineNum">     100 </span>            :     struct mountpoint_iter *iter;
+<span class="lineNum">     101 </span>            :     const struct mountpoint *mnt;
+<span class="lineNum">     102 </span>            :     struct stat st;
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     i_zero(point_r);</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :     if (stat(path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         if (errno == ENOENT)</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         i_error(&quot;stat(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     111 </span>            :     }
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     iter = mountpoint_iter_init();</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     while ((mnt = mountpoint_iter_next(iter)) != NULL) {</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         if (minor(st.st_dev) == minor(mnt-&gt;dev) &amp;&amp;</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :             major(st.st_dev) == major(mnt-&gt;dev))</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     118 </span>            :         }
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         if (mnt != NULL) {</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :                 point_r-&gt;device_path = p_strdup(pool, mnt-&gt;device_path);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :                 point_r-&gt;mount_path = p_strdup(pool, mnt-&gt;mount_path);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :                 point_r-&gt;type = p_strdup(pool, mnt-&gt;type);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :                 point_r-&gt;dev = mnt-&gt;dev;</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :                 point_r-&gt;block_size = st.st_blksize;</span>
+<span class="lineNum">     125 </span>            :         }
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     if (mountpoint_iter_deinit(&amp;iter) &lt; 0 &amp;&amp; mnt == NULL)</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         return mnt != NULL ? 1 : 0;</span>
+<span class="lineNum">     129 </span>            : #endif
+<span class="lineNum">     130 </span>            : }
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span>            : struct mountpoint_iter {
+<span class="lineNum">     133 </span>            : #ifdef MOUNTPOINT_AIX_MNTCTL
+<span class="lineNum">     134 </span>            :     char *mtab;
+<span class="lineNum">     135 </span>            :     struct vmount *vmt;
+<span class="lineNum">     136 </span>            :     int count;
+<span class="lineNum">     137 </span>            : #elif defined(MOUNTPOINT_SOLARIS) || defined(MOUNTPOINT_LINUX)
+<span class="lineNum">     138 </span>            :     FILE *f;
+<span class="lineNum">     139 </span>            : #elif defined(HAVE_GETMNTINFO) /* BSDs */
+<span class="lineNum">     140 </span>            : #ifndef __NetBSD__
+<span class="lineNum">     141 </span>            :     struct statfs *fs;
+<span class="lineNum">     142 </span>            : #else
+<span class="lineNum">     143 </span>            :     struct statvfs *fs;
+<span class="lineNum">     144 </span>            : #endif
+<span class="lineNum">     145 </span>            :     int count;
+<span class="lineNum">     146 </span>            : #endif
+<span class="lineNum">     147 </span>            :     struct mountpoint mnt;
+<span class="lineNum">     148 </span>            :     bool failed;
+<a name="149"><span class="lineNum">     149 </span>            : };</a>
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 : struct mountpoint_iter *mountpoint_iter_init(void)</span>
+<span class="lineNum">     152 </span>            : {
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     struct mountpoint_iter *iter = i_new(struct mountpoint_iter, 1);</span>
+<span class="lineNum">     154 </span>            : #ifdef MOUNTPOINT_AIX_MNTCTL
+<span class="lineNum">     155 </span>            :     unsigned int size = STATIC_MTAB_SIZE;
+<span class="lineNum">     156 </span>            :     char *mtab;
+<span class="lineNum">     157 </span>            :     int count;
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span>            :     mtab = t_buffer_get(size);
+<span class="lineNum">     160 </span>            :     while ((count = mntctl(MCTL_QUERY, size, mtab)) == 0) {
+<span class="lineNum">     161 </span>            :         size = *(unsigned int *)mtab;
+<span class="lineNum">     162 </span>            :         mtab = t_buffer_get(size);
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span>            :     if (count &lt; 0) {
+<span class="lineNum">     165 </span>            :         i_error(&quot;mntctl(MCTL_QUERY) failed: %m&quot;);
+<span class="lineNum">     166 </span>            :         iter-&gt;failed = TRUE;
+<span class="lineNum">     167 </span>            :         return iter;
+<span class="lineNum">     168 </span>            :     }
+<span class="lineNum">     169 </span>            :     iter-&gt;count = count;
+<span class="lineNum">     170 </span>            :     iter-&gt;mtab = i_malloc(size);
+<span class="lineNum">     171 </span>            :     memcpy(iter-&gt;mtab, mtab, size);
+<span class="lineNum">     172 </span>            :     iter-&gt;vmt = (void *)iter-&gt;mtab;
+<span class="lineNum">     173 </span>            : #elif defined(MOUNTPOINT_SOLARIS)
+<span class="lineNum">     174 </span>            :     iter-&gt;f = fopen(MTAB_PATH, &quot;r&quot;);
+<span class="lineNum">     175 </span>            :     if (iter-&gt;f == NULL) {
+<span class="lineNum">     176 </span>            :         i_error(&quot;fopen(%s) failed: %m&quot;, MTAB_PATH);
+<span class="lineNum">     177 </span>            :         iter-&gt;failed = TRUE;
+<span class="lineNum">     178 </span>            :         return iter;
+<span class="lineNum">     179 </span>            :     }
+<span class="lineNum">     180 </span>            :     resetmnttab(iter-&gt;f);
+<span class="lineNum">     181 </span>            : #elif defined(MOUNTPOINT_LINUX)
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     iter-&gt;f = setmntent(MTAB_PATH, &quot;r&quot;);</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :     if (iter-&gt;f == NULL) {</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         i_error(&quot;setmntent(%s) failed: %m&quot;, MTAB_PATH);</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :         iter-&gt;failed = TRUE;</span>
+<span class="lineNum">     186 </span>            :     }
+<span class="lineNum">     187 </span>            : #elif defined(HAVE_GETMNTINFO) /* BSDs */
+<span class="lineNum">     188 </span>            :     iter-&gt;count = getmntinfo(&amp;iter-&gt;fs, MNT_NOWAIT);
+<span class="lineNum">     189 </span>            :     if (iter-&gt;count &lt; 0) {
+<span class="lineNum">     190 </span>            :         i_error(&quot;getmntinfo() failed: %m&quot;);
+<span class="lineNum">     191 </span>            :         iter-&gt;failed = TRUE;
+<span class="lineNum">     192 </span>            :     }
+<span class="lineNum">     193 </span>            : #else
+<span class="lineNum">     194 </span>            :     iter-&gt;failed = TRUE;
+<span class="lineNum">     195 </span>            : #endif
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     return iter;</span>
+<a name="197"><span class="lineNum">     197 </span>            : }</a>
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 : const struct mountpoint *mountpoint_iter_next(struct mountpoint_iter *iter)</span>
+<span class="lineNum">     200 </span>            : {
+<span class="lineNum">     201 </span>            : #ifdef MOUNTPOINT_AIX_MNTCTL
+<span class="lineNum">     202 </span>            :     struct vmount *vmt = iter-&gt;vmt;
+<span class="lineNum">     203 </span>            :     char *vmt_base = (char *)vmt;
+<span class="lineNum">     204 </span>            :     char *vmt_object, *vmt_stub, *vmt_hostname;
+<span class="lineNum">     205 </span>            :     struct stat vst;
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span>            :     if (iter-&gt;count == 0)
+<span class="lineNum">     208 </span>            :         return NULL;
+<span class="lineNum">     209 </span>            :     iter-&gt;count--;
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span>            :     iter-&gt;vmt = PTR_OFFSET(vmt, vmt-&gt;vmt_length);
+<span class="lineNum">     212 </span>            :     vmt_hostname = vmt_base + vmt-&gt;vmt_data[VMT_HOSTNAME].vmt_off;
+<span class="lineNum">     213 </span>            :     vmt_object   = vmt_base + vmt-&gt;vmt_data[VMT_OBJECT].vmt_off;
+<span class="lineNum">     214 </span>            :     vmt_stub     = vmt_base + vmt-&gt;vmt_data[VMT_STUB].vmt_off;
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span>            :     i_zero(&amp;iter-&gt;mnt);
+<span class="lineNum">     217 </span>            :     switch (vmt-&gt;vmt_gfstype) {
+<span class="lineNum">     218 </span>            :     case MNT_NFS:
+<span class="lineNum">     219 </span>            :     case MNT_NFS3:
+<span class="lineNum">     220 </span>            :     case MNT_NFS4:
+<span class="lineNum">     221 </span>            :     case MNT_RFS4:
+<span class="lineNum">     222 </span>            :         iter-&gt;mnt.device_path =
+<span class="lineNum">     223 </span>            :             t_strconcat(vmt_hostname, &quot;:&quot;, vmt_object, NULL);
+<span class="lineNum">     224 </span>            :         iter-&gt;mnt.mount_path = vmt_stub;
+<span class="lineNum">     225 </span>            :         iter-&gt;mnt.type       = MNTTYPE_NFS;
+<span class="lineNum">     226 </span>            :         break;
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span>            :     case MNT_J2:
+<span class="lineNum">     229 </span>            :     case MNT_JFS:
+<span class="lineNum">     230 </span>            :         iter-&gt;mnt.device_path = vmt_object;
+<span class="lineNum">     231 </span>            :         iter-&gt;mnt.mount_path  = vmt_stub;
+<span class="lineNum">     232 </span>            :         iter-&gt;mnt.type        = MNTTYPE_JFS;
+<span class="lineNum">     233 </span>            :         break;
+<span class="lineNum">     234 </span>            :     default:
+<span class="lineNum">     235 </span>            :         /* unwanted filesystem */
+<span class="lineNum">     236 </span>            :         return mountpoint_iter_next(iter);
+<span class="lineNum">     237 </span>            :     }
+<span class="lineNum">     238 </span>            :     if (stat(iter-&gt;mnt.mount_path, &amp;vst) == 0) {
+<span class="lineNum">     239 </span>            :         iter-&gt;mnt.dev = vst.st_dev;
+<span class="lineNum">     240 </span>            :         iter-&gt;mnt.block_size = vst.st_blksize;
+<span class="lineNum">     241 </span>            :     }
+<span class="lineNum">     242 </span>            :     return &amp;iter-&gt;mnt;
+<span class="lineNum">     243 </span>            : #elif defined (MOUNTPOINT_SOLARIS)
+<span class="lineNum">     244 </span>            :     union {
+<span class="lineNum">     245 </span>            :         struct mnttab ent;
+<span class="lineNum">     246 </span>            :         struct extmnttab ext;
+<span class="lineNum">     247 </span>            :     } ent;
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span>            :     if (iter-&gt;f == NULL)
+<span class="lineNum">     250 </span>            :         return NULL;
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span>            :     i_zero(&amp;iter-&gt;mnt);
+<span class="lineNum">     253 </span>            :     while ((getextmntent(iter-&gt;f, &amp;ent.ext, sizeof(ent.ext))) == 0) {
+<span class="lineNum">     254 </span>            :         if (hasmntopt(&amp;ent.ent, MNTOPT_IGNORE) != NULL)
+<span class="lineNum">     255 </span>            :             continue;
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span>            :         /* mnt_type contains tmpfs with swap */
+<span class="lineNum">     258 </span>            :         if (strcmp(ent.ent.mnt_special, MNTTYPE_SWAP) == 0)
+<span class="lineNum">     259 </span>            :             continue;
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span>            :         iter-&gt;mnt.device_path = ent.ent.mnt_special;
+<span class="lineNum">     262 </span>            :         iter-&gt;mnt.mount_path = ent.ent.mnt_mountp;
+<span class="lineNum">     263 </span>            :         iter-&gt;mnt.type = ent.ent.mnt_fstype;
+<span class="lineNum">     264 </span>            :         iter-&gt;mnt.dev = makedev(ent.ext.mnt_major, ent.ext.mnt_minor);
+<span class="lineNum">     265 </span>            :         return &amp;iter-&gt;mnt;
+<span class="lineNum">     266 </span>            :     }
+<span class="lineNum">     267 </span>            :     return NULL;
+<span class="lineNum">     268 </span>            : #elif defined (MOUNTPOINT_LINUX)
+<span class="lineNum">     269 </span>            :     const struct mntent *ent;
+<span class="lineNum">     270 </span>            :     struct stat st;
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     if (iter-&gt;f == NULL)</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     i_zero(&amp;iter-&gt;mnt);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     while ((ent = getmntent(iter-&gt;f)) != NULL) {</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         if (strcmp(ent-&gt;mnt_type, MNTTYPE_SWAP) == 0 ||</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :             strcmp(ent-&gt;mnt_type, MNTTYPE_IGNORE) == 0 ||</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :             strcmp(ent-&gt;mnt_type, MNTTYPE_ROOTFS) == 0)</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         iter-&gt;mnt.device_path = ent-&gt;mnt_fsname;</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :         iter-&gt;mnt.mount_path = ent-&gt;mnt_dir;</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         iter-&gt;mnt.type = ent-&gt;mnt_type;</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         if (stat(ent-&gt;mnt_dir, &amp;st) == 0) {</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :             iter-&gt;mnt.dev = st.st_dev;</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :             iter-&gt;mnt.block_size = st.st_blksize;</span>
+<span class="lineNum">     288 </span>            :         }
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         return &amp;iter-&gt;mnt;</span>
+<span class="lineNum">     290 </span>            :     }
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">     292 </span>            : #elif defined(HAVE_GETMNTINFO) /* BSDs */
+<span class="lineNum">     293 </span>            :     while (iter-&gt;count &gt; 0) {
+<span class="lineNum">     294 </span>            : #ifndef __NetBSD__
+<span class="lineNum">     295 </span>            :         struct statfs *fs = iter-&gt;fs;
+<span class="lineNum">     296 </span>            : #else
+<span class="lineNum">     297 </span>            :         struct statvfs *fs = iter-&gt;fs;
+<span class="lineNum">     298 </span>            : #endif
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span>            :         iter-&gt;fs++;
+<span class="lineNum">     301 </span>            :         iter-&gt;count--;
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span>            :         iter-&gt;mnt.device_path = fs-&gt;f_mntfromname;
+<span class="lineNum">     304 </span>            :         iter-&gt;mnt.mount_path = fs-&gt;f_mntonname;
+<span class="lineNum">     305 </span>            : #ifdef __osf__ /* Tru64 */
+<span class="lineNum">     306 </span>            :         iter-&gt;mnt.type = getvfsbynumber(fs-&gt;f_type);
+<span class="lineNum">     307 </span>            : #else
+<span class="lineNum">     308 </span>            :         iter-&gt;mnt.type = fs-&gt;f_fstypename;
+<span class="lineNum">     309 </span>            : #endif
+<span class="lineNum">     310 </span>            :         iter-&gt;mnt.block_size = fs-&gt;f_bsize;
+<span class="lineNum">     311 </span>            :         return &amp;iter-&gt;mnt;
+<span class="lineNum">     312 </span>            :     }
+<span class="lineNum">     313 </span>            :     return NULL;
+<span class="lineNum">     314 </span>            : #else
+<span class="lineNum">     315 </span>            :     return NULL;
+<span class="lineNum">     316 </span>            : #endif
+<a name="317"><span class="lineNum">     317 </span>            : }</a>
+<span class="lineNum">     318 </span>            : 
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 : int mountpoint_iter_deinit(struct mountpoint_iter **_iter)</span>
+<span class="lineNum">     320 </span>            : {
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     struct mountpoint_iter *iter = *_iter;</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     int ret = iter-&gt;failed ? -1 : 0;</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     *_iter = NULL;</span>
+<span class="lineNum">     325 </span>            : #ifdef MOUNTPOINT_AIX_MNTCTL
+<span class="lineNum">     326 </span>            :     i_free(iter-&gt;mtab);
+<span class="lineNum">     327 </span>            : #elif defined (MOUNTPOINT_SOLARIS)
+<span class="lineNum">     328 </span>            :     if (iter-&gt;f != NULL)
+<span class="lineNum">     329 </span>            :         fclose(iter-&gt;f);
+<span class="lineNum">     330 </span>            : #elif defined (MOUNTPOINT_LINUX)
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     if (iter-&gt;f != NULL)</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :         endmntent(iter-&gt;f);</span>
+<span class="lineNum">     333 </span>            : #endif
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     i_free(iter);</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     336 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

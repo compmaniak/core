@@ -1,0 +1,596 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-sql/driver-test.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-sql</a> - driver-test.c<span style="font-size: 80%;"> (source / <a href="driver-test.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">112</td>
+            <td class="headerCovTableEntry">189</td>
+            <td class="headerCovTableEntryLo">59.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">33</td>
+            <td class="headerCovTableEntryLo">48.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2017-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;test-lib.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;sql-api-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;driver-test.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : struct test_sql_db {
+<span class="lineNum">      13 </span>            :     struct sql_db api;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            :     pool_t pool;
+<span class="lineNum">      16 </span>            :     ARRAY(struct test_driver_result) expected;
+<span class="lineNum">      17 </span>            :     const char *error;
+<span class="lineNum">      18 </span>            :     bool failed:1;
+<span class="lineNum">      19 </span>            : };
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : struct test_sql_result {
+<span class="lineNum">      22 </span>            :     struct sql_result api;
+<span class="lineNum">      23 </span>            :     struct test_driver_result *result;
+<span class="lineNum">      24 </span>            :     const char *error;
+<span class="lineNum">      25 </span>            : };
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : static struct sql_db *driver_test_mysql_init(const char *connect_string);
+<span class="lineNum">      28 </span>            : static struct sql_db *driver_test_cassandra_init(const char *connect_string);
+<span class="lineNum">      29 </span>            : static struct sql_db *driver_test_sqlite_init(const char *connect_string);
+<span class="lineNum">      30 </span>            : static void driver_test_deinit(struct sql_db *_db);
+<span class="lineNum">      31 </span>            : static int driver_test_connect(struct sql_db *_db);
+<span class="lineNum">      32 </span>            : static void driver_test_disconnect(struct sql_db *_db);
+<span class="lineNum">      33 </span>            : static const char *
+<span class="lineNum">      34 </span>            : driver_test_mysql_escape_string(struct sql_db *_db, const char *string);
+<span class="lineNum">      35 </span>            : static const char *
+<span class="lineNum">      36 </span>            : driver_test_escape_string(struct sql_db *_db, const char *string);
+<span class="lineNum">      37 </span>            : static void driver_test_exec(struct sql_db *_db, const char *query);
+<span class="lineNum">      38 </span>            : static void driver_test_query(struct sql_db *_db, const char *query,
+<span class="lineNum">      39 </span>            :                    sql_query_callback_t *callback, void *context);
+<span class="lineNum">      40 </span>            : static struct sql_result *
+<span class="lineNum">      41 </span>            : driver_test_query_s(struct sql_db *_db, const char *query);
+<span class="lineNum">      42 </span>            : static struct sql_transaction_context *
+<span class="lineNum">      43 </span>            : driver_test_transaction_begin(struct sql_db *_db);
+<span class="lineNum">      44 </span>            : static void driver_test_transaction_commit(struct sql_transaction_context *ctx,
+<span class="lineNum">      45 </span>            :                         sql_commit_callback_t *callback,
+<span class="lineNum">      46 </span>            :                         void *context);
+<span class="lineNum">      47 </span>            : static int
+<span class="lineNum">      48 </span>            : driver_test_transaction_commit_s(struct sql_transaction_context *ctx,
+<span class="lineNum">      49 </span>            :                   const char **error_r);
+<span class="lineNum">      50 </span>            : static void
+<span class="lineNum">      51 </span>            : driver_test_transaction_rollback(struct sql_transaction_context *ctx);
+<span class="lineNum">      52 </span>            : static void
+<span class="lineNum">      53 </span>            : driver_test_update(struct sql_transaction_context *ctx, const char *query,
+<span class="lineNum">      54 </span>            :             unsigned int *affected_rows);
+<span class="lineNum">      55 </span>            : static const char *
+<span class="lineNum">      56 </span>            : driver_test_mysql_escape_blob(struct sql_db *_db, const unsigned char *data,
+<span class="lineNum">      57 </span>            :              size_t size);
+<span class="lineNum">      58 </span>            : static const char *
+<span class="lineNum">      59 </span>            : driver_test_escape_blob(struct sql_db *_db, const unsigned char *data,
+<span class="lineNum">      60 </span>            :              size_t size);
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span>            : static void driver_test_result_free(struct sql_result *result);
+<span class="lineNum">      63 </span>            : static int driver_test_result_next_row(struct sql_result *result);
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span>            : static unsigned int
+<span class="lineNum">      66 </span>            : driver_test_result_get_fields_count(struct sql_result *result);
+<span class="lineNum">      67 </span>            : static const char *
+<span class="lineNum">      68 </span>            : driver_test_result_get_field_name(struct sql_result *result, unsigned int idx);
+<span class="lineNum">      69 </span>            : static int
+<span class="lineNum">      70 </span>            : driver_test_result_find_field(struct sql_result *result, const char *field_name);
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            : static const char *
+<span class="lineNum">      73 </span>            : driver_test_result_get_field_value(struct sql_result *result, unsigned int idx);
+<span class="lineNum">      74 </span>            : static const unsigned char *
+<span class="lineNum">      75 </span>            : driver_test_result_get_field_value_binary(struct sql_result *result,
+<span class="lineNum">      76 </span>            :                        unsigned int idx, size_t *size_r);
+<span class="lineNum">      77 </span>            : static const char *
+<span class="lineNum">      78 </span>            : driver_test_result_find_field_value(struct sql_result *result,
+<span class="lineNum">      79 </span>            :                      const char *field_name);
+<span class="lineNum">      80 </span>            : static const char *const *
+<span class="lineNum">      81 </span>            : driver_test_result_get_values(struct sql_result *result);
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            : const char *driver_test_result_get_error(struct sql_result *result);
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            : const struct sql_db driver_test_mysql_db = {
+<span class="lineNum">      87 </span>            :     .name = &quot;mysql&quot;,
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span>            :     .v = {
+<span class="lineNum">      90 </span>            :         .init = driver_test_mysql_init,
+<span class="lineNum">      91 </span>            :         .deinit = driver_test_deinit,
+<span class="lineNum">      92 </span>            :         .connect = driver_test_connect,
+<span class="lineNum">      93 </span>            :         .disconnect = driver_test_disconnect,
+<span class="lineNum">      94 </span>            :         .escape_string = driver_test_mysql_escape_string,
+<span class="lineNum">      95 </span>            :         .exec = driver_test_exec,
+<span class="lineNum">      96 </span>            :         .query = driver_test_query,
+<span class="lineNum">      97 </span>            :         .query_s = driver_test_query_s,
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span>            :         .transaction_begin = driver_test_transaction_begin,
+<span class="lineNum">     100 </span>            :         .transaction_commit = driver_test_transaction_commit,
+<span class="lineNum">     101 </span>            :         .transaction_commit_s = driver_test_transaction_commit_s,
+<span class="lineNum">     102 </span>            :         .transaction_rollback = driver_test_transaction_rollback,
+<span class="lineNum">     103 </span>            :         .update = driver_test_update,
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span>            :         .escape_blob = driver_test_mysql_escape_blob,
+<span class="lineNum">     106 </span>            :     }
+<span class="lineNum">     107 </span>            : };
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span>            : const struct sql_db driver_test_cassandra_db = {
+<span class="lineNum">     110 </span>            :     .name = &quot;cassandra&quot;,
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span>            :     .v = {
+<span class="lineNum">     113 </span>            :         .init = driver_test_cassandra_init,
+<span class="lineNum">     114 </span>            :         .deinit = driver_test_deinit,
+<span class="lineNum">     115 </span>            :         .connect = driver_test_connect,
+<span class="lineNum">     116 </span>            :         .disconnect = driver_test_disconnect,
+<span class="lineNum">     117 </span>            :         .escape_string = driver_test_escape_string,
+<span class="lineNum">     118 </span>            :         .exec = driver_test_exec,
+<span class="lineNum">     119 </span>            :         .query = driver_test_query,
+<span class="lineNum">     120 </span>            :         .query_s = driver_test_query_s,
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span>            :         .transaction_begin = driver_test_transaction_begin,
+<span class="lineNum">     123 </span>            :         .transaction_commit = driver_test_transaction_commit,
+<span class="lineNum">     124 </span>            :         .transaction_commit_s = driver_test_transaction_commit_s,
+<span class="lineNum">     125 </span>            :         .transaction_rollback = driver_test_transaction_rollback,
+<span class="lineNum">     126 </span>            :         .update = driver_test_update,
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span>            :         .escape_blob = driver_test_escape_blob,
+<span class="lineNum">     129 </span>            :     }
+<span class="lineNum">     130 </span>            : };
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span>            : const struct sql_db driver_test_sqlite_db = {
+<span class="lineNum">     133 </span>            :     .name = &quot;sqlite&quot;,
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span>            :     .v = {
+<span class="lineNum">     136 </span>            :         .init = driver_test_sqlite_init,
+<span class="lineNum">     137 </span>            :         .deinit = driver_test_deinit,
+<span class="lineNum">     138 </span>            :         .connect = driver_test_connect,
+<span class="lineNum">     139 </span>            :         .disconnect = driver_test_disconnect,
+<span class="lineNum">     140 </span>            :         .escape_string = driver_test_escape_string,
+<span class="lineNum">     141 </span>            :         .exec = driver_test_exec,
+<span class="lineNum">     142 </span>            :         .query = driver_test_query,
+<span class="lineNum">     143 </span>            :         .query_s = driver_test_query_s,
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span>            :         .transaction_begin = driver_test_transaction_begin,
+<span class="lineNum">     146 </span>            :         .transaction_commit = driver_test_transaction_commit,
+<span class="lineNum">     147 </span>            :         .transaction_commit_s = driver_test_transaction_commit_s,
+<span class="lineNum">     148 </span>            :         .transaction_rollback = driver_test_transaction_rollback,
+<span class="lineNum">     149 </span>            :         .update = driver_test_update,
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span>            :         .escape_blob = driver_test_escape_blob,
+<span class="lineNum">     152 </span>            :     }
+<span class="lineNum">     153 </span>            : };
+<span class="lineNum">     154 </span>            : 
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span>            : const struct sql_result driver_test_result = {
+<span class="lineNum">     157 </span>            :     .v = {
+<span class="lineNum">     158 </span>            :         .free = driver_test_result_free,
+<span class="lineNum">     159 </span>            :         .next_row = driver_test_result_next_row,
+<span class="lineNum">     160 </span>            :         .get_fields_count = driver_test_result_get_fields_count,
+<span class="lineNum">     161 </span>            :         .get_field_name = driver_test_result_get_field_name,
+<span class="lineNum">     162 </span>            :         .find_field = driver_test_result_find_field,
+<span class="lineNum">     163 </span>            :         .get_field_value = driver_test_result_get_field_value,
+<span class="lineNum">     164 </span>            :         .get_field_value_binary = driver_test_result_get_field_value_binary,
+<span class="lineNum">     165 </span>            :         .find_field_value = driver_test_result_find_field_value,
+<span class="lineNum">     166 </span>            :         .get_values = driver_test_result_get_values,
+<span class="lineNum">     167 </span>            :         .get_error = driver_test_result_get_error,
+<span class="lineNum">     168 </span>            :     }
+<a name="169"><span class="lineNum">     169 </span>            : };</a>
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineCov">          1 : void sql_driver_test_register(void)</span>
+<span class="lineNum">     172 </span>            : {
+<span class="lineNum">     173 </span><span class="lineCov">          1 :     sql_driver_register(&amp;driver_test_mysql_db);</span>
+<span class="lineNum">     174 </span><span class="lineCov">          1 :     sql_driver_register(&amp;driver_test_cassandra_db);</span>
+<span class="lineNum">     175 </span><span class="lineCov">          1 :     sql_driver_register(&amp;driver_test_sqlite_db);</span>
+<a name="176"><span class="lineNum">     176 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineCov">          1 : void sql_driver_test_unregister(void)</span>
+<span class="lineNum">     179 </span>            : {
+<span class="lineNum">     180 </span><span class="lineCov">          1 :     sql_driver_unregister(&amp;driver_test_mysql_db);</span>
+<span class="lineNum">     181 </span><span class="lineCov">          1 :     sql_driver_unregister(&amp;driver_test_cassandra_db);</span>
+<span class="lineNum">     182 </span><span class="lineCov">          1 :     sql_driver_unregister(&amp;driver_test_sqlite_db);</span>
+<a name="183"><span class="lineNum">     183 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">          1 : static struct sql_db *driver_test_init(const struct sql_db *driver,</span>
+<span class="lineNum">     186 </span>            :                     const char *connect_string ATTR_UNUSED)
+<span class="lineNum">     187 </span>            : {
+<span class="lineNum">     188 </span><span class="lineCov">          1 :     pool_t pool = pool_alloconly_create(MEMPOOL_GROWING&quot; test sql driver&quot;, 2048);</span>
+<span class="lineNum">     189 </span><span class="lineCov">          1 :     struct test_sql_db *ret = p_new(pool, struct test_sql_db, 1);</span>
+<span class="lineNum">     190 </span><span class="lineCov">          1 :     ret-&gt;pool = pool;</span>
+<span class="lineNum">     191 </span><span class="lineCov">          1 :     ret-&gt;api = *driver;</span>
+<span class="lineNum">     192 </span><span class="lineCov">          1 :     p_array_init(&amp;ret-&gt;expected, pool, 8);</span>
+<span class="lineNum">     193 </span><span class="lineCov">          1 :     return &amp;ret-&gt;api;</span>
+<a name="194"><span class="lineNum">     194 </span>            : }</a>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineCov">          1 : static struct sql_db *driver_test_mysql_init(const char *connect_string)</span>
+<span class="lineNum">     197 </span>            : {
+<span class="lineNum">     198 </span><span class="lineCov">          1 :     return driver_test_init(&amp;driver_test_mysql_db, connect_string);</span>
+<a name="199"><span class="lineNum">     199 </span>            : }</a>
+<span class="lineNum">     200 </span>            : 
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 : static struct sql_db *driver_test_cassandra_init(const char *connect_string)</span>
+<span class="lineNum">     202 </span>            : {
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     return driver_test_init(&amp;driver_test_cassandra_db, connect_string);</span>
+<a name="204"><span class="lineNum">     204 </span>            : }</a>
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 : static struct sql_db *driver_test_sqlite_init(const char *connect_string)</span>
+<span class="lineNum">     207 </span>            : {
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     return driver_test_init(&amp;driver_test_sqlite_db, connect_string);</span>
+<a name="209"><span class="lineNum">     209 </span>            : }</a>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineCov">          1 : static void driver_test_deinit(struct sql_db *_db ATTR_UNUSED)</span>
+<span class="lineNum">     212 </span>            : {
+<span class="lineNum">     213 </span><span class="lineCov">          1 :     struct test_sql_db *db = (struct test_sql_db*)_db;</span>
+<span class="lineNum">     214 </span><span class="lineCov">          1 :     array_free(&amp;_db-&gt;module_contexts);</span>
+<span class="lineNum">     215 </span><span class="lineCov">          1 :     pool_unref(&amp;db-&gt;pool);</span>
+<a name="216"><span class="lineNum">     216 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     217 </span>            : 
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 : static int driver_test_connect(struct sql_db *_db ATTR_UNUSED)</span>
+<span class="lineNum">     219 </span>            : {
+<span class="lineNum">     220 </span>            :     /* nix */
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="222"><span class="lineNum">     222 </span>            : }</a>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 : static void driver_test_disconnect(struct sql_db *_db ATTR_UNUSED)</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 : { }</span>
+<a name="226"><span class="lineNum">     226 </span>            : </a>
+<span class="lineNum">     227 </span>            : static const char *
+<span class="lineNum">     228 </span><span class="lineCov">         15 : driver_test_mysql_escape_string(struct sql_db *_db ATTR_UNUSED,</span>
+<span class="lineNum">     229 </span>            :                  const char *string)
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span><span class="lineCov">         15 :     string_t *esc = t_str_new(strlen(string));</span>
+<span class="lineNum">     232 </span><span class="lineCov">        115 :     for(const char *ptr = string; *ptr != '\0'; ptr++) {</span>
+<span class="lineNum">     233 </span><span class="lineCov">        200 :         if (*ptr == '\n' || *ptr == '\r' || *ptr == '\\' ||</span>
+<span class="lineNum">     234 </span><span class="lineCov">        200 :             *ptr == '\'' || *ptr == '\&quot;' || *ptr == '\x1a')</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :             str_append_c(esc, '\\');</span>
+<span class="lineNum">     236 </span><span class="lineCov">        100 :         str_append_c(esc, *ptr);</span>
+<span class="lineNum">     237 </span>            :     }
+<span class="lineNum">     238 </span><span class="lineCov">         15 :     return str_c(esc);</span>
+<span class="lineNum">     239 </span>            : }
+<a name="240"><span class="lineNum">     240 </span>            : </a>
+<span class="lineNum">     241 </span>            : static const char *
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 : driver_test_escape_string(struct sql_db *_db ATTR_UNUSED, const char *string)</span>
+<span class="lineNum">     243 </span>            : {
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     return string;</span>
+<a name="245"><span class="lineNum">     245 </span>            : }</a>
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span><span class="lineCov">         10 : static void driver_test_exec(struct sql_db *_db, const char *query)</span>
+<span class="lineNum">     248 </span>            : {
+<span class="lineNum">     249 </span><span class="lineCov">         10 :     struct test_sql_db *db = (struct test_sql_db*)_db;</span>
+<span class="lineNum">     250 </span><span class="lineCov">         10 :     struct test_driver_result *result =</span>
+<span class="lineNum">     251 </span><span class="lineCov">         10 :         array_idx_modifiable(&amp;db-&gt;expected, 0);</span>
+<span class="lineNum">     252 </span><span class="lineCov">         10 :     i_assert(result-&gt;cur &lt; result-&gt;nqueries);</span>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span>            : /*  i_debug(&quot;DUMMY EXECUTE: %s&quot;, query);
+<span class="lineNum">     255 </span>            :     i_debug(&quot;DUMMY EXPECT : %s&quot;, result-&gt;queries[result-&gt;cur]); */
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span><span class="lineCov">         10 :     test_assert(strcmp(result-&gt;queries[result-&gt;cur], query)==0);</span>
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span><span class="lineCov">         10 :     if (strcmp(result-&gt;queries[result-&gt;cur], query) != 0) {</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         db-&gt;error = &quot;Invalid query&quot;;</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         db-&gt;failed = TRUE;</span>
+<span class="lineNum">     262 </span>            :     }
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">         10 :     result-&gt;cur++;</span>
+<span class="lineNum">     265 </span><span class="lineCov">         10 : }</span>
+<a name="266"><span class="lineNum">     266 </span>            : </a>
+<span class="lineNum">     267 </span>            : static void
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 : driver_test_query(struct sql_db *_db, const char *query,</span>
+<span class="lineNum">     269 </span>            :            sql_query_callback_t *callback, void *context)
+<span class="lineNum">     270 </span>            : {
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     struct sql_result *result = driver_test_query_s(_db, query);</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     if (callback != NULL)</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         callback(result, context);</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 : }</span>
+<a name="275"><span class="lineNum">     275 </span>            : </a>
+<span class="lineNum">     276 </span>            : static struct sql_result *
+<span class="lineNum">     277 </span><span class="lineCov">          3 : driver_test_query_s(struct sql_db *_db, const char *query)</span>
+<span class="lineNum">     278 </span>            : {
+<span class="lineNum">     279 </span><span class="lineCov">          3 :     struct test_sql_db *db = (struct test_sql_db*)_db;</span>
+<span class="lineNum">     280 </span><span class="lineCov">          3 :     struct test_driver_result *result =</span>
+<span class="lineNum">     281 </span><span class="lineCov">          3 :         array_idx_modifiable(&amp;db-&gt;expected, 0);</span>
+<span class="lineNum">     282 </span><span class="lineCov">          3 :     struct test_sql_result *res = i_new(struct test_sql_result, 1);</span>
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineCov">          3 :     driver_test_exec(_db, query);</span>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineCov">          3 :     if (db-&gt;failed) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         res-&gt;api.failed = TRUE;</span>
+<span class="lineNum">     288 </span>            :     }
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineCov">          3 :     res-&gt;api.v = driver_test_result.v;</span>
+<span class="lineNum">     291 </span><span class="lineCov">          3 :     res-&gt;api.db = _db;</span>
+<span class="lineNum">     292 </span><span class="lineCov">          3 :     if (result-&gt;result != NULL) {</span>
+<span class="lineNum">     293 </span><span class="lineCov">          3 :         res-&gt;result = i_new(struct test_driver_result, 1);</span>
+<span class="lineNum">     294 </span><span class="lineCov">          3 :         memcpy(res-&gt;result, result, sizeof(*result));</span>
+<span class="lineNum">     295 </span>            :     }
+<span class="lineNum">     296 </span><span class="lineCov">          3 :     res-&gt;api.refcount = 1;</span>
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span>            :     /* drop it from array if it's used up */
+<span class="lineNum">     299 </span><span class="lineCov">          3 :     if (result-&gt;cur == result-&gt;nqueries)</span>
+<span class="lineNum">     300 </span><span class="lineCov">          3 :         array_delete(&amp;db-&gt;expected, 0, 1);</span>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">          3 :     return &amp;res-&gt;api;</span>
+<span class="lineNum">     303 </span>            : }
+<a name="304"><span class="lineNum">     304 </span>            : </a>
+<span class="lineNum">     305 </span>            : static struct sql_transaction_context *
+<span class="lineNum">     306 </span><span class="lineCov">          6 : driver_test_transaction_begin(struct sql_db *_db)</span>
+<span class="lineNum">     307 </span>            : {
+<span class="lineNum">     308 </span><span class="lineCov">          6 :     struct sql_transaction_context *ctx =</span>
+<span class="lineNum">     309 </span><span class="lineCov">          6 :         i_new(struct sql_transaction_context, 1);</span>
+<span class="lineNum">     310 </span><span class="lineCov">          6 :     ctx-&gt;db = _db;</span>
+<span class="lineNum">     311 </span><span class="lineCov">          6 :     return ctx;</span>
+<span class="lineNum">     312 </span>            : }
+<a name="313"><span class="lineNum">     313 </span>            : </a>
+<span class="lineNum">     314 </span>            : static void
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 : driver_test_transaction_commit(struct sql_transaction_context *ctx,</span>
+<span class="lineNum">     316 </span>            :                 sql_commit_callback_t *callback, void *context)
+<span class="lineNum">     317 </span>            : {
+<span class="lineNum">     318 </span>            :     struct sql_commit_result res;
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     res.error_type = driver_test_transaction_commit_s(ctx, &amp;res.error);</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     callback(&amp;res, context);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 : }</span>
+<a name="322"><span class="lineNum">     322 </span>            : </a>
+<span class="lineNum">     323 </span>            : static int
+<span class="lineNum">     324 </span><span class="lineCov">          6 : driver_test_transaction_commit_s(struct sql_transaction_context *ctx,</span>
+<span class="lineNum">     325 </span>            :                   const char **error_r)
+<span class="lineNum">     326 </span>            : {
+<span class="lineNum">     327 </span><span class="lineCov">          6 :     struct test_sql_db *db = (struct test_sql_db*)ctx-&gt;db;</span>
+<span class="lineNum">     328 </span><span class="lineCov">          6 :     int ret = 0;</span>
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineCov">          6 :     if (db-&gt;error != NULL) {</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :         *error_r = db-&gt;error;</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     333 </span>            :     }
+<span class="lineNum">     334 </span><span class="lineCov">          6 :     i_free(ctx);</span>
+<span class="lineNum">     335 </span><span class="lineCov">          6 :     db-&gt;error = NULL;</span>
+<span class="lineNum">     336 </span><span class="lineCov">          6 :     db-&gt;failed = FALSE;</span>
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineCov">          6 :     return ret;</span>
+<span class="lineNum">     339 </span>            : }
+<a name="340"><span class="lineNum">     340 </span>            : </a>
+<span class="lineNum">     341 </span>            : static void
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 : driver_test_transaction_rollback(struct sql_transaction_context *ctx)</span>
+<span class="lineNum">     343 </span>            : {
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     struct test_sql_db *db = (struct test_sql_db*)ctx-&gt;db;</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     db-&gt;error = NULL;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     db-&gt;failed = FALSE;</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 : }</span>
+<a name="349"><span class="lineNum">     349 </span>            : </a>
+<span class="lineNum">     350 </span>            : static void
+<span class="lineNum">     351 </span><span class="lineCov">          7 : driver_test_update(struct sql_transaction_context *ctx, const char *query,</span>
+<span class="lineNum">     352 </span>            :             unsigned int *affected_rows)
+<span class="lineNum">     353 </span>            : {
+<span class="lineNum">     354 </span><span class="lineCov">          7 :     struct test_sql_db *db= (struct test_sql_db*)ctx-&gt;db;</span>
+<span class="lineNum">     355 </span><span class="lineCov">          7 :     struct test_driver_result *result =</span>
+<span class="lineNum">     356 </span><span class="lineCov">          7 :         array_idx_modifiable(&amp;db-&gt;expected, 0);</span>
+<span class="lineNum">     357 </span><span class="lineCov">          7 :     driver_test_exec(ctx-&gt;db, query);</span>
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineCov">          7 :     if (affected_rows != NULL)</span>
+<span class="lineNum">     360 </span><span class="lineCov">          2 :         *affected_rows = result-&gt;affected_rows;</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span>            :     /* drop it from array if it's used up */
+<span class="lineNum">     363 </span><span class="lineCov">          7 :     if (result-&gt;cur == result-&gt;nqueries)</span>
+<span class="lineNum">     364 </span><span class="lineCov">          3 :         array_delete(&amp;db-&gt;expected, 0, 1);</span>
+<span class="lineNum">     365 </span><span class="lineCov">          7 : }</span>
+<a name="366"><span class="lineNum">     366 </span>            : </a>
+<span class="lineNum">     367 </span>            : static const char *
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 : driver_test_mysql_escape_blob(struct sql_db *_db ATTR_UNUSED,</span>
+<span class="lineNum">     369 </span>            :                    const unsigned char *data, size_t size)
+<span class="lineNum">     370 </span>            : {
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;X'%s'&quot;, binary_to_hex(data,size));</span>
+<span class="lineNum">     372 </span>            : }
+<a name="373"><span class="lineNum">     373 </span>            : </a>
+<span class="lineNum">     374 </span>            : static const char *
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 : driver_test_escape_blob(struct sql_db *_db ATTR_UNUSED,</span>
+<span class="lineNum">     376 </span>            :              const unsigned char *data, size_t size)
+<span class="lineNum">     377 </span>            : {
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;X'%s'&quot;, binary_to_hex(data,size));</span>
+<a name="379"><span class="lineNum">     379 </span>            : }</a>
+<span class="lineNum">     380 </span>            : 
+<span class="lineNum">     381 </span><span class="lineCov">          3 : static void driver_test_result_free(struct sql_result *result)</span>
+<span class="lineNum">     382 </span>            : {
+<span class="lineNum">     383 </span><span class="lineCov">          3 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     384 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     385 </span><span class="lineCov">          3 :     if (tsr-&gt;result != NULL)</span>
+<span class="lineNum">     386 </span><span class="lineCov">          3 :         i_free(tsr-&gt;result);</span>
+<span class="lineNum">     387 </span><span class="lineCov">          3 :     i_free(result);</span>
+<a name="388"><span class="lineNum">     388 </span><span class="lineCov">          3 : }</span></a>
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineCov">         13 : static int driver_test_result_next_row(struct sql_result *result)</span>
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span><span class="lineCov">         13 :     struct test_sql_result *tsr =</span>
+<span class="lineNum">     393 </span>            :         (struct test_sql_result *)result;
+<span class="lineNum">     394 </span><span class="lineCov">         13 :     struct test_driver_result *r = tsr-&gt;result;</span>
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span><span class="lineCov">         13 :     if (r == NULL) return 0;</span>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineCov">         13 :     struct test_driver_result_set *rs =</span>
+<span class="lineNum">     399 </span><span class="lineCov">         13 :         &amp;(r-&gt;result[r-&gt;cur-1]);</span>
+<span class="lineNum">     400 </span><span class="lineCov">         13 :     if (rs-&gt;cur &lt;= rs-&gt;rows) {</span>
+<span class="lineNum">     401 </span><span class="lineCov">         13 :         rs-&gt;cur++;</span>
+<span class="lineNum">     402 </span>            :     }
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span><span class="lineCov">         13 :     return rs-&gt;cur &lt;= rs-&gt;rows ? 1 : 0;</span>
+<span class="lineNum">     405 </span>            : }
+<a name="406"><span class="lineNum">     406 </span>            : </a>
+<span class="lineNum">     407 </span>            : static unsigned int
+<span class="lineNum">     408 </span><span class="lineCov">         10 : driver_test_result_get_fields_count(struct sql_result *result)</span>
+<span class="lineNum">     409 </span>            : {
+<span class="lineNum">     410 </span><span class="lineCov">         10 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     411 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     412 </span><span class="lineCov">         10 :         struct test_driver_result *r = tsr-&gt;result;</span>
+<span class="lineNum">     413 </span><span class="lineCov">         10 :     struct test_driver_result_set *rs =</span>
+<span class="lineNum">     414 </span><span class="lineCov">         10 :         &amp;(r-&gt;result[r-&gt;cur-1]);</span>
+<span class="lineNum">     415 </span><span class="lineCov">         10 :     return rs-&gt;cols;</span>
+<span class="lineNum">     416 </span>            : }
+<a name="417"><span class="lineNum">     417 </span>            : </a>
+<span class="lineNum">     418 </span>            : static const char *
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 : driver_test_result_get_field_name(struct sql_result *result, unsigned int idx)</span>
+<span class="lineNum">     420 </span>            : {
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     422 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :         struct test_driver_result *r = tsr-&gt;result;</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     struct test_driver_result_set *rs =</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :         &amp;(r-&gt;result[r-&gt;cur-1]);</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :     i_assert(idx &lt; rs-&gt;cols);</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     return rs-&gt;col_names[idx];</span>
+<span class="lineNum">     428 </span>            : }
+<a name="429"><span class="lineNum">     429 </span>            : </a>
+<span class="lineNum">     430 </span>            : static int
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 : driver_test_result_find_field(struct sql_result *result, const char *field_name)</span>
+<span class="lineNum">     432 </span>            : {
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     434 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :         struct test_driver_result *r = tsr-&gt;result;</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     struct test_driver_result_set *rs =</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         &amp;(r-&gt;result[r-&gt;cur-1]);</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     for(size_t i = 0; i &lt; rs-&gt;cols; i++) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         if (strcmp(field_name, rs-&gt;col_names[i])==0)</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :             return i;</span>
+<span class="lineNum">     441 </span>            :     }
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     443 </span>            : }
+<a name="444"><span class="lineNum">     444 </span>            : </a>
+<span class="lineNum">     445 </span>            : static const char *
+<span class="lineNum">     446 </span><span class="lineCov">         21 : driver_test_result_get_field_value(struct sql_result *result, unsigned int idx)</span>
+<span class="lineNum">     447 </span>            : {
+<span class="lineNum">     448 </span><span class="lineCov">         21 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     449 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     450 </span><span class="lineCov">         21 :         struct test_driver_result *r = tsr-&gt;result;</span>
+<span class="lineNum">     451 </span><span class="lineCov">         21 :     struct test_driver_result_set *rs =</span>
+<span class="lineNum">     452 </span><span class="lineCov">         21 :         &amp;(r-&gt;result[r-&gt;cur-1]);</span>
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineCov">         21 :     i_assert(idx &lt; rs-&gt;cols);</span>
+<span class="lineNum">     455 </span><span class="lineCov">         21 :     i_assert(rs-&gt;cur &lt;= rs-&gt;rows);</span>
+<span class="lineNum">     456 </span>            : 
+<span class="lineNum">     457 </span><span class="lineCov">         21 :     return rs-&gt;row_data[rs-&gt;cur-1][idx];</span>
+<a name="458"><span class="lineNum">     458 </span>            : }</a>
+<span class="lineNum">     459 </span>            : static const unsigned char *
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 : driver_test_result_get_field_value_binary(struct sql_result *result,</span>
+<span class="lineNum">     461 </span>            :                        unsigned int idx, size_t *size_r)
+<span class="lineNum">     462 </span>            : {
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     buffer_t *buf = t_buffer_create(64);</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :     const char *value = driver_test_result_get_field_value(result, idx);</span>
+<span class="lineNum">     465 </span>            :     /* expect it hex encoded */
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     if (hex_to_binary(value, buf) &lt; 0) {</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         *size_r = 0;</span>
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     469 </span>            :     }
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :     *size_r = buf-&gt;used;</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     return buf-&gt;data;</span>
+<a name="472"><span class="lineNum">     472 </span>            : }</a>
+<span class="lineNum">     473 </span>            : static const char *
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 : driver_test_result_find_field_value(struct sql_result *result,</span>
+<span class="lineNum">     475 </span>            :                      const char *field_name)
+<span class="lineNum">     476 </span>            : {
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :     int idx = driver_test_result_find_field(result, field_name);</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :     if (idx &lt; 0) return NULL;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     return driver_test_result_get_field_value(result, idx);</span>
+<a name="480"><span class="lineNum">     480 </span>            : }</a>
+<span class="lineNum">     481 </span>            : static const char *const *
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 : driver_test_result_get_values(struct sql_result *result)</span>
+<span class="lineNum">     483 </span>            : {
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     485 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         struct test_driver_result *r = tsr-&gt;result;</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :     struct test_driver_result_set *rs =</span>
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :         &amp;(r-&gt;result[r-&gt;cur-1]);</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :     i_assert(rs-&gt;cur &lt;= rs-&gt;rows);</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     return rs-&gt;row_data[rs-&gt;cur-1];</span>
+<a name="491"><span class="lineNum">     491 </span>            : }</a>
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 : const char *driver_test_result_get_error(struct sql_result *result)</span>
+<span class="lineNum">     494 </span>            : {
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :         struct test_sql_result *tsr =</span>
+<span class="lineNum">     496 </span>            :                 (struct test_sql_result *)result;
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     return tsr-&gt;error;</span>
+<span class="lineNum">     498 </span>            : }
+<a name="499"><span class="lineNum">     499 </span>            : </a>
+<span class="lineNum">     500 </span>            : 
+<span class="lineNum">     501 </span><span class="lineCov">          6 : void sql_driver_test_add_expected_result(struct sql_db *_db,</span>
+<span class="lineNum">     502 </span>            :                       const struct test_driver_result *result)
+<span class="lineNum">     503 </span>            : {
+<span class="lineNum">     504 </span><span class="lineCov">          6 :     struct test_sql_db *db = (struct test_sql_db*)_db;</span>
+<span class="lineNum">     505 </span><span class="lineCov">          6 :     array_append(&amp;db-&gt;expected, result, 1);</span>
+<a name="506"><span class="lineNum">     506 </span><span class="lineCov">          6 : }</span></a>
+<span class="lineNum">     507 </span>            : 
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 : void sql_driver_test_clear_expected_results(struct sql_db *_db)</span>
+<span class="lineNum">     509 </span>            : {
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     struct test_sql_db *db = (struct test_sql_db*)_db;</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     array_clear(&amp;db-&gt;expected);</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

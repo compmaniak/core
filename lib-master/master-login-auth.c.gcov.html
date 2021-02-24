@@ -1,0 +1,581 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-master/master-login-auth.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-master</a> - master-login-auth.c<span style="font-size: 80%;"> (source / <a href="master-login-auth.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">232</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hostpid.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;llist.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;master-interface.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;master-service.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;master-auth.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;master-login-auth.h&quot;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : #define AUTH_MAX_INBUF_SIZE 8192
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : struct master_login_auth_request {
+<span class="lineNum">      23 </span>            :     struct master_login_auth_request *prev, *next;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            :     unsigned int id;
+<span class="lineNum">      26 </span>            :     time_t create_stamp;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            :     pid_t auth_pid;
+<span class="lineNum">      29 </span>            :     unsigned int auth_id;
+<span class="lineNum">      30 </span>            :     unsigned int client_pid;
+<span class="lineNum">      31 </span>            :     uint8_t cookie[MASTER_AUTH_COOKIE_SIZE];
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            :     master_login_auth_request_callback_t *callback;
+<span class="lineNum">      34 </span>            :     void *context;
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            :     bool aborted:1;
+<span class="lineNum">      37 </span>            : };
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : struct master_login_auth {
+<span class="lineNum">      40 </span>            :     pool_t pool;
+<span class="lineNum">      41 </span>            :     const char *auth_socket_path;
+<span class="lineNum">      42 </span>            :     int refcount;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     int fd;
+<span class="lineNum">      45 </span>            :     struct io *io;
+<span class="lineNum">      46 </span>            :     struct istream *input;
+<span class="lineNum">      47 </span>            :     struct ostream *output;
+<span class="lineNum">      48 </span>            :     struct timeout *to;
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span>            :     unsigned int id_counter;
+<span class="lineNum">      51 </span>            :     HASH_TABLE(void *, struct master_login_auth_request *) requests;
+<span class="lineNum">      52 </span>            :     /* linked list of requests, ordered by create_stamp */
+<span class="lineNum">      53 </span>            :     struct master_login_auth_request *request_head, *request_tail;
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :     pid_t auth_server_pid;
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span>            :     bool request_auth_token:1;
+<span class="lineNum">      58 </span>            :     bool version_received:1;
+<span class="lineNum">      59 </span>            :     bool spid_received:1;
+<span class="lineNum">      60 </span>            : };
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span>            : static void master_login_auth_set_timeout(struct master_login_auth *auth);
+<span class="lineNum">      63 </span>            : static void master_login_auth_check_spids(struct master_login_auth *auth);
+<a name="64"><span class="lineNum">      64 </span>            : </a>
+<span class="lineNum">      65 </span>            : struct master_login_auth *
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 : master_login_auth_init(const char *auth_socket_path, bool request_auth_token)</span>
+<span class="lineNum">      67 </span>            : {
+<span class="lineNum">      68 </span>            :     struct master_login_auth *auth;
+<span class="lineNum">      69 </span>            :     pool_t pool;
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;master login auth&quot;, 1024);</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     auth = p_new(pool, struct master_login_auth, 1);</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     auth-&gt;pool = pool;</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     auth-&gt;auth_socket_path = p_strdup(pool, auth_socket_path);</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     auth-&gt;request_auth_token = request_auth_token;</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     auth-&gt;refcount = 1;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     auth-&gt;fd = -1;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     hash_table_create_direct(&amp;auth-&gt;requests, pool, 0);</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     auth-&gt;id_counter = i_rand_limit(32767) * 131072U;</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     return auth;</span>
+<span class="lineNum">      81 </span>            : }
+<a name="82"><span class="lineNum">      82 </span>            : </a>
+<span class="lineNum">      83 </span>            : static void
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 : request_internal_failure(struct master_login_auth_request *request,</span>
+<span class="lineNum">      85 </span>            :              const char *reason)
+<span class="lineNum">      86 </span>            : {
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     i_error(&quot;%s (client-pid=%u client-id=%u)&quot;,</span>
+<span class="lineNum">      88 </span>            :         reason, request-&gt;client_pid, request-&gt;auth_id);
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :     request-&gt;callback(NULL, MASTER_AUTH_ERRMSG_INTERNAL_FAILURE,</span>
+<span class="lineNum">      90 </span>            :               request-&gt;context);
+<a name="91"><span class="lineNum">      91 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 : void master_login_auth_disconnect(struct master_login_auth *auth)</span>
+<span class="lineNum">      94 </span>            : {
+<span class="lineNum">      95 </span>            :     struct master_login_auth_request *request;
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     while (auth-&gt;request_head != NULL) {</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         request = auth-&gt;request_head;</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         DLLIST2_REMOVE(&amp;auth-&gt;request_head,</span>
+<span class="lineNum">     100 </span>            :                    &amp;auth-&gt;request_tail, request);
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         request_internal_failure(request,</span>
+<span class="lineNum">     103 </span>            :             &quot;Disconnected from auth server, aborting&quot;);
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         i_free(request);</span>
+<span class="lineNum">     105 </span>            :     }
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     hash_table_clear(auth-&gt;requests, FALSE);</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;auth-&gt;to);</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     io_remove(&amp;auth-&gt;io);</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (auth-&gt;fd != -1) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         i_stream_destroy(&amp;auth-&gt;input);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         o_stream_destroy(&amp;auth-&gt;output);</span>
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         net_disconnect(auth-&gt;fd);</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         auth-&gt;fd = -1;</span>
+<span class="lineNum">     116 </span>            :     }
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     auth-&gt;version_received = FALSE;</span>
+<a name="118"><span class="lineNum">     118 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 : static void master_login_auth_unref(struct master_login_auth **_auth)</span>
+<span class="lineNum">     121 </span>            : {
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     struct master_login_auth *auth = *_auth;</span>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     *_auth = NULL;</span>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     i_assert(auth-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     if (--auth-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     hash_table_destroy(&amp;auth-&gt;requests);</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     pool_unref(&amp;auth-&gt;pool);</span>
+<a name="132"><span class="lineNum">     132 </span>            : }</a>
+<span class="lineNum">     133 </span>            : 
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 : void master_login_auth_deinit(struct master_login_auth **_auth)</span>
+<span class="lineNum">     135 </span>            : {
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     struct master_login_auth *auth = *_auth;</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     *_auth = NULL;</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     master_login_auth_disconnect(auth);</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     master_login_auth_unref(&amp;auth);</span>
+<a name="142"><span class="lineNum">     142 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 : static unsigned int auth_get_next_timeout_secs(struct master_login_auth *auth)</span>
+<span class="lineNum">     145 </span>            : {
+<span class="lineNum">     146 </span>            :     time_t expires;
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     expires = auth-&gt;request_head-&gt;create_stamp +</span>
+<span class="lineNum">     149 </span>            :         MASTER_AUTH_LOOKUP_TIMEOUT_SECS;
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     return expires &lt;= ioloop_time ? 0 : expires - ioloop_time;</span>
+<a name="151"><span class="lineNum">     151 </span>            : }</a>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 : static void master_login_auth_timeout(struct master_login_auth *auth)</span>
+<span class="lineNum">     154 </span>            : {
+<span class="lineNum">     155 </span>            :     struct master_login_auth_request *request;
+<span class="lineNum">     156 </span>            :     const char *reason;
+<span class="lineNum">     157 </span>            : 
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     while (auth-&gt;request_head != NULL &amp;&amp;</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :            auth_get_next_timeout_secs(auth) == 0) {</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         request = auth-&gt;request_head;</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         DLLIST2_REMOVE(&amp;auth-&gt;request_head,</span>
+<span class="lineNum">     162 </span>            :                    &amp;auth-&gt;request_tail, request);
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         hash_table_remove(auth-&gt;requests, POINTER_CAST(request-&gt;id));</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :         reason = t_strdup_printf(</span>
+<span class="lineNum">     166 </span>            :             &quot;Auth server request timed out after %u secs&quot;,
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :             (unsigned int)(ioloop_time - request-&gt;create_stamp));</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :         request_internal_failure(request, reason);</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         i_free(request);</span>
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;auth-&gt;to);</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     master_login_auth_set_timeout(auth);</span>
+<a name="173"><span class="lineNum">     173 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 : static void master_login_auth_set_timeout(struct master_login_auth *auth)</span>
+<span class="lineNum">     176 </span>            : {
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     i_assert(auth-&gt;to == NULL);</span>
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     if (auth-&gt;request_head != NULL) {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         auth-&gt;to = timeout_add(auth_get_next_timeout_secs(auth) * 1000,</span>
+<span class="lineNum">     181 </span>            :                        master_login_auth_timeout, auth);
+<span class="lineNum">     182 </span>            :     }
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 : }</span>
+<a name="184"><span class="lineNum">     184 </span>            : </a>
+<span class="lineNum">     185 </span>            : static void
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 : master_login_auth_request_remove(struct master_login_auth *auth,</span>
+<span class="lineNum">     187 </span>            :                  struct master_login_auth_request *request)
+<span class="lineNum">     188 </span>            : {
+<span class="lineNum">     189 </span>            :     bool update_timeout;
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     update_timeout = request-&gt;prev == NULL;</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     hash_table_remove(auth-&gt;requests, POINTER_CAST(request-&gt;id));</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     DLLIST2_REMOVE(&amp;auth-&gt;request_head, &amp;auth-&gt;request_tail, request);</span>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     if (update_timeout) {</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;auth-&gt;to);</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :         master_login_auth_set_timeout(auth);</span>
+<span class="lineNum">     199 </span>            :     }
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 : }</span>
+<a name="201"><span class="lineNum">     201 </span>            : </a>
+<span class="lineNum">     202 </span>            : static struct master_login_auth_request *
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 : master_login_auth_lookup_request(struct master_login_auth *auth,</span>
+<span class="lineNum">     204 </span>            :                  unsigned int id)
+<span class="lineNum">     205 </span>            : {
+<span class="lineNum">     206 </span>            :     struct master_login_auth_request *request;
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     request = hash_table_lookup(auth-&gt;requests, POINTER_CAST(id));</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     if (request == NULL) {</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         i_error(&quot;Auth server sent reply with unknown ID %u&quot;, id);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     212 </span>            :     }
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     master_login_auth_request_remove(auth, request);</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     if (request-&gt;aborted) {</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         request-&gt;callback(NULL, MASTER_AUTH_ERRMSG_INTERNAL_FAILURE,</span>
+<span class="lineNum">     216 </span>            :                   request-&gt;context);
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         i_free(request);</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     return request;</span>
+<span class="lineNum">     221 </span>            : }
+<a name="222"><span class="lineNum">     222 </span>            : </a>
+<span class="lineNum">     223 </span>            : static bool
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 : master_login_auth_input_user(struct master_login_auth *auth, const char *args)</span>
+<span class="lineNum">     225 </span>            : {
+<span class="lineNum">     226 </span>            :     struct master_login_auth_request *request;
+<span class="lineNum">     227 </span>            :     const char *const *list;
+<span class="lineNum">     228 </span>            :     unsigned int id;
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span>            :     /* &lt;id&gt; &lt;userid&gt; [..] */
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     list = t_strsplit_tabescaped(args);</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     if (list[0] == NULL || list[1] == NULL ||</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :         str_to_uint(list[0], &amp;id) &lt; 0) {</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         i_error(&quot;Auth server sent corrupted USER line&quot;);</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     237 </span>            :     }
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     request = master_login_auth_lookup_request(auth, id);</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     if (request != NULL) {</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         request-&gt;callback(list + 1, NULL, request-&gt;context);</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         i_free(request);</span>
+<span class="lineNum">     243 </span>            :     }
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     245 </span>            : }
+<a name="246"><span class="lineNum">     246 </span>            : </a>
+<span class="lineNum">     247 </span>            : static bool
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 : master_login_auth_input_notfound(struct master_login_auth *auth,</span>
+<span class="lineNum">     249 </span>            :                  const char *args)
+<span class="lineNum">     250 </span>            : {
+<span class="lineNum">     251 </span>            :     struct master_login_auth_request *request;
+<span class="lineNum">     252 </span>            :     unsigned int id;
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     if (str_to_uint(args, &amp;id) &lt; 0) {</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :         i_error(&quot;Auth server sent corrupted NOTFOUND line&quot;);</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     257 </span>            :     }
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     request = master_login_auth_lookup_request(auth, id);</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :     if (request != NULL) {</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         const char *reason = t_strdup_printf(</span>
+<span class="lineNum">     262 </span>            :             &quot;Authenticated user not found from userdb, &quot;
+<span class="lineNum">     263 </span>            :             &quot;auth lookup id=%u&quot;, id);
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :         request_internal_failure(request, reason);</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         i_free(request);</span>
+<span class="lineNum">     266 </span>            :     }
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     268 </span>            : }
+<a name="269"><span class="lineNum">     269 </span>            : </a>
+<span class="lineNum">     270 </span>            : static bool
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 : master_login_auth_input_fail(struct master_login_auth *auth,</span>
+<span class="lineNum">     272 </span>            :                  const char *args_line)
+<span class="lineNum">     273 </span>            : {
+<span class="lineNum">     274 </span>            :     struct master_login_auth_request *request;
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     const char *const *args, *error = NULL;</span>
+<span class="lineNum">     276 </span>            :     unsigned int i, id;
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     args = t_strsplit_tabescaped(args_line);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     if (args[0] == NULL || str_to_uint(args[0], &amp;id) &lt; 0) {</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         i_error(&quot;Auth server sent broken FAIL line&quot;);</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     282 </span>            :     }
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :     for (i = 1; args[i] != NULL; i++) {</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         if (strncmp(args[i], &quot;reason=&quot;, 7) == 0)</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :             error = args[i] + 7;</span>
+<span class="lineNum">     286 </span>            :     }
+<span class="lineNum">     287 </span>            : 
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     request = master_login_auth_lookup_request(auth, id);</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     if (request != NULL) {</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         if (error == NULL) {</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :             request_internal_failure(request,</span>
+<span class="lineNum">     292 </span>            :                          &quot;Internal auth failure&quot;);
+<span class="lineNum">     293 </span>            :         } else {
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             i_error(&quot;Internal auth failure: %s &quot;</span>
+<span class="lineNum">     295 </span>            :                 &quot;(client-pid=%u client-id=%u)&quot;,
+<span class="lineNum">     296 </span>            :                 error, request-&gt;client_pid, request-&gt;auth_id);
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :             request-&gt;callback(NULL, error, request-&gt;context);</span>
+<span class="lineNum">     298 </span>            :         }
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         i_free(request);</span>
+<span class="lineNum">     300 </span>            :     }
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="302"><span class="lineNum">     302 </span>            : }</a>
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 : static void master_login_auth_input(struct master_login_auth *auth)</span>
+<span class="lineNum">     305 </span>            : {
+<span class="lineNum">     306 </span>            :     const char *line;
+<span class="lineNum">     307 </span>            :     bool ret;
+<span class="lineNum">     308 </span>            : 
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     switch (i_stream_read(auth-&gt;input)) {</span>
+<span class="lineNum">     310 </span>            :     case 0:
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     312 </span>            :     case -1:
+<span class="lineNum">     313 </span>            :         /* disconnected. stop accepting new connections, because in
+<span class="lineNum">     314 </span>            :            default configuration we no longer have permissions to
+<span class="lineNum">     315 </span>            :            connect back to auth-master */
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         master_service_stop_new_connections(master_service);</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         master_login_auth_disconnect(auth);</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     319 </span>            :     case -2:
+<span class="lineNum">     320 </span>            :         /* buffer full */
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :         i_error(&quot;Auth server sent us too long line&quot;);</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         master_login_auth_disconnect(auth);</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     324 </span>            :     }
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :     if (!auth-&gt;version_received) {</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :         line = i_stream_next_line(auth-&gt;input);</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         if (line == NULL)</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span>            :         /* make sure the major version matches */
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :         if (strncmp(line, &quot;VERSION\t&quot;, 8) != 0 ||</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :             !str_uint_equals(t_strcut(line + 8, '\t'),</span>
+<span class="lineNum">     334 </span>            :                      AUTH_MASTER_PROTOCOL_MAJOR_VERSION)) {
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             i_error(&quot;Authentication server not compatible with &quot;</span>
+<span class="lineNum">     336 </span>            :                 &quot;master process (mixed old and new binaries?)&quot;);
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :             master_login_auth_disconnect(auth);</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     339 </span>            :         }
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         auth-&gt;version_received = TRUE;</span>
+<span class="lineNum">     341 </span>            :     }
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     if (!auth-&gt;spid_received) {</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :         line = i_stream_next_line(auth-&gt;input);</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :         if (line == NULL)</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     346 </span>            : 
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         if (strncmp(line, &quot;SPID\t&quot;, 5) != 0 ||</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :             str_to_pid(line + 5, &amp;auth-&gt;auth_server_pid) &lt; 0) {</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :             i_error(&quot;Authentication server didn't &quot;</span>
+<span class="lineNum">     350 </span>            :                 &quot;send valid SPID as expected: %s&quot;, line);
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :             master_login_auth_disconnect(auth);</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     353 </span>            :         }
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         auth-&gt;spid_received = TRUE;</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         master_login_auth_check_spids(auth);</span>
+<span class="lineNum">     356 </span>            :     }
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :     auth-&gt;refcount++;</span>
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     while ((line = i_stream_next_line(auth-&gt;input)) != NULL) {</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :         if (strncmp(line, &quot;USER\t&quot;, 5) == 0)</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :             ret = master_login_auth_input_user(auth, line + 5);</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :         else if (strncmp(line, &quot;NOTFOUND\t&quot;, 9) == 0)</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :             ret = master_login_auth_input_notfound(auth, line + 9);</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         else if (strncmp(line, &quot;FAIL\t&quot;, 5) == 0)</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :             ret = master_login_auth_input_fail(auth, line + 5);</span>
+<span class="lineNum">     366 </span>            :         else
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :             ret = TRUE;</span>
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         if (!ret || auth-&gt;input == NULL) {</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :             master_login_auth_disconnect(auth);</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     372 </span>            :         }
+<span class="lineNum">     373 </span>            :     }
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     master_login_auth_unref(&amp;auth);</span>
+<span class="lineNum">     375 </span>            : }
+<a name="376"><span class="lineNum">     376 </span>            : </a>
+<span class="lineNum">     377 </span>            : static int
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 : master_login_auth_connect(struct master_login_auth *auth)</span>
+<span class="lineNum">     379 </span>            : {
+<span class="lineNum">     380 </span>            :     int fd;
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     i_assert(auth-&gt;fd == -1);</span>
+<span class="lineNum">     383 </span>            : 
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :     fd = net_connect_unix_with_retries(auth-&gt;auth_socket_path, 1000);</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :     if (fd == -1) {</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         i_error(&quot;net_connect_unix(%s) failed: %m&quot;,</span>
+<span class="lineNum">     387 </span>            :             auth-&gt;auth_socket_path);
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     389 </span>            :     }
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     auth-&gt;fd = fd;</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :     auth-&gt;input = i_stream_create_fd(fd, AUTH_MAX_INBUF_SIZE);</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :     auth-&gt;output = o_stream_create_fd(fd, (size_t)-1);</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :     o_stream_set_no_error_handling(auth-&gt;output, TRUE);</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     auth-&gt;io = io_add(fd, IO_READ, master_login_auth_input, auth);</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     396 </span>            : }
+<a name="397"><span class="lineNum">     397 </span>            : </a>
+<span class="lineNum">     398 </span>            : static bool
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 : auth_request_check_spid(struct master_login_auth *auth,</span>
+<span class="lineNum">     400 </span>            :             struct master_login_auth_request *req)
+<span class="lineNum">     401 </span>            : {
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     if (auth-&gt;auth_server_pid != req-&gt;auth_pid &amp;&amp; auth-&gt;spid_received) {</span>
+<span class="lineNum">     403 </span>            :         /* auth server was restarted. don't even attempt a login. */
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :         i_warning(&quot;Auth server restarted (pid %u -&gt; %u), aborting auth&quot;,</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :               (unsigned int)req-&gt;auth_pid,</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :               (unsigned int)auth-&gt;auth_server_pid);</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     408 </span>            :     }
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="410"><span class="lineNum">     410 </span>            : }</a>
+<span class="lineNum">     411 </span>            : 
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 : static void master_login_auth_check_spids(struct master_login_auth *auth)</span>
+<span class="lineNum">     413 </span>            : {
+<span class="lineNum">     414 </span>            :     struct master_login_auth_request *req, *next;
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     for (req = auth-&gt;request_head; req != NULL; req = next) {</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         next = req-&gt;next;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         if (!auth_request_check_spid(auth, req))</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :             req-&gt;aborted = TRUE;</span>
+<span class="lineNum">     420 </span>            :     }
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 : }</span>
+<a name="422"><span class="lineNum">     422 </span>            : </a>
+<span class="lineNum">     423 </span>            : static void
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 : master_login_auth_send_request(struct master_login_auth *auth,</span>
+<span class="lineNum">     425 </span>            :                    struct master_login_auth_request *req)
+<span class="lineNum">     426 </span>            : {
+<span class="lineNum">     427 </span>            :     string_t *str;
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     if (!auth_request_check_spid(auth, req)) {</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :         master_login_auth_request_remove(auth, req);</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :         req-&gt;callback(NULL, MASTER_AUTH_ERRMSG_INTERNAL_FAILURE,</span>
+<span class="lineNum">     432 </span>            :                   req-&gt;context);
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :         i_free(req);</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     435 </span>            :     }
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :     str = t_str_new(128);</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     str_printfa(str, &quot;REQUEST\t%u\t%u\t%u\t&quot;, req-&gt;id,</span>
+<span class="lineNum">     439 </span>            :             req-&gt;client_pid, req-&gt;auth_id);
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     binary_to_hex_append(str, req-&gt;cookie, sizeof(req-&gt;cookie));</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     str_printfa(str, &quot;\tsession_pid=%s&quot;, my_pid);</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     if (auth-&gt;request_auth_token)</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :         str_append(str, &quot;\trequest_auth_token&quot;);</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :     o_stream_nsend(auth-&gt;output, str_data(str), str_len(str));</span>
+<a name="446"><span class="lineNum">     446 </span>            : }</a>
+<span class="lineNum">     447 </span>            : 
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 : void master_login_auth_request(struct master_login_auth *auth,</span>
+<span class="lineNum">     449 </span>            :                    const struct master_auth_request *req,
+<span class="lineNum">     450 </span>            :                    master_login_auth_request_callback_t *callback,
+<span class="lineNum">     451 </span>            :                    void *context)
+<span class="lineNum">     452 </span>            : {
+<span class="lineNum">     453 </span>            :     struct master_login_auth_request *login_req;
+<span class="lineNum">     454 </span>            :     unsigned int id;
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :     if (auth-&gt;fd == -1) {</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         if (master_login_auth_connect(auth) &lt; 0) {</span>
+<span class="lineNum">     458 </span>            :             /* we couldn't connect to auth now,
+<span class="lineNum">     459 </span>            :                so we probably can't in future either. */
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :             master_service_stop_new_connections(master_service);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :             callback(NULL, MASTER_AUTH_ERRMSG_INTERNAL_FAILURE,</span>
+<span class="lineNum">     462 </span>            :                  context);
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     464 </span>            :         }
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         o_stream_nsend_str(auth-&gt;output,</span>
+<span class="lineNum">     466 </span>            :             t_strdup_printf(&quot;VERSION\t%u\t%u\n&quot;,
+<span class="lineNum">     467 </span>            :                     AUTH_MASTER_PROTOCOL_MAJOR_VERSION,
+<span class="lineNum">     468 </span>            :                     AUTH_MASTER_PROTOCOL_MINOR_VERSION));
+<span class="lineNum">     469 </span>            :     }
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     id = ++auth-&gt;id_counter;</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :     if (id == 0)</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         id++;</span>
+<span class="lineNum">     474 </span>            : 
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :     login_req = i_new(struct master_login_auth_request, 1);</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     login_req-&gt;create_stamp = ioloop_time;</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :     login_req-&gt;id = id;</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :     login_req-&gt;auth_pid = req-&gt;auth_pid;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     login_req-&gt;client_pid = req-&gt;client_pid;</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     login_req-&gt;auth_id = req-&gt;auth_id;</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :     memcpy(login_req-&gt;cookie, req-&gt;cookie, sizeof(login_req-&gt;cookie));</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     login_req-&gt;callback = callback;</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     login_req-&gt;context = context;</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     i_assert(hash_table_lookup(auth-&gt;requests, POINTER_CAST(id)) == NULL);</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :     hash_table_insert(auth-&gt;requests, POINTER_CAST(id), login_req);</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :     DLLIST2_APPEND(&amp;auth-&gt;request_head, &amp;auth-&gt;request_tail, login_req);</span>
+<span class="lineNum">     487 </span>            : 
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :     if (auth-&gt;to == NULL)</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :         master_login_auth_set_timeout(auth);</span>
+<span class="lineNum">     490 </span>            : 
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     master_login_auth_send_request(auth, login_req);</span>
+<a name="492"><span class="lineNum">     492 </span>            : }</a>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 : unsigned int master_login_auth_request_count(struct master_login_auth *auth)</span>
+<span class="lineNum">     495 </span>            : {
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     return hash_table_count(auth-&gt;requests);</span>
+<span class="lineNum">     497 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,424 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-fts/fts-tokenizer-address.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-fts</a> - fts-tokenizer-address.c<span style="font-size: 80%;"> (source / <a href="fts-tokenizer-address.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">148</td>
+            <td class="headerCovTableEntry">155</td>
+            <td class="headerCovTableEntryHi">95.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2015-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;rfc822-parser.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;fts-tokenizer-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;fts-tokenizer-common.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #define IS_DTEXT(c) \
+<span class="lineNum">      11 </span>            :     (rfc822_atext_chars[(int)(unsigned char)(c)] == 2)
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #define FTS_DEFAULT_ADDRESS_MAX_LENGTH 254
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : enum email_address_parser_state {
+<span class="lineNum">      16 </span>            :     EMAIL_ADDRESS_PARSER_STATE_NONE = 0,
+<span class="lineNum">      17 </span>            :     EMAIL_ADDRESS_PARSER_STATE_LOCALPART,
+<span class="lineNum">      18 </span>            :     EMAIL_ADDRESS_PARSER_STATE_DOMAIN,
+<span class="lineNum">      19 </span>            :     EMAIL_ADDRESS_PARSER_STATE_COMPLETE
+<span class="lineNum">      20 </span>            : };
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : struct email_address_fts_tokenizer {
+<span class="lineNum">      23 </span>            :     struct fts_tokenizer tokenizer;
+<span class="lineNum">      24 </span>            :     enum email_address_parser_state state;
+<span class="lineNum">      25 </span>            :     string_t *last_word;
+<span class="lineNum">      26 </span>            :     string_t *parent_data; /* Copy of input data between tokens. */
+<span class="lineNum">      27 </span>            :     unsigned int max_length;
+<span class="lineNum">      28 </span>            :     bool search;
+<span class="lineNum">      29 </span>            : };
+<a name="30"><span class="lineNum">      30 </span>            : </a>
+<span class="lineNum">      31 </span>            : static int
+<span class="lineNum">      32 </span><span class="lineCov">          6 : fts_tokenizer_email_address_create(const char *const *settings,</span>
+<span class="lineNum">      33 </span>            :                    struct fts_tokenizer **tokenizer_r,
+<span class="lineNum">      34 </span>            :                    const char **error_r)
+<span class="lineNum">      35 </span>            : {
+<span class="lineNum">      36 </span>            :     struct email_address_fts_tokenizer *tok;
+<span class="lineNum">      37 </span><span class="lineCov">          6 :     bool search = FALSE;</span>
+<span class="lineNum">      38 </span><span class="lineCov">          6 :     unsigned int max_length = FTS_DEFAULT_ADDRESS_MAX_LENGTH;</span>
+<span class="lineNum">      39 </span>            :     unsigned int i;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineCov">          9 :     for (i = 0; settings[i] != NULL; i += 2) {</span>
+<span class="lineNum">      42 </span><span class="lineCov">          3 :         const char *key = settings[i], *value = settings[i+1];</span>
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineCov">          3 :         if (strcmp(key, &quot;search&quot;) == 0) {</span>
+<span class="lineNum">      45 </span><span class="lineCov">          1 :             search = TRUE;</span>
+<span class="lineNum">      46 </span><span class="lineCov">          2 :         } else if (strcmp(key, &quot;maxlen&quot;) == 0) {</span>
+<span class="lineNum">      47 </span><span class="lineCov">          4 :             if (str_to_uint(value, &amp;max_length) &lt; 0 ||</span>
+<span class="lineNum">      48 </span><span class="lineCov">          2 :                 max_length == 0) {</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :                 *error_r = t_strdup_printf(&quot;Invalid maxlen setting: %s&quot;, value);</span>
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      51 </span>            :             }
+<span class="lineNum">      52 </span>            :         } else {
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;Unknown setting: %s&quot;, key);</span>
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">      55 </span>            :         }
+<span class="lineNum">      56 </span>            :     }
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineCov">          6 :     tok = i_new(struct email_address_fts_tokenizer, 1);</span>
+<span class="lineNum">      59 </span><span class="lineCov">          6 :     tok-&gt;tokenizer = *fts_tokenizer_email_address;</span>
+<span class="lineNum">      60 </span><span class="lineCov">          6 :     tok-&gt;last_word = str_new(default_pool, 128);</span>
+<span class="lineNum">      61 </span><span class="lineCov">          6 :     tok-&gt;parent_data = str_new(default_pool, 128);</span>
+<span class="lineNum">      62 </span><span class="lineCov">          6 :     tok-&gt;max_length = max_length;</span>
+<span class="lineNum">      63 </span><span class="lineCov">          6 :     tok-&gt;search = search;</span>
+<span class="lineNum">      64 </span><span class="lineCov">          6 :     *tokenizer_r = &amp;tok-&gt;tokenizer;</span>
+<span class="lineNum">      65 </span><span class="lineCov">          6 :     return 0;</span>
+<a name="66"><span class="lineNum">      66 </span>            : }</a>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineCov">          6 : static void fts_tokenizer_email_address_destroy(struct fts_tokenizer *_tok)</span>
+<span class="lineNum">      69 </span>            : {
+<span class="lineNum">      70 </span><span class="lineCov">          6 :     struct email_address_fts_tokenizer *tok =</span>
+<span class="lineNum">      71 </span>            :         (struct email_address_fts_tokenizer *)_tok;
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineCov">          6 :     str_free(&amp;tok-&gt;last_word);</span>
+<span class="lineNum">      74 </span><span class="lineCov">          6 :     str_free(&amp;tok-&gt;parent_data);</span>
+<span class="lineNum">      75 </span><span class="lineCov">          6 :     i_free(tok);</span>
+<span class="lineNum">      76 </span><span class="lineCov">          6 : }</span>
+<a name="77"><span class="lineNum">      77 </span>            : </a>
+<span class="lineNum">      78 </span>            : static bool
+<span class="lineNum">      79 </span><span class="lineCov">       3102 : fts_tokenizer_address_current_token(struct email_address_fts_tokenizer *tok,</span>
+<span class="lineNum">      80 </span>            :                                     const char **token_r)
+<span class="lineNum">      81 </span>            : {
+<span class="lineNum">      82 </span><span class="lineCov">       3102 :     const unsigned char *data = tok-&gt;last_word-&gt;data;</span>
+<span class="lineNum">      83 </span><span class="lineCov">       3102 :     size_t len = tok-&gt;last_word-&gt;used;</span>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineCov">       3102 :     tok-&gt;tokenizer.skip_parents = TRUE;</span>
+<span class="lineNum">      86 </span><span class="lineCov">       3102 :     tok-&gt;state = EMAIL_ADDRESS_PARSER_STATE_NONE;</span>
+<span class="lineNum">      87 </span><span class="lineCov">       3102 :     if (str_len(tok-&gt;last_word) &gt; tok-&gt;max_length) {</span>
+<span class="lineNum">      88 </span><span class="lineCov">       1027 :         str_truncate(tok-&gt;last_word, tok-&gt;max_length);</span>
+<span class="lineNum">      89 </span>            :         /* As future proofing, delete partial utf8.
+<span class="lineNum">      90 </span>            :            IS_DTEXT() does not actually allow utf8 addresses
+<span class="lineNum">      91 </span>            :            yet though. */
+<span class="lineNum">      92 </span><span class="lineCov">       1027 :         len = tok-&gt;last_word-&gt;used;</span>
+<span class="lineNum">      93 </span><span class="lineCov">       1027 :         fts_tokenizer_delete_trailing_partial_char(data, &amp;len);</span>
+<span class="lineNum">      94 </span><span class="lineCov">       1027 :         i_assert(len &lt;= tok-&gt;max_length);</span>
+<span class="lineNum">      95 </span>            :     }
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineCov">       3102 :     if (len &gt; 0)</span>
+<span class="lineNum">      98 </span><span class="lineCov">       3102 :         fts_tokenizer_delete_trailing_invalid_char(data, &amp;len);</span>
+<span class="lineNum">      99 </span><span class="lineCov">       6203 :     *token_r = len == 0 ? &quot;&quot; :</span>
+<span class="lineNum">     100 </span><span class="lineCov">       3101 :         t_strndup(data, len);</span>
+<span class="lineNum">     101 </span><span class="lineCov">       3102 :     return len &gt; 0;</span>
+<span class="lineNum">     102 </span>            : }
+<a name="103"><span class="lineNum">     103 </span>            : </a>
+<span class="lineNum">     104 </span>            : static bool
+<span class="lineNum">     105 </span><span class="lineCov">      22988 : fts_tokenizer_address_parent_data(struct email_address_fts_tokenizer *tok,</span>
+<span class="lineNum">     106 </span>            :                                   const char **token_r)
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span><span class="lineCov">      22988 :     if (tok-&gt;tokenizer.parent == NULL || str_len(tok-&gt;parent_data) == 0)</span>
+<span class="lineNum">     109 </span><span class="lineCov">      12428 :         return FALSE;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">      10560 :     if (tok-&gt;search &amp;&amp; tok-&gt;state &gt;= EMAIL_ADDRESS_PARSER_STATE_DOMAIN) {</span>
+<span class="lineNum">     112 </span>            :         /* we're searching and we want to find only the full
+<span class="lineNum">     113 </span>            :            user@domain (not &quot;user&quot; and &quot;domain&quot;). we'll do this by
+<span class="lineNum">     114 </span>            :            not feeding the last user@domain to parent tokenizer. */
+<span class="lineNum">     115 </span><span class="lineCov">         32 :         size_t parent_prefix_len =</span>
+<span class="lineNum">     116 </span><span class="lineCov">         32 :             str_len(tok-&gt;parent_data) - str_len(tok-&gt;last_word);</span>
+<span class="lineNum">     117 </span><span class="lineCov">         32 :         i_assert(str_len(tok-&gt;parent_data) &gt;= str_len(tok-&gt;last_word) &amp;&amp;</span>
+<span class="lineNum">     118 </span>            :              strcmp(str_c(tok-&gt;parent_data) + parent_prefix_len,
+<span class="lineNum">     119 </span>            :                 str_c(tok-&gt;last_word)) == 0);
+<span class="lineNum">     120 </span><span class="lineCov">         32 :         str_truncate(tok-&gt;parent_data, parent_prefix_len);</span>
+<span class="lineNum">     121 </span><span class="lineCov">         32 :         if (str_len(tok-&gt;parent_data) == 0)</span>
+<span class="lineNum">     122 </span><span class="lineCov">          2 :             return FALSE;</span>
+<span class="lineNum">     123 </span>            :     }
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineCov">      10558 :     *token_r = t_strdup(str_c(tok-&gt;parent_data));</span>
+<span class="lineNum">     126 </span><span class="lineCov">      10558 :     str_truncate(tok-&gt;parent_data, 0);</span>
+<span class="lineNum">     127 </span><span class="lineCov">      10558 :     return TRUE;</span>
+<span class="lineNum">     128 </span>            : }
+<span class="lineNum">     129 </span>            : 
+<a name="130"><span class="lineNum">     130 </span>            : /* Used to rewind past characters that can not be the start of a new localpart.</a>
+<span class="lineNum">     131 </span>            :  Returns size that can be skipped. */
+<span class="lineNum">     132 </span><span class="lineCov">      15614 : static size_t skip_nonlocal_part(const unsigned char *data, size_t size)</span>
+<span class="lineNum">     133 </span>            : {
+<span class="lineNum">     134 </span><span class="lineCov">      15614 :     size_t skip = 0;</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span>            :     /* Yes, a dot can start an address. De facto before de jure. */
+<span class="lineNum">     137 </span><span class="lineCov">      50760 :     while (skip &lt; size &amp;&amp; (!IS_ATEXT(data[skip]) &amp;&amp; data[skip] != '.'))</span>
+<span class="lineNum">     138 </span><span class="lineCov">      19532 :         skip++;</span>
+<span class="lineNum">     139 </span><span class="lineCov">      15614 :     return skip;</span>
+<span class="lineNum">     140 </span>            : }
+<a name="141"><span class="lineNum">     141 </span>            : </a>
+<span class="lineNum">     142 </span>            : static enum email_address_parser_state
+<span class="lineNum">     143 </span><span class="lineCov">      34790 : fts_tokenizer_email_address_parse_local(struct email_address_fts_tokenizer *tok,</span>
+<span class="lineNum">     144 </span>            :                                         const unsigned char *data, size_t size,
+<span class="lineNum">     145 </span>            :                                         size_t *skip_r)
+<span class="lineNum">     146 </span>            : {
+<span class="lineNum">     147 </span><span class="lineCov">      34790 :     size_t pos = 0;</span>
+<span class="lineNum">     148 </span><span class="lineCov">      34790 :     bool seen_at = FALSE;</span>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineCov">     187977 :     while (pos &lt; size &amp;&amp; (IS_ATEXT(data[pos]) ||</span>
+<span class="lineNum">     151 </span><span class="lineCov">      66301 :                   data[pos] == '@' || data[pos] == '.')) {</span>
+<span class="lineNum">     152 </span><span class="lineCov">      88462 :         if (data[pos] == '@')</span>
+<span class="lineNum">     153 </span><span class="lineCov">       6431 :             seen_at = TRUE;</span>
+<span class="lineNum">     154 </span><span class="lineCov">      88462 :         pos++;</span>
+<span class="lineNum">     155 </span><span class="lineCov">      88462 :         if (seen_at)</span>
+<span class="lineNum">     156 </span><span class="lineCov">       6431 :             break;</span>
+<span class="lineNum">     157 </span>            :     }
+<span class="lineNum">     158 </span>            :      /* localpart and @ */
+<span class="lineNum">     159 </span><span class="lineCov">      34790 :     if (seen_at &amp;&amp; (pos &gt; 1 || str_len(tok-&gt;last_word) &gt; 0)) {</span>
+<span class="lineNum">     160 </span><span class="lineCov">       4978 :         str_append_n(tok-&gt;last_word, data, pos);</span>
+<span class="lineNum">     161 </span><span class="lineCov">       4978 :         *skip_r = pos;</span>
+<span class="lineNum">     162 </span><span class="lineCov">       4978 :         return EMAIL_ADDRESS_PARSER_STATE_DOMAIN;</span>
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span>            :     /* localpart, @ not included yet */
+<span class="lineNum">     166 </span><span class="lineCov">      29812 :     if (pos &gt; 0 &amp;&amp; (IS_ATEXT(data[pos-1]) || data[pos-1] == '.')) {</span>
+<span class="lineNum">     167 </span><span class="lineCov">      15554 :         str_append_n(tok-&gt;last_word, data, pos);</span>
+<span class="lineNum">     168 </span><span class="lineCov">      15554 :         *skip_r = pos;</span>
+<span class="lineNum">     169 </span><span class="lineCov">      15554 :         return  EMAIL_ADDRESS_PARSER_STATE_LOCALPART;</span>
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span>            :     /* not a localpart. skip past rest of no-good chars. */
+<span class="lineNum">     172 </span><span class="lineCov">      14258 :     pos += skip_nonlocal_part(data+pos, size - pos);</span>
+<span class="lineNum">     173 </span><span class="lineCov">      14258 :     *skip_r = pos;</span>
+<span class="lineNum">     174 </span><span class="lineCov">      14258 :     return EMAIL_ADDRESS_PARSER_STATE_NONE;</span>
+<a name="175"><span class="lineNum">     175 </span>            : }</a>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">       4176 : static bool domain_is_empty(struct email_address_fts_tokenizer *tok)</span>
+<span class="lineNum">     178 </span>            : {
+<span class="lineNum">     179 </span><span class="lineCov">       4176 :     const char *p, *str = str_c(tok-&gt;last_word);</span>
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span><span class="lineCov">       4176 :     if ((p = strchr(str, '@')) == NULL)</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     183 </span><span class="lineCov">       4176 :     return p[1] == '\0';</span>
+<span class="lineNum">     184 </span>            : }
+<a name="185"><span class="lineNum">     185 </span>            : </a>
+<span class="lineNum">     186 </span>            : static enum email_address_parser_state
+<span class="lineNum">     187 </span><span class="lineCov">       5950 : fts_tokenizer_email_address_parse_domain(struct email_address_fts_tokenizer *tok,</span>
+<span class="lineNum">     188 </span>            :                                          const unsigned char *data, size_t size,
+<span class="lineNum">     189 </span>            :                                          size_t *skip_r)
+<span class="lineNum">     190 </span>            : {
+<span class="lineNum">     191 </span><span class="lineCov">       5950 :     size_t pos = 0;</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineCov">      27406 :     while (pos &lt; size &amp;&amp; (IS_DTEXT(data[pos]) || data[pos] == '.' || data[pos] == '-'))</span>
+<span class="lineNum">     194 </span><span class="lineCov">      15506 :         pos++;</span>
+<span class="lineNum">     195 </span>            :      /* A complete domain name */
+<span class="lineNum">     196 </span><span class="lineCov">       5950 :     if ((pos &gt; 0 &amp;&amp; pos &lt; size) || /* non-atext after atext in this data*/</span>
+<span class="lineNum">     197 </span><span class="lineCov">       1392 :         (pos &lt; size &amp;&amp; !domain_is_empty(tok))) { /* non-atext after previous atext */</span>
+<span class="lineNum">     198 </span><span class="lineCov">       1967 :         str_append_n(tok-&gt;last_word, data, pos);</span>
+<span class="lineNum">     199 </span><span class="lineCov">       1967 :         *skip_r = pos;</span>
+<span class="lineNum">     200 </span><span class="lineCov">       1967 :         return EMAIL_ADDRESS_PARSER_STATE_COMPLETE;</span>
+<span class="lineNum">     201 </span>            :     }
+<span class="lineNum">     202 </span><span class="lineCov">       3983 :     if (pos == size) { /* All good, but possibly not complete. */</span>
+<span class="lineNum">     203 </span><span class="lineCov">       2627 :         str_append_n(tok-&gt;last_word, data, pos);</span>
+<span class="lineNum">     204 </span><span class="lineCov">       2627 :         *skip_r = pos;</span>
+<span class="lineNum">     205 </span><span class="lineCov">       2627 :         return EMAIL_ADDRESS_PARSER_STATE_DOMAIN;</span>
+<span class="lineNum">     206 </span>            :     }
+<span class="lineNum">     207 </span>            :     /* not a domain. skip past no-good chars. */
+<span class="lineNum">     208 </span><span class="lineCov">       1356 :     pos += skip_nonlocal_part(data + pos, size - pos);</span>
+<span class="lineNum">     209 </span><span class="lineCov">       1356 :     *skip_r = pos;</span>
+<span class="lineNum">     210 </span><span class="lineCov">       1356 :     return EMAIL_ADDRESS_PARSER_STATE_NONE;</span>
+<span class="lineNum">     211 </span>            : }
+<span class="lineNum">     212 </span>            : 
+<a name="213"><span class="lineNum">     213 </span>            : /* Buffer raw data for parent. */</a>
+<span class="lineNum">     214 </span>            : static void
+<span class="lineNum">     215 </span><span class="lineCov">      40740 : fts_tokenizer_address_update_parent(struct email_address_fts_tokenizer *tok,</span>
+<span class="lineNum">     216 </span>            :                                     const unsigned char *data, size_t size)
+<span class="lineNum">     217 </span>            : {
+<span class="lineNum">     218 </span><span class="lineCov">      40740 :     if (tok-&gt;tokenizer.parent != NULL)</span>
+<span class="lineNum">     219 </span><span class="lineCov">      40024 :         str_append_n(tok-&gt;parent_data, data, size);</span>
+<a name="220"><span class="lineNum">     220 </span><span class="lineCov">      40740 : }</span></a>
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineCov">          1 : static void fts_tokenizer_email_address_reset(struct fts_tokenizer *_tok)</span>
+<span class="lineNum">     223 </span>            : {
+<span class="lineNum">     224 </span><span class="lineCov">          1 :     struct email_address_fts_tokenizer *tok =</span>
+<span class="lineNum">     225 </span>            :         (struct email_address_fts_tokenizer *)_tok;
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span><span class="lineCov">          1 :     tok-&gt;state = EMAIL_ADDRESS_PARSER_STATE_NONE;</span>
+<span class="lineNum">     228 </span><span class="lineCov">          1 :     str_truncate(tok-&gt;last_word, 0);</span>
+<span class="lineNum">     229 </span><span class="lineCov">          1 :     str_truncate(tok-&gt;parent_data, 0);</span>
+<span class="lineNum">     230 </span><span class="lineCov">          1 : }</span>
+<a name="231"><span class="lineNum">     231 </span>            : </a>
+<span class="lineNum">     232 </span>            : static int
+<span class="lineNum">     233 </span><span class="lineCov">      36077 : fts_tokenizer_email_address_next(struct fts_tokenizer *_tok,</span>
+<span class="lineNum">     234 </span>            :                                  const unsigned char *data, size_t size,
+<span class="lineNum">     235 </span>            :                  size_t *skip_r, const char **token_r,
+<span class="lineNum">     236 </span>            :                  const char **error_r ATTR_UNUSED)
+<span class="lineNum">     237 </span>            : {
+<span class="lineNum">     238 </span><span class="lineCov">      36077 :     struct email_address_fts_tokenizer *tok =</span>
+<span class="lineNum">     239 </span>            :         (struct email_address_fts_tokenizer *)_tok;
+<span class="lineNum">     240 </span><span class="lineCov">      36077 :     size_t pos = 0, local_skip;</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineCov">      36077 :     if (tok-&gt;tokenizer.skip_parents == TRUE)</span>
+<span class="lineNum">     243 </span><span class="lineCov">       3101 :         tok-&gt;tokenizer.skip_parents = FALSE;</span>
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineCov">      36077 :     if (tok-&gt;state == EMAIL_ADDRESS_PARSER_STATE_COMPLETE) {</span>
+<span class="lineNum">     246 </span><span class="lineCov">       1940 :         *skip_r = pos;</span>
+<span class="lineNum">     247 </span><span class="lineCov">       1940 :         if (fts_tokenizer_address_current_token(tok, token_r))</span>
+<span class="lineNum">     248 </span><span class="lineCov">       1940 :             return 1;</span>
+<span class="lineNum">     249 </span>            :     }
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span>            :     /* end of data, output lingering tokens. first the parents data, then
+<span class="lineNum">     252 </span>            :        possibly our token, if complete enough */
+<span class="lineNum">     253 </span><span class="lineCov">      34137 :     if (size == 0) {</span>
+<span class="lineNum">     254 </span><span class="lineCov">      23805 :         if (tok-&gt;state == EMAIL_ADDRESS_PARSER_STATE_DOMAIN &amp;&amp;</span>
+<span class="lineNum">     255 </span><span class="lineCov">       2784 :             domain_is_empty(tok)) {</span>
+<span class="lineNum">     256 </span>            :             /* user@ without domain - reset state */
+<span class="lineNum">     257 </span><span class="lineCov">        520 :             str_truncate(tok-&gt;last_word, 0);</span>
+<span class="lineNum">     258 </span><span class="lineCov">        520 :             tok-&gt;state = EMAIL_ADDRESS_PARSER_STATE_NONE;</span>
+<span class="lineNum">     259 </span>            :         }
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineCov">      21021 :         if (fts_tokenizer_address_parent_data(tok, token_r))</span>
+<span class="lineNum">     262 </span><span class="lineCov">       8618 :             return 1;</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">      12403 :         if (tok-&gt;state == EMAIL_ADDRESS_PARSER_STATE_DOMAIN) {</span>
+<span class="lineNum">     265 </span><span class="lineCov">       1135 :             if (fts_tokenizer_address_current_token(tok, token_r))</span>
+<span class="lineNum">     266 </span><span class="lineCov">       1134 :                 return 1;</span>
+<span class="lineNum">     267 </span>            :         }
+<span class="lineNum">     268 </span><span class="lineCov">      11269 :         tok-&gt;state = EMAIL_ADDRESS_PARSER_STATE_NONE;</span>
+<span class="lineNum">     269 </span>            :     }
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span>            :     /* 1) regular input data OR
+<span class="lineNum">     272 </span>            :        2) circle around to return completed address */
+<span class="lineNum">     273 </span><span class="lineCov">      89510 :     while(pos &lt; size || tok-&gt;state == EMAIL_ADDRESS_PARSER_STATE_COMPLETE) {</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineCov">      42707 :         switch (tok-&gt;state) {</span>
+<span class="lineNum">     276 </span>            :         case EMAIL_ADDRESS_PARSER_STATE_NONE:
+<span class="lineNum">     277 </span>            :             /* no part of address found yet. remove possible
+<span class="lineNum">     278 </span>            :                earlier data */
+<span class="lineNum">     279 </span><span class="lineCov">      24396 :             str_truncate(tok-&gt;last_word, 0);</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span>            :             /* fall through */
+<span class="lineNum">     282 </span>            :         case EMAIL_ADDRESS_PARSER_STATE_LOCALPART:
+<span class="lineNum">     283 </span>            :             /* last_word is empty or has the beginnings of a valid
+<span class="lineNum">     284 </span>            :                local-part, but no '@' found yet. continue parsing
+<span class="lineNum">     285 </span>            :                the beginning of data to see if it contains a full
+<span class="lineNum">     286 </span>            :                local-part@ */
+<span class="lineNum">     287 </span><span class="lineCov">      34790 :             tok-&gt;state =</span>
+<span class="lineNum">     288 </span><span class="lineCov">      34790 :                 fts_tokenizer_email_address_parse_local(tok,</span>
+<span class="lineNum">     289 </span>            :                                                         data + pos,
+<span class="lineNum">     290 </span>            :                                                         size - pos,
+<span class="lineNum">     291 </span>            :                                                         &amp;local_skip);
+<span class="lineNum">     292 </span><span class="lineCov">      34790 :             fts_tokenizer_address_update_parent(tok, data+pos,</span>
+<span class="lineNum">     293 </span>            :                                                 local_skip);
+<span class="lineNum">     294 </span><span class="lineCov">      34790 :             pos += local_skip;</span>
+<span class="lineNum">     295 </span>            : 
+<span class="lineNum">     296 </span><span class="lineCov">      34790 :             break;</span>
+<span class="lineNum">     297 </span>            :         case EMAIL_ADDRESS_PARSER_STATE_DOMAIN:
+<span class="lineNum">     298 </span>            :             /* last_word has a local-part@ and maybe the beginning
+<span class="lineNum">     299 </span>            :                of a domain. continue parsing the beginning of data
+<span class="lineNum">     300 </span>            :                to see if it contains a valid domain. */
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">       5950 :             tok-&gt;state =</span>
+<span class="lineNum">     303 </span><span class="lineCov">       5950 :                 fts_tokenizer_email_address_parse_domain(tok,</span>
+<span class="lineNum">     304 </span>            :                                                         data + pos,
+<span class="lineNum">     305 </span>            :                                                         size - pos,
+<span class="lineNum">     306 </span>            :                                                         &amp;local_skip);
+<span class="lineNum">     307 </span><span class="lineCov">       5950 :             fts_tokenizer_address_update_parent(tok, data+pos,</span>
+<span class="lineNum">     308 </span>            :                                                 local_skip);
+<span class="lineNum">     309 </span><span class="lineCov">       5950 :             pos += local_skip;</span>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineCov">       5950 :             break;</span>
+<span class="lineNum">     312 </span>            :         case EMAIL_ADDRESS_PARSER_STATE_COMPLETE:
+<span class="lineNum">     313 </span><span class="lineCov">       1967 :             *skip_r = pos;</span>
+<span class="lineNum">     314 </span><span class="lineCov">       1967 :             if (fts_tokenizer_address_parent_data(tok, token_r))</span>
+<span class="lineNum">     315 </span><span class="lineCov">       1940 :                 return 1;</span>
+<span class="lineNum">     316 </span><span class="lineCov">         27 :             if (fts_tokenizer_address_current_token(tok, token_r))</span>
+<span class="lineNum">     317 </span><span class="lineCov">         27 :                 return 1;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     319 </span>            :         default:
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     321 </span>            :         }
+<span class="lineNum">     322 </span>            : 
+<span class="lineNum">     323 </span>            :     }
+<span class="lineNum">     324 </span><span class="lineCov">      22418 :     *skip_r = pos;</span>
+<span class="lineNum">     325 </span><span class="lineCov">      22418 :     return 0;</span>
+<span class="lineNum">     326 </span>            : }
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span>            : static const struct fts_tokenizer_vfuncs email_address_tokenizer_vfuncs = {
+<span class="lineNum">     329 </span>            :     fts_tokenizer_email_address_create,
+<span class="lineNum">     330 </span>            :     fts_tokenizer_email_address_destroy,
+<span class="lineNum">     331 </span>            :     fts_tokenizer_email_address_reset,
+<span class="lineNum">     332 </span>            :     fts_tokenizer_email_address_next
+<span class="lineNum">     333 </span>            : };
+<span class="lineNum">     334 </span>            : 
+<span class="lineNum">     335 </span>            : static const struct fts_tokenizer fts_tokenizer_email_address_real = {
+<span class="lineNum">     336 </span>            :     .name = &quot;email-address&quot;,
+<span class="lineNum">     337 </span>            :     .v = &amp;email_address_tokenizer_vfuncs
+<span class="lineNum">     338 </span>            : };
+<span class="lineNum">     339 </span>            : const struct fts_tokenizer *fts_tokenizer_email_address =
+<span class="lineNum">     340 </span>            :     &amp;fts_tokenizer_email_address_real;
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

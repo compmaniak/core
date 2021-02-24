@@ -1,0 +1,816 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/mail-user.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-storage</a> - mail-user.c<span style="font-size: 80%;"> (source / <a href="mail-user.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">160</td>
+            <td class="headerCovTableEntry">370</td>
+            <td class="headerCovTableEntryLo">43.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">18</td>
+            <td class="headerCovTableEntry">37</td>
+            <td class="headerCovTableEntryLo">48.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2008-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;hostpid.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;module-dir.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;home-expand.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;file-create-locked.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;safe-mkstemp.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;var-expand.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;settings-parser.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;iostream-ssl.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;fs-api.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;auth-master.h&quot;
+<span class="lineNum">      19 </span>            : #include &quot;master-service.h&quot;
+<span class="lineNum">      20 </span>            : #include &quot;dict.h&quot;
+<span class="lineNum">      21 </span>            : #include &quot;mail-storage-settings.h&quot;
+<span class="lineNum">      22 </span>            : #include &quot;mail-storage-private.h&quot;
+<span class="lineNum">      23 </span>            : #include &quot;mail-storage-service.h&quot;
+<span class="lineNum">      24 </span>            : #include &quot;mail-namespace.h&quot;
+<span class="lineNum">      25 </span>            : #include &quot;mail-storage.h&quot;
+<span class="lineNum">      26 </span>            : #include &quot;mailbox-list-private.h&quot;
+<span class="lineNum">      27 </span>            : #include &quot;mail-autoexpunge.h&quot;
+<span class="lineNum">      28 </span>            : #include &quot;mail-user.h&quot;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : struct mail_user_module_register mail_user_module_register = { 0 };
+<a name="32"><span class="lineNum">      32 </span>            : struct auth_master_connection *mail_user_auth_master_conn;</a>
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span><span class="lineCov">          1 : static void mail_user_deinit_base(struct mail_user *user)</span>
+<span class="lineNum">      35 </span>            : {
+<span class="lineNum">      36 </span><span class="lineCov">          1 :     if (user-&gt;_attr_dict != NULL) {</span>
+<span class="lineNum">      37 </span><span class="lineCov">          1 :         dict_wait(user-&gt;_attr_dict);</span>
+<span class="lineNum">      38 </span><span class="lineCov">          1 :         dict_deinit(&amp;user-&gt;_attr_dict);</span>
+<span class="lineNum">      39 </span>            :     }
+<span class="lineNum">      40 </span><span class="lineCov">          1 :     mail_namespaces_deinit(&amp;user-&gt;namespaces);</span>
+<span class="lineNum">      41 </span><span class="lineCov">          1 :     if (user-&gt;_service_user != NULL)</span>
+<span class="lineNum">      42 </span><span class="lineCov">          1 :         mail_storage_service_user_unref(&amp;user-&gt;_service_user);</span>
+<a name="43"><span class="lineNum">      43 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span><span class="lineCov">          1 : static void mail_user_deinit_pre_base(struct mail_user *user ATTR_UNUSED)</span>
+<span class="lineNum">      46 </span>            : {
+<a name="47"><span class="lineNum">      47 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 : static void mail_user_stats_fill_base(struct mail_user *user ATTR_UNUSED,</span>
+<span class="lineNum">      50 </span>            :                       struct stats *stats ATTR_UNUSED)
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 : }</span>
+<a name="53"><span class="lineNum">      53 </span>            : </a>
+<span class="lineNum">      54 </span>            : static struct mail_user *
+<span class="lineNum">      55 </span><span class="lineCov">          1 : mail_user_alloc_int(struct event *parent_event,</span>
+<span class="lineNum">      56 </span>            :             const char *username,
+<span class="lineNum">      57 </span>            :             const struct setting_parser_info *set_info,
+<span class="lineNum">      58 </span>            :             const struct mail_user_settings *set, pool_t pool)
+<span class="lineNum">      59 </span>            : {
+<span class="lineNum">      60 </span>            :     struct mail_user *user;
+<span class="lineNum">      61 </span>            :     const char *error;
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">          1 :     i_assert(username != NULL);</span>
+<span class="lineNum">      64 </span><span class="lineCov">          1 :     i_assert(*username != '\0');</span>
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span><span class="lineCov">          1 :     user = p_new(pool, struct mail_user, 1);</span>
+<span class="lineNum">      67 </span><span class="lineCov">          1 :     user-&gt;pool = pool;</span>
+<span class="lineNum">      68 </span><span class="lineCov">          1 :     user-&gt;refcount = 1;</span>
+<span class="lineNum">      69 </span><span class="lineCov">          1 :     user-&gt;username = p_strdup(pool, username);</span>
+<span class="lineNum">      70 </span><span class="lineCov">          1 :     user-&gt;set_info = set_info;</span>
+<span class="lineNum">      71 </span><span class="lineCov">          1 :     user-&gt;unexpanded_set = set;</span>
+<span class="lineNum">      72 </span><span class="lineCov">          1 :     user-&gt;set = settings_dup_with_pointers(set_info, user-&gt;unexpanded_set, pool);</span>
+<span class="lineNum">      73 </span><span class="lineCov">          1 :     user-&gt;service = master_service_get_name(master_service);</span>
+<span class="lineNum">      74 </span><span class="lineCov">          1 :     user-&gt;default_normalizer = uni_utf8_to_decomposed_titlecase;</span>
+<span class="lineNum">      75 </span><span class="lineCov">          1 :     user-&gt;session_create_time = ioloop_time;</span>
+<span class="lineNum">      76 </span><span class="lineCov">          1 :     user-&gt;event = event_create(parent_event);</span>
+<span class="lineNum">      77 </span><span class="lineCov">          1 :     event_add_category(user-&gt;event, &amp;event_category_storage);</span>
+<span class="lineNum">      78 </span><span class="lineCov">          1 :     event_add_str(user-&gt;event, &quot;user&quot;, username);</span>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span>            :     /* check settings so that the duplicated structure will again
+<span class="lineNum">      81 </span>            :        contain the parsed fields */
+<span class="lineNum">      82 </span><span class="lineCov">          1 :     if (!settings_check(set_info, pool, user-&gt;set, &amp;error))</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         i_panic(&quot;Settings check unexpectedly failed: %s&quot;, error);</span>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineCov">          1 :     user-&gt;v.deinit = mail_user_deinit_base;</span>
+<span class="lineNum">      86 </span><span class="lineCov">          1 :     user-&gt;v.deinit_pre = mail_user_deinit_pre_base;</span>
+<span class="lineNum">      87 </span><span class="lineCov">          1 :     user-&gt;v.stats_fill = mail_user_stats_fill_base;</span>
+<span class="lineNum">      88 </span><span class="lineCov">          1 :     p_array_init(&amp;user-&gt;module_contexts, user-&gt;pool, 5);</span>
+<span class="lineNum">      89 </span><span class="lineCov">          1 :     return user;</span>
+<span class="lineNum">      90 </span>            : }
+<a name="91"><span class="lineNum">      91 </span>            : </a>
+<span class="lineNum">      92 </span>            : struct mail_user *
+<span class="lineNum">      93 </span><span class="lineCov">          1 : mail_user_alloc_nodup_set(struct event *parent_event,</span>
+<span class="lineNum">      94 </span>            :               const char *username,
+<span class="lineNum">      95 </span>            :               const struct setting_parser_info *set_info,
+<span class="lineNum">      96 </span>            :               const struct mail_user_settings *set)
+<span class="lineNum">      97 </span>            : {
+<span class="lineNum">      98 </span>            :     pool_t pool;
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineCov">          1 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;mail user&quot;, 16*1024);</span>
+<span class="lineNum">     101 </span><span class="lineCov">          1 :     return mail_user_alloc_int(parent_event, username, set_info, set, pool);</span>
+<a name="102"><span class="lineNum">     102 </span>            : }</a>
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 : struct mail_user *mail_user_alloc(struct event *parent_event,</span>
+<span class="lineNum">     105 </span>            :                   const char *username,
+<span class="lineNum">     106 </span>            :                   const struct setting_parser_info *set_info,
+<span class="lineNum">     107 </span>            :                   const struct mail_user_settings *set)
+<span class="lineNum">     108 </span>            : {
+<span class="lineNum">     109 </span>            :     pool_t pool;
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;mail user&quot;, 16*1024);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     return mail_user_alloc_int(parent_event, username, set_info,</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :                    settings_dup(set_info, set, pool), pool);</span>
+<span class="lineNum">     114 </span>            : }
+<a name="115"><span class="lineNum">     115 </span>            : </a>
+<span class="lineNum">     116 </span>            : static void
+<span class="lineNum">     117 </span><span class="lineCov">          1 : mail_user_expand_plugins_envs(struct mail_user *user)</span>
+<span class="lineNum">     118 </span>            : {
+<span class="lineNum">     119 </span>            :     const char **envs, *home, *error;
+<span class="lineNum">     120 </span>            :     string_t *str;
+<span class="lineNum">     121 </span>            :     unsigned int i, count;
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineCov">          1 :     if (!array_is_created(&amp;user-&gt;set-&gt;plugin_envs))</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">          1 :     str = t_str_new(256);</span>
+<span class="lineNum">     127 </span><span class="lineCov">          1 :     envs = array_get_modifiable(&amp;user-&gt;set-&gt;plugin_envs, &amp;count);</span>
+<span class="lineNum">     128 </span><span class="lineCov">          1 :     i_assert((count % 2) == 0);</span>
+<span class="lineNum">     129 </span><span class="lineCov">          2 :     for (i = 0; i &lt; count; i += 2) {</span>
+<span class="lineNum">     130 </span><span class="lineCov">          1 :         if (user-&gt;_home == NULL &amp;&amp;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :             var_has_key(envs[i+1], 'h', &quot;home&quot;) &amp;&amp;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :             mail_user_get_home(user, &amp;home) &lt;= 0) {</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :             user-&gt;error = p_strdup_printf(user-&gt;pool,</span>
+<span class="lineNum">     134 </span>            :                 &quot;userdb didn't return a home directory, &quot;
+<span class="lineNum">     135 </span>            :                 &quot;but plugin setting %s used it (%%h): %s&quot;,
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :                 envs[i], envs[i+1]);</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     138 </span>            :         }
+<span class="lineNum">     139 </span><span class="lineCov">          1 :         str_truncate(str, 0);</span>
+<span class="lineNum">     140 </span><span class="lineCov">          1 :         if (var_expand_with_funcs(str, envs[i+1],</span>
+<span class="lineNum">     141 </span>            :                       mail_user_var_expand_table(user),
+<span class="lineNum">     142 </span>            :                       mail_user_var_expand_func_table, user,
+<span class="lineNum">     143 </span>            :                       &amp;error) &lt;= 0) {
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :             user-&gt;error = p_strdup_printf(user-&gt;pool,</span>
+<span class="lineNum">     145 </span>            :                 &quot;Failed to expand plugin setting %s = '%s': %s&quot;,
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :                 envs[i], envs[i+1], error);</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     148 </span>            :         }
+<span class="lineNum">     149 </span><span class="lineCov">          1 :         envs[i+1] = p_strdup(user-&gt;pool, str_c(str));</span>
+<span class="lineNum">     150 </span>            :     }
+<a name="151"><span class="lineNum">     151 </span>            : }</a>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineCov">          1 : int mail_user_init(struct mail_user *user, const char **error_r)</span>
+<span class="lineNum">     154 </span>            : {
+<span class="lineNum">     155 </span>            :     const struct mail_storage_settings *mail_set;
+<span class="lineNum">     156 </span>            :     const char *home, *key, *value, *error;
+<span class="lineNum">     157 </span>            :     bool need_home_dir;
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineCov">          1 :     need_home_dir = user-&gt;_home == NULL &amp;&amp;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         settings_vars_have_key(user-&gt;set_info, user-&gt;set,</span>
+<span class="lineNum">     161 </span>            :                        'h', &quot;home&quot;, &amp;key, &amp;value);
+<span class="lineNum">     162 </span><span class="lineCov">          1 :     if (need_home_dir &amp;&amp; mail_user_get_home(user, &amp;home) &lt;= 0) {</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         user-&gt;error = p_strdup_printf(user-&gt;pool,</span>
+<span class="lineNum">     164 </span>            :             &quot;userdb didn't return a home directory, &quot;
+<span class="lineNum">     165 </span>            :             &quot;but %s used it (%%h): %s&quot;, key, value);
+<span class="lineNum">     166 </span>            :     }
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span>            :     /* expand settings after we can expand %h */
+<span class="lineNum">     169 </span><span class="lineCov">          1 :     if (settings_var_expand_with_funcs(user-&gt;set_info, user-&gt;set,</span>
+<span class="lineNum">     170 </span>            :                        user-&gt;pool, mail_user_var_expand_table(user),
+<span class="lineNum">     171 </span>            :                        mail_user_var_expand_func_table, user,
+<span class="lineNum">     172 </span>            :                        &amp;error) &lt;= 0) {
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         user-&gt;error = p_strdup_printf(user-&gt;pool,</span>
+<span class="lineNum">     174 </span>            :             &quot;Failed to expand settings: %s&quot;, error);
+<span class="lineNum">     175 </span>            :     }
+<span class="lineNum">     176 </span><span class="lineCov">          1 :     user-&gt;settings_expanded = TRUE;</span>
+<span class="lineNum">     177 </span><span class="lineCov">          1 :     mail_user_expand_plugins_envs(user);</span>
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span>            :     /* autocreated users for shared mailboxes need to be fully initialized
+<span class="lineNum">     180 </span>            :        if they don't exist, since they're going to be used anyway */
+<span class="lineNum">     181 </span><span class="lineCov">          1 :     if (user-&gt;error == NULL || user-&gt;nonexistent) {</span>
+<span class="lineNum">     182 </span><span class="lineCov">          1 :         mail_set = mail_user_set_get_storage_set(user);</span>
+<span class="lineNum">     183 </span><span class="lineCov">          1 :         user-&gt;mail_debug = mail_set-&gt;mail_debug;</span>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">          1 :         user-&gt;initialized = TRUE;</span>
+<span class="lineNum">     186 </span><span class="lineCov">          1 :         hook_mail_user_created(user);</span>
+<span class="lineNum">     187 </span>            :     }
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span><span class="lineCov">          1 :     if (user-&gt;error != NULL) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         *error_r = t_strdup(user-&gt;error);</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     192 </span>            :     }
+<span class="lineNum">     193 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="194"><span class="lineNum">     194 </span>            : }</a>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineCov">          9 : void mail_user_ref(struct mail_user *user)</span>
+<span class="lineNum">     197 </span>            : {
+<span class="lineNum">     198 </span><span class="lineCov">          9 :     i_assert(user-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineCov">          9 :     user-&gt;refcount++;</span>
+<a name="201"><span class="lineNum">     201 </span><span class="lineCov">          9 : }</span></a>
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineCov">         10 : void mail_user_unref(struct mail_user **_user)</span>
+<span class="lineNum">     204 </span>            : {
+<span class="lineNum">     205 </span><span class="lineCov">         10 :     struct mail_user *user = *_user;</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineCov">         10 :     i_assert(user-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineCov">         10 :     *_user = NULL;</span>
+<span class="lineNum">     210 </span><span class="lineCov">         10 :     if (user-&gt;refcount &gt; 1) {</span>
+<span class="lineNum">     211 </span><span class="lineCov">          9 :         user-&gt;refcount--;</span>
+<span class="lineNum">     212 </span><span class="lineCov">         19 :         return;</span>
+<span class="lineNum">     213 </span>            :     }
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineCov">          1 :     user-&gt;deinitializing = TRUE;</span>
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span>            :     /* call deinit() and deinit_pre() with refcount=1, otherwise we may
+<span class="lineNum">     218 </span>            :        assert-crash in mail_user_ref() that is called by some handlers. */
+<span class="lineNum">     219 </span><span class="lineCov">          1 :     user-&gt;v.deinit_pre(user);</span>
+<span class="lineNum">     220 </span><span class="lineCov">          1 :     user-&gt;v.deinit(user);</span>
+<span class="lineNum">     221 </span><span class="lineCov">          1 :     event_unref(&amp;user-&gt;event);</span>
+<span class="lineNum">     222 </span><span class="lineCov">          1 :     i_assert(user-&gt;refcount == 1);</span>
+<span class="lineNum">     223 </span><span class="lineCov">          1 :     pool_unref(&amp;user-&gt;pool);</span>
+<a name="224"><span class="lineNum">     224 </span>            : }</a>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 : struct mail_user *mail_user_find(struct mail_user *user, const char *name)</span>
+<span class="lineNum">     227 </span>            : {
+<span class="lineNum">     228 </span>            :     struct mail_namespace *ns;
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     for (ns = user-&gt;namespaces; ns != NULL; ns = ns-&gt;next) {</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :         if (ns-&gt;owner != NULL &amp;&amp; strcmp(ns-&gt;owner-&gt;username, name) == 0)</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :             return ns-&gt;owner;</span>
+<span class="lineNum">     233 </span>            :     }
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">     235 </span>            : }
+<a name="236"><span class="lineNum">     236 </span>            : </a>
+<span class="lineNum">     237 </span>            : static void
+<span class="lineNum">     238 </span><span class="lineCov">          1 : mail_user_connection_init_from(struct mail_user_connection_data *conn,</span>
+<span class="lineNum">     239 </span>            :     pool_t pool, const struct mail_user_connection_data *src)
+<span class="lineNum">     240 </span>            : {
+<span class="lineNum">     241 </span><span class="lineCov">          1 :     *conn = *src;</span>
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineCov">          1 :     if (src-&gt;local_ip != NULL &amp;&amp; src-&gt;local_ip-&gt;family != 0) {</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         conn-&gt;local_ip = p_new(pool, struct ip_addr, 1);</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         *conn-&gt;local_ip = *src-&gt;local_ip;</span>
+<span class="lineNum">     246 </span>            :     }
+<span class="lineNum">     247 </span><span class="lineCov">          1 :     if (src-&gt;remote_ip != NULL &amp;&amp; src-&gt;remote_ip-&gt;family != 0) {</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         conn-&gt;remote_ip = p_new(pool, struct ip_addr, 1);</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         *conn-&gt;remote_ip = *src-&gt;remote_ip;</span>
+<span class="lineNum">     250 </span>            :     }
+<a name="251"><span class="lineNum">     251 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineCov">          1 : void mail_user_set_vars(struct mail_user *user, const char *service,</span>
+<span class="lineNum">     254 </span>            :             const struct mail_user_connection_data *conn)
+<span class="lineNum">     255 </span>            : {
+<span class="lineNum">     256 </span><span class="lineCov">          1 :     i_assert(service != NULL);</span>
+<span class="lineNum">     257 </span>            : 
+<span class="lineNum">     258 </span><span class="lineCov">          1 :     user-&gt;service = p_strdup(user-&gt;pool, service);</span>
+<span class="lineNum">     259 </span><span class="lineCov">          1 :     event_add_str(user-&gt;event, &quot;service&quot;, service);</span>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineCov">          1 :     mail_user_connection_init_from(&amp;user-&gt;conn, user-&gt;pool, conn);</span>
+<span class="lineNum">     262 </span><span class="lineCov">          1 :     if (user-&gt;conn.local_ip != NULL)</span>
+<span class="lineNum">     263 </span><span class="lineCov">          1 :         event_add_str(user-&gt;event, &quot;local_ip&quot;,</span>
+<span class="lineNum">     264 </span><span class="lineCov">          1 :                   net_ip2addr(user-&gt;conn.local_ip));</span>
+<span class="lineNum">     265 </span><span class="lineCov">          1 :     if (user-&gt;conn.remote_ip != NULL)</span>
+<span class="lineNum">     266 </span><span class="lineCov">          1 :         event_add_str(user-&gt;event, &quot;remote_ip&quot;,</span>
+<span class="lineNum">     267 </span><span class="lineCov">          1 :                   net_ip2addr(user-&gt;conn.remote_ip));</span>
+<span class="lineNum">     268 </span><span class="lineCov">          1 : }</span>
+<a name="269"><span class="lineNum">     269 </span>            : </a>
+<span class="lineNum">     270 </span>            : const struct var_expand_table *
+<span class="lineNum">     271 </span><span class="lineCov">          2 : mail_user_var_expand_table(struct mail_user *user)</span>
+<span class="lineNum">     272 </span>            : {
+<span class="lineNum">     273 </span>            :     /* use a cached table, unless home directory has been set afterwards */
+<span class="lineNum">     274 </span><span class="lineCov">          3 :     if (user-&gt;var_expand_table != NULL &amp;&amp;</span>
+<span class="lineNum">     275 </span><span class="lineCov">          1 :         user-&gt;var_expand_table[4].value == user-&gt;_home)</span>
+<span class="lineNum">     276 </span><span class="lineCov">          1 :         return user-&gt;var_expand_table;</span>
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineCov">          1 :     const char *username =</span>
+<span class="lineNum">     279 </span><span class="lineCov">          1 :         p_strdup(user-&gt;pool, t_strcut(user-&gt;username, '@'));</span>
+<span class="lineNum">     280 </span><span class="lineCov">          1 :     const char *domain = i_strchr_to_next(user-&gt;username, '@');</span>
+<span class="lineNum">     281 </span><span class="lineCov">          2 :     const char *local_ip = user-&gt;conn.local_ip == NULL ? NULL :</span>
+<span class="lineNum">     282 </span><span class="lineCov">          1 :         p_strdup(user-&gt;pool, net_ip2addr(user-&gt;conn.local_ip));</span>
+<span class="lineNum">     283 </span><span class="lineCov">          2 :     const char *remote_ip = user-&gt;conn.remote_ip == NULL ? NULL :</span>
+<span class="lineNum">     284 </span><span class="lineCov">          1 :         p_strdup(user-&gt;pool, net_ip2addr(user-&gt;conn.remote_ip));</span>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span>            :     const char *auth_user, *auth_username, *auth_domain;
+<span class="lineNum">     287 </span><span class="lineCov">          1 :     if (user-&gt;auth_user == NULL) {</span>
+<span class="lineNum">     288 </span><span class="lineCov">          1 :         auth_user = user-&gt;username;</span>
+<span class="lineNum">     289 </span><span class="lineCov">          1 :         auth_username = username;</span>
+<span class="lineNum">     290 </span><span class="lineCov">          1 :         auth_domain = domain;</span>
+<span class="lineNum">     291 </span>            :     } else {
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         auth_user = user-&gt;auth_user;</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         auth_username =</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             p_strdup(user-&gt;pool, t_strcut(user-&gt;auth_user, '@'));</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         auth_domain = i_strchr_to_next(user-&gt;auth_user, '@');</span>
+<span class="lineNum">     296 </span>            :     }
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineCov">          7 :     const struct var_expand_table stack_tab[] = {</span>
+<span class="lineNum">     299 </span><span class="lineCov">          1 :         { 'u', user-&gt;username, &quot;user&quot; },</span>
+<span class="lineNum">     300 </span>            :         { 'n', username, &quot;username&quot; },
+<span class="lineNum">     301 </span>            :         { 'd', domain, &quot;domain&quot; },
+<span class="lineNum">     302 </span><span class="lineCov">          1 :         { 's', user-&gt;service, &quot;service&quot; },</span>
+<span class="lineNum">     303 </span><span class="lineCov">          1 :         { 'h', user-&gt;_home /* don't look it up unless we need it */, &quot;home&quot; },</span>
+<span class="lineNum">     304 </span>            :         { 'l', local_ip, &quot;lip&quot; },
+<span class="lineNum">     305 </span>            :         { 'r', remote_ip, &quot;rip&quot; },
+<span class="lineNum">     306 </span>            :         { 'p', my_pid, &quot;pid&quot; },
+<span class="lineNum">     307 </span><span class="lineCov">          1 :         { 'i', p_strdup(user-&gt;pool, dec2str(user-&gt;uid)), &quot;uid&quot; },</span>
+<span class="lineNum">     308 </span><span class="lineCov">          1 :         { '\0', p_strdup(user-&gt;pool, dec2str(user-&gt;gid)), &quot;gid&quot; },</span>
+<span class="lineNum">     309 </span><span class="lineCov">          1 :         { '\0', user-&gt;session_id, &quot;session&quot; },</span>
+<span class="lineNum">     310 </span>            :         { '\0', auth_user, &quot;auth_user&quot; },
+<span class="lineNum">     311 </span>            :         { '\0', auth_username, &quot;auth_username&quot; },
+<span class="lineNum">     312 </span>            :         { '\0', auth_domain, &quot;auth_domain&quot; },
+<span class="lineNum">     313 </span>            :         /* NOTE: keep this synced with imap-hibernate's
+<span class="lineNum">     314 </span>            :            imap_client_var_expand_table() */
+<span class="lineNum">     315 </span>            :         { '\0', NULL, NULL }
+<span class="lineNum">     316 </span>            :     };
+<span class="lineNum">     317 </span>            :     struct var_expand_table *tab;
+<span class="lineNum">     318 </span>            : 
+<span class="lineNum">     319 </span><span class="lineCov">          1 :     tab = p_malloc(user-&gt;pool, sizeof(stack_tab));</span>
+<span class="lineNum">     320 </span><span class="lineCov">          1 :     memcpy(tab, stack_tab, sizeof(stack_tab));</span>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineCov">          1 :     user-&gt;var_expand_table = tab;</span>
+<span class="lineNum">     323 </span><span class="lineCov">          1 :     return user-&gt;var_expand_table;</span>
+<span class="lineNum">     324 </span>            : }
+<a name="325"><span class="lineNum">     325 </span>            : </a>
+<span class="lineNum">     326 </span>            : static int
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 : mail_user_var_expand_func_userdb(const char *data, void *context,</span>
+<span class="lineNum">     328 </span>            :                  const char **value_r,
+<span class="lineNum">     329 </span>            :                  const char **error_r ATTR_UNUSED)
+<span class="lineNum">     330 </span>            : {
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     struct mail_user *user = context;</span>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :     *value_r = mail_storage_service_fields_var_expand(data, user-&gt;userdb_fields);</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="335"><span class="lineNum">     335 </span>            : }</a>
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineCov">          1 : void mail_user_set_home(struct mail_user *user, const char *home)</span>
+<span class="lineNum">     338 </span>            : {
+<span class="lineNum">     339 </span><span class="lineCov">          1 :     user-&gt;_home = p_strdup(user-&gt;pool, home);</span>
+<span class="lineNum">     340 </span><span class="lineCov">          1 :     user-&gt;home_looked_up = TRUE;</span>
+<a name="341"><span class="lineNum">     341 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     342 </span>            : 
+<span class="lineNum">     343 </span><span class="lineCov">          1 : void mail_user_add_namespace(struct mail_user *user,</span>
+<span class="lineNum">     344 </span>            :                  struct mail_namespace **namespaces)
+<span class="lineNum">     345 </span>            : {
+<span class="lineNum">     346 </span><span class="lineCov">          1 :     struct mail_namespace **tmp, *next, *ns = *namespaces;</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineCov">          2 :     for (; ns != NULL; ns = next) {</span>
+<span class="lineNum">     349 </span><span class="lineCov">          1 :         next = ns-&gt;next;</span>
+<span class="lineNum">     350 </span>            : 
+<span class="lineNum">     351 </span><span class="lineCov">          1 :         tmp = &amp;user-&gt;namespaces;</span>
+<span class="lineNum">     352 </span><span class="lineCov">          1 :         for (; *tmp != NULL; tmp = &amp;(*tmp)-&gt;next) {</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :             i_assert(*tmp != ns);</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :             if (strlen(ns-&gt;prefix) &lt; strlen((*tmp)-&gt;prefix))</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     356 </span>            :         }
+<span class="lineNum">     357 </span><span class="lineCov">          1 :         ns-&gt;next = *tmp;</span>
+<span class="lineNum">     358 </span><span class="lineCov">          1 :         *tmp = ns;</span>
+<span class="lineNum">     359 </span>            :     }
+<span class="lineNum">     360 </span><span class="lineCov">          1 :     *namespaces = user-&gt;namespaces;</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineCov">          1 :     T_BEGIN {</span>
+<span class="lineNum">     363 </span><span class="lineCov">          1 :         hook_mail_namespaces_added(user-&gt;namespaces);</span>
+<span class="lineNum">     364 </span><span class="lineCov">          1 :     } T_END;</span>
+<a name="365"><span class="lineNum">     365 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 : void mail_user_drop_useless_namespaces(struct mail_user *user)</span>
+<span class="lineNum">     368 </span>            : {
+<span class="lineNum">     369 </span>            :     struct mail_namespace *ns, *next;
+<span class="lineNum">     370 </span>            : 
+<span class="lineNum">     371 </span>            :     /* drop all autocreated unusable (typically shared) namespaces.
+<span class="lineNum">     372 </span>            :        don't drop the autocreated prefix=&quot;&quot; namespace that we explicitly
+<span class="lineNum">     373 </span>            :        created for being the fallback namespace. */
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     for (ns = user-&gt;namespaces; ns != NULL; ns = next) {</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :         next = ns-&gt;next;</span>
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         if ((ns-&gt;flags &amp; NAMESPACE_FLAG_USABLE) == 0 &amp;&amp;</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :             (ns-&gt;flags &amp; NAMESPACE_FLAG_AUTOCREATED) != 0 &amp;&amp;</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :             ns-&gt;prefix_len &gt; 0)</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :             mail_namespace_destroy(ns);</span>
+<span class="lineNum">     381 </span>            :     }
+<a name="382"><span class="lineNum">     382 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     383 </span>            : 
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 : const char *mail_user_home_expand(struct mail_user *user, const char *path)</span>
+<span class="lineNum">     385 </span>            : {
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     (void)mail_user_try_home_expand(user, &amp;path);</span>
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :     return path;</span>
+<a name="388"><span class="lineNum">     388 </span>            : }</a>
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 : static int mail_user_userdb_lookup_home(struct mail_user *user)</span>
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span>            :     struct auth_user_info info;
+<span class="lineNum">     393 </span>            :     struct auth_user_reply reply;
+<span class="lineNum">     394 </span>            :     pool_t userdb_pool;
+<span class="lineNum">     395 </span>            :     const char *username, *const *fields;
+<span class="lineNum">     396 </span>            :     int ret;
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     i_assert(!user-&gt;home_looked_up);</span>
+<span class="lineNum">     399 </span>            : 
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     i_zero(&amp;info);</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     info.service = user-&gt;service;</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     if (user-&gt;conn.local_ip != NULL)</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :         info.local_ip = *user-&gt;conn.local_ip;</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     if (user-&gt;conn.remote_ip != NULL)</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :         info.remote_ip = *user-&gt;conn.remote_ip;</span>
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     userdb_pool = pool_alloconly_create(&quot;userdb lookup&quot;, 2048);</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     ret = auth_master_user_lookup(mail_user_auth_master_conn,</span>
+<span class="lineNum">     409 </span>            :                       user-&gt;username, &amp;info, userdb_pool,
+<span class="lineNum">     410 </span>            :                       &amp;username, &amp;fields);
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     if (ret &gt; 0) {</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :         auth_user_fields_parse(fields, userdb_pool, &amp;reply);</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :         user-&gt;_home = p_strdup(user-&gt;pool, reply.home);</span>
+<span class="lineNum">     414 </span>            :     }
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     pool_unref(&amp;userdb_pool);</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="417"><span class="lineNum">     417 </span>            : }</a>
+<span class="lineNum">     418 </span>            : 
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 : static bool mail_user_get_mail_home(struct mail_user *user)</span>
+<span class="lineNum">     420 </span>            : {
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :     const char *error, *home = user-&gt;set-&gt;mail_home;</span>
+<span class="lineNum">     422 </span>            :     string_t *str;
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     if (user-&gt;settings_expanded) {</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :         user-&gt;_home = home[0] != '\0' ? home : NULL;</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     427 </span>            :     }
+<span class="lineNum">     428 </span>            :     /* we're still initializing user. need to do the expansion ourself. */
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     i_assert(home[0] == SETTING_STRVAR_UNEXPANDED[0]);</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :     home++;</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :     if (home[0] == '\0')</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     433 </span>            : 
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     str = t_str_new(128);</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     if (var_expand_with_funcs(str, home,</span>
+<span class="lineNum">     436 </span>            :                   mail_user_var_expand_table(user),
+<span class="lineNum">     437 </span>            :                   mail_user_var_expand_func_table, user,
+<span class="lineNum">     438 </span>            :                   &amp;error) &lt;= 0) {
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         i_error(&quot;Failed to expand mail_home=%s: %s&quot;, home, error);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     441 </span>            :     }
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     user-&gt;_home = p_strdup(user-&gt;pool, str_c(str));</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="444"><span class="lineNum">     444 </span>            : }</a>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineCov">          1 : int mail_user_get_home(struct mail_user *user, const char **home_r)</span>
+<span class="lineNum">     447 </span>            : {
+<span class="lineNum">     448 </span>            :     int ret;
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span><span class="lineCov">          1 :     if (user-&gt;home_looked_up) {</span>
+<span class="lineNum">     451 </span><span class="lineCov">          1 :         *home_r = user-&gt;_home;</span>
+<span class="lineNum">     452 </span><span class="lineCov">          1 :         return user-&gt;_home != NULL ? 1 : 0;</span>
+<span class="lineNum">     453 </span>            :     }
+<span class="lineNum">     454 </span>            : 
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :     if (mail_user_auth_master_conn == NULL) {</span>
+<span class="lineNum">     456 </span>            :         /* no userdb connection. we can only use mail_home setting. */
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         if (!mail_user_get_mail_home(user))</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :     } else if ((ret = mail_user_userdb_lookup_home(user)) &lt; 0) {</span>
+<span class="lineNum">     460 </span>            :         /* userdb lookup failed */
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     } else if (ret == 0) {</span>
+<span class="lineNum">     463 </span>            :         /* user doesn't exist */
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         user-&gt;nonexistent = TRUE;</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     } else if (user-&gt;_home == NULL) {</span>
+<span class="lineNum">     466 </span>            :         /* no home returned by userdb lookup, fallback to
+<span class="lineNum">     467 </span>            :            mail_home setting. */
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         if (!mail_user_get_mail_home(user))</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     470 </span>            :     }
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     user-&gt;home_looked_up = TRUE;</span>
+<span class="lineNum">     472 </span>            : 
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :     *home_r = user-&gt;_home;</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :     return user-&gt;_home != NULL ? 1 : 0;</span>
+<a name="475"><span class="lineNum">     475 </span>            : }</a>
+<span class="lineNum">     476 </span>            : 
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 : bool mail_user_is_plugin_loaded(struct mail_user *user, struct module *module)</span>
+<span class="lineNum">     478 </span>            : {
+<span class="lineNum">     479 </span>            :     const char *const *plugins;
+<span class="lineNum">     480 </span>            :     bool ret;
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         plugins = t_strsplit_spaces(user-&gt;set-&gt;mail_plugins, &quot;, &quot;);</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :         ret = str_array_find(plugins, module_get_plugin_name(module));</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="487"><span class="lineNum">     487 </span>            : }</a>
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 : bool mail_user_plugin_getenv_bool(struct mail_user *user, const char *name)</span>
+<span class="lineNum">     490 </span>            : {
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     return mail_user_set_plugin_getenv_bool(user-&gt;set, name);</span>
+<a name="492"><span class="lineNum">     492 </span>            : }</a>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 : bool mail_user_set_plugin_getenv_bool(const struct mail_user_settings *set,</span>
+<span class="lineNum">     495 </span>            :                       const char *name)
+<span class="lineNum">     496 </span>            : {
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     const char *env = mail_user_set_plugin_getenv(set, name);</span>
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     if (env == NULL)</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     switch (env[0]) {</span>
+<span class="lineNum">     502 </span>            :         case 'n':
+<span class="lineNum">     503 </span>            :         case 'N':
+<span class="lineNum">     504 </span>            :         case '0':
+<span class="lineNum">     505 </span>            :         case 'f':
+<span class="lineNum">     506 </span>            :         case 'F':
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     508 </span>            :     }
+<span class="lineNum">     509 </span>            : 
+<span class="lineNum">     510 </span>            :     //any other value including empty string will be treated as TRUE.
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="512"><span class="lineNum">     512 </span>            : }</a>
+<span class="lineNum">     513 </span>            : 
+<span class="lineNum">     514 </span><span class="lineCov">          6 : const char *mail_user_plugin_getenv(struct mail_user *user, const char *name)</span>
+<span class="lineNum">     515 </span>            : {
+<span class="lineNum">     516 </span><span class="lineCov">          6 :     return mail_user_set_plugin_getenv(user-&gt;set, name);</span>
+<a name="517"><span class="lineNum">     517 </span>            : }</a>
+<span class="lineNum">     518 </span>            : 
+<span class="lineNum">     519 </span><span class="lineCov">          6 : const char *mail_user_set_plugin_getenv(const struct mail_user_settings *set,</span>
+<span class="lineNum">     520 </span>            :                     const char *name)
+<span class="lineNum">     521 </span>            : {
+<span class="lineNum">     522 </span>            :     const char *const *envs;
+<span class="lineNum">     523 </span>            :     unsigned int i, count;
+<span class="lineNum">     524 </span>            : 
+<span class="lineNum">     525 </span><span class="lineCov">          6 :     if (!array_is_created(&amp;set-&gt;plugin_envs))</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineCov">          6 :     envs = array_get(&amp;set-&gt;plugin_envs, &amp;count);</span>
+<span class="lineNum">     529 </span><span class="lineCov">         10 :     for (i = 0; i &lt; count; i += 2) {</span>
+<span class="lineNum">     530 </span><span class="lineCov">          6 :         if (strcmp(envs[i], name) == 0)</span>
+<span class="lineNum">     531 </span><span class="lineCov">          2 :             return envs[i+1];</span>
+<span class="lineNum">     532 </span>            :     }
+<span class="lineNum">     533 </span><span class="lineCov">          4 :     return NULL;</span>
+<a name="534"><span class="lineNum">     534 </span>            : }</a>
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineCov">          1 : int mail_user_try_home_expand(struct mail_user *user, const char **pathp)</span>
+<span class="lineNum">     537 </span>            : {
+<span class="lineNum">     538 </span><span class="lineCov">          1 :     const char *home, *path = *pathp;</span>
+<span class="lineNum">     539 </span>            : 
+<span class="lineNum">     540 </span><span class="lineCov">          1 :     if (*path != '~') {</span>
+<span class="lineNum">     541 </span>            :         /* no need to expand home */
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     543 </span>            :     }
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineCov">          1 :     if (mail_user_get_home(user, &amp;home) &lt;= 0)</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     547 </span>            : 
+<span class="lineNum">     548 </span><span class="lineCov">          1 :     path = home_expand_tilde(path, home);</span>
+<span class="lineNum">     549 </span><span class="lineCov">          1 :     if (path == NULL)</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     551 </span>            : 
+<span class="lineNum">     552 </span><span class="lineCov">          1 :     *pathp = path;</span>
+<span class="lineNum">     553 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="554"><span class="lineNum">     554 </span>            : }</a>
+<span class="lineNum">     555 </span>            : 
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 : void mail_user_set_get_temp_prefix(string_t *dest,</span>
+<span class="lineNum">     557 </span>            :                    const struct mail_user_settings *set)
+<span class="lineNum">     558 </span>            : {
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     str_append(dest, set-&gt;mail_temp_dir);</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :     str_append(dest, &quot;/dovecot.&quot;);</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :     str_append(dest, master_service_get_name(master_service));</span>
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     str_append_c(dest, '.');</span>
+<a name="563"><span class="lineNum">     563 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 : int mail_user_lock_file_create(struct mail_user *user, const char *lock_fname,</span>
+<span class="lineNum">     566 </span>            :                    unsigned int lock_secs,
+<span class="lineNum">     567 </span>            :                    struct file_lock **lock_r, const char **error_r)
+<span class="lineNum">     568 </span>            : {
+<span class="lineNum">     569 </span>            :     bool created;
+<span class="lineNum">     570 </span>            :     const char *home, *path, *error;
+<span class="lineNum">     571 </span>            :     int ret;
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     if ((ret = mail_user_get_home(user, &amp;home)) &lt; 0) {</span>
+<span class="lineNum">     574 </span>            :         /* home lookup failed - shouldn't really happen */
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :         *error_r = &quot;Failed to lookup home directory&quot;;</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         errno = EINVAL;</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     578 </span>            :     }
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         *error_r = &quot;User has no home directory&quot;;</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :         errno = EINVAL;</span>
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     583 </span>            :     }
+<span class="lineNum">     584 </span>            : 
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :     const struct mail_storage_settings *mail_set =</span>
+<span class="lineNum">     586 </span>            :         mail_user_set_get_storage_set(user);
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :     struct file_create_settings lock_set = {</span>
+<span class="lineNum">     588 </span>            :         .lock_timeout_secs = lock_secs,
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :         .lock_method = mail_set-&gt;parsed_lock_method,</span>
+<span class="lineNum">     590 </span>            :     };
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :     struct mailbox_list *inbox_list =</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :         mail_namespace_find_inbox(user-&gt;namespaces)-&gt;list;</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :     if (inbox_list-&gt;set.volatile_dir == NULL)</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         path = t_strdup_printf(&quot;%s/%s&quot;, home, lock_fname);</span>
+<span class="lineNum">     595 </span>            :     else {
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         path = t_strdup_printf(&quot;%s/%s&quot;, inbox_list-&gt;set.volatile_dir,</span>
+<span class="lineNum">     597 </span>            :                        lock_fname);
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :         lock_set.mkdir_mode = 0700;</span>
+<span class="lineNum">     599 </span>            :     }
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     if (file_create_locked(path, &amp;lock_set, lock_r, &amp;created, &amp;error) == -1) {</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;file_create_locked(%s) failed: %s&quot;, path, error);</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         return errno == EAGAIN ? 0 : -1;</span>
+<span class="lineNum">     604 </span>            :     }
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :     file_lock_set_unlink_on_free(*lock_r, TRUE);</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :     file_lock_set_close_on_free(*lock_r, TRUE);</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="608"><span class="lineNum">     608 </span>            : }</a>
+<span class="lineNum">     609 </span>            : 
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 : const char *mail_user_get_anvil_userip_ident(struct mail_user *user)</span>
+<span class="lineNum">     611 </span>            : {
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     if (user-&gt;conn.remote_ip == NULL)</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :     return t_strconcat(net_ip2addr(user-&gt;conn.remote_ip), &quot;/&quot;,</span>
+<span class="lineNum">     615 </span>            :                str_tabescape(user-&gt;username), NULL);
+<span class="lineNum">     616 </span>            : }
+<a name="617"><span class="lineNum">     617 </span>            : </a>
+<span class="lineNum">     618 </span>            : static void
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 : mail_user_try_load_class_plugin(struct mail_user *user, const char *name)</span>
+<span class="lineNum">     620 </span>            : {
+<span class="lineNum">     621 </span>            :     struct module_dir_load_settings mod_set;
+<span class="lineNum">     622 </span>            :     struct module *module;
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :     size_t name_len = strlen(name);</span>
+<span class="lineNum">     624 </span>            : 
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :     i_zero(&amp;mod_set);</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :     mod_set.abi_version = DOVECOT_ABI_VERSION;</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :     mod_set.binary_name = master_service_get_name(master_service);</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :     mod_set.setting_name = &quot;&lt;built-in storage lookup&gt;&quot;;</span>
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :     mod_set.require_init_funcs = TRUE;</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :     mod_set.debug = user-&gt;mail_debug;</span>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :     mail_storage_service_modules =</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :         module_dir_load_missing(mail_storage_service_modules,</span>
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :                     user-&gt;set-&gt;mail_plugin_dir,</span>
+<span class="lineNum">     635 </span>            :                     name, &amp;mod_set);
+<span class="lineNum">     636 </span>            :     /* initialize the module (and only this module!) immediately so that
+<span class="lineNum">     637 </span>            :        the class gets registered */
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :     for (module = mail_storage_service_modules; module != NULL; module = module-&gt;next) {</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :         if (strncmp(module-&gt;name, name, name_len) == 0 &amp;&amp;</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :             strcmp(module-&gt;name + name_len, &quot;_plugin&quot;) == 0) {</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :             if (!module-&gt;initialized) {</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :                 module-&gt;initialized = TRUE;</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :                 module-&gt;init(module);</span>
+<span class="lineNum">     644 </span>            :             }
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     646 </span>            :         }
+<span class="lineNum">     647 </span>            :     }
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 : }</span>
+<a name="649"><span class="lineNum">     649 </span>            : </a>
+<span class="lineNum">     650 </span>            : struct mail_storage *
+<span class="lineNum">     651 </span><span class="lineCov">          1 : mail_user_get_storage_class(struct mail_user *user, const char *name)</span>
+<span class="lineNum">     652 </span>            : {
+<span class="lineNum">     653 </span>            :     struct mail_storage *storage;
+<span class="lineNum">     654 </span>            : 
+<span class="lineNum">     655 </span><span class="lineCov">          1 :     storage = mail_storage_find_class(name);</span>
+<span class="lineNum">     656 </span><span class="lineCov">          1 :     if (storage == NULL || storage-&gt;v.alloc != NULL)</span>
+<span class="lineNum">     657 </span><span class="lineCov">          1 :         return storage;</span>
+<span class="lineNum">     658 </span>            : 
+<span class="lineNum">     659 </span>            :     /* it's implemented by a plugin. load it and check again. */
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     mail_user_try_load_class_plugin(user, name);</span>
+<span class="lineNum">     661 </span>            : 
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :     storage = mail_storage_find_class(name);</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     if (storage != NULL &amp;&amp; storage-&gt;v.alloc == NULL) {</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :         i_error(&quot;Storage driver '%s' exists as a stub, &quot;</span>
+<span class="lineNum">     665 </span>            :             &quot;but its plugin couldn't be loaded&quot;, name);
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     667 </span>            :     }
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :     return storage;</span>
+<a name="669"><span class="lineNum">     669 </span>            : }</a>
+<span class="lineNum">     670 </span>            : 
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 : struct mail_user *mail_user_dup(struct mail_user *user)</span>
+<span class="lineNum">     672 </span>            : {
+<span class="lineNum">     673 </span>            :     struct mail_user *user2;
+<span class="lineNum">     674 </span>            : 
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :     user2 = mail_user_alloc(event_get_parent(user-&gt;event), user-&gt;username,</span>
+<span class="lineNum">     676 </span>            :                 user-&gt;set_info, user-&gt;unexpanded_set);
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :     if (user2-&gt;_service_user != NULL) {</span>
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :         user2-&gt;_service_user = user-&gt;_service_user;</span>
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :         mail_storage_service_user_ref(user2-&gt;_service_user);</span>
+<span class="lineNum">     680 </span>            :     }
+<span class="lineNum">     681 </span><span class="lineNoCov">          0 :     if (user-&gt;_home != NULL)</span>
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :         mail_user_set_home(user2, user-&gt;_home);</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :     mail_user_set_vars(user2, user-&gt;service, &amp;user-&gt;conn);</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :     user2-&gt;uid = user-&gt;uid;</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :     user2-&gt;gid = user-&gt;gid;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :     user2-&gt;anonymous = user-&gt;anonymous;</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :     user2-&gt;admin = user-&gt;admin;</span>
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :     user2-&gt;auth_token = p_strdup(user2-&gt;pool, user-&gt;auth_token);</span>
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :     user2-&gt;auth_user = p_strdup(user2-&gt;pool, user-&gt;auth_user);</span>
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :     user2-&gt;session_id = p_strdup(user2-&gt;pool, user-&gt;session_id);</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     user2-&gt;session_create_time = user-&gt;session_create_time;</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :     user2-&gt;userdb_fields = user-&gt;userdb_fields == NULL ? NULL :</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :         p_strarray_dup(user2-&gt;pool, user-&gt;userdb_fields);</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :     return user2;</span>
+<a name="695"><span class="lineNum">     695 </span>            : }</a>
+<span class="lineNum">     696 </span>            : 
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 : void mail_user_init_ssl_client_settings(struct mail_user *user,</span>
+<span class="lineNum">     698 </span>            :                 struct ssl_iostream_settings *ssl_set)
+<span class="lineNum">     699 </span>            : {
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :     const struct mail_storage_settings *mail_set =</span>
+<span class="lineNum">     701 </span>            :         mail_user_set_get_storage_set(user);
+<span class="lineNum">     702 </span>            : 
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :     ssl_set-&gt;ca_dir = mail_set-&gt;ssl_client_ca_dir;</span>
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :     ssl_set-&gt;ca_file = mail_set-&gt;ssl_client_ca_file;</span>
+<a name="705"><span class="lineNum">     705 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     706 </span>            : 
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 : void mail_user_init_fs_settings(struct mail_user *user,</span>
+<span class="lineNum">     708 </span>            :                 struct fs_settings *fs_set,
+<span class="lineNum">     709 </span>            :                 struct ssl_iostream_settings *ssl_set)
+<span class="lineNum">     710 </span>            : {
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :     fs_set-&gt;username = user-&gt;username;</span>
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :     fs_set-&gt;session_id = user-&gt;session_id;</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     fs_set-&gt;base_dir = user-&gt;set-&gt;base_dir;</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     fs_set-&gt;temp_dir = user-&gt;set-&gt;mail_temp_dir;</span>
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :     fs_set-&gt;debug = user-&gt;mail_debug;</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :     fs_set-&gt;enable_timing = user-&gt;stats_enabled;</span>
+<span class="lineNum">     717 </span>            : 
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     fs_set-&gt;ssl_client_set = ssl_set;</span>
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     mail_user_init_ssl_client_settings(user, ssl_set);</span>
+<a name="720"><span class="lineNum">     720 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     721 </span>            : 
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 : void mail_user_stats_fill(struct mail_user *user, struct stats *stats)</span>
+<span class="lineNum">     723 </span>            : {
+<span class="lineNum">     724 </span><span class="lineNoCov">          0 :     user-&gt;v.stats_fill(user, stats);</span>
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     726 </span>            : 
+<span class="lineNum">     727 </span>            : static const struct var_expand_func_table mail_user_var_expand_func_table_arr[] = {
+<span class="lineNum">     728 </span>            :     { &quot;userdb&quot;, mail_user_var_expand_func_userdb },
+<span class="lineNum">     729 </span>            :     { NULL, NULL }
+<span class="lineNum">     730 </span>            : };
+<span class="lineNum">     731 </span>            : const struct var_expand_func_table *mail_user_var_expand_func_table =
+<span class="lineNum">     732 </span>            :     mail_user_var_expand_func_table_arr;
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

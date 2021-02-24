@@ -1,0 +1,393 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/iso8601-date.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - iso8601-date.c<span style="font-size: 80%;"> (source / <a href="iso8601-date.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">103</td>
+            <td class="headerCovTableEntry">125</td>
+            <td class="headerCovTableEntryMed">82.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryHi">90.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;utc-offset.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;utc-mktime.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;iso8601-date.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : /* RFC3339/ISO8601 date-time syntax
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            :    date-fullyear   = 4DIGIT
+<span class="lineNum">      13 </span>            :    date-month      = 2DIGIT  ; 01-12
+<span class="lineNum">      14 </span>            :    date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 based on
+<span class="lineNum">      15 </span>            :                              ; month/year
+<span class="lineNum">      16 </span>            :    time-hour       = 2DIGIT  ; 00-23
+<span class="lineNum">      17 </span>            :    time-minute     = 2DIGIT  ; 00-59
+<span class="lineNum">      18 </span>            :    time-second     = 2DIGIT  ; 00-58, 00-59, 00-60 based on leap second
+<span class="lineNum">      19 </span>            :                              ; rules
+<span class="lineNum">      20 </span>            :    time-secfrac    = &quot;.&quot; 1*DIGIT
+<span class="lineNum">      21 </span>            :    time-numoffset  = (&quot;+&quot; / &quot;-&quot;) time-hour &quot;:&quot; time-minute
+<span class="lineNum">      22 </span>            :    time-offset     = &quot;Z&quot; / time-numoffset
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            :    partial-time    = time-hour &quot;:&quot; time-minute &quot;:&quot; time-second [time-secfrac]
+<span class="lineNum">      25 </span>            :    full-date       = date-fullyear &quot;-&quot; date-month &quot;-&quot; date-mday
+<span class="lineNum">      26 </span>            :    full-time       = partial-time time-offset
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            :    date-time       = full-date &quot;T&quot; full-time
+<span class="lineNum">      29 </span>            :  */
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : struct iso8601_date_parser {
+<span class="lineNum">      32 </span>            :     const unsigned char *cur, *end;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :     struct tm tm;
+<span class="lineNum">      35 </span>            :     int timezone_offset;
+<span class="lineNum">      36 </span>            : };
+<a name="37"><span class="lineNum">      37 </span>            : </a>
+<span class="lineNum">      38 </span>            : static inline int
+<span class="lineNum">      39 </span><span class="lineCov">        156 : iso8601_date_parse_number(struct iso8601_date_parser *parser,</span>
+<span class="lineNum">      40 </span>            :               int digits, int *number_r)
+<span class="lineNum">      41 </span>            : {
+<span class="lineNum">      42 </span>            :     int i;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineCov">        156 :     if (parser-&gt;cur &gt;= parser-&gt;end || !i_isdigit(parser-&gt;cur[0]))</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span><span class="lineCov">        156 :     *number_r = parser-&gt;cur[0] - '0';</span>
+<span class="lineNum">      48 </span><span class="lineCov">        156 :     parser-&gt;cur++;</span>
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineCov">        367 :     for (i=0; i &lt; digits-1; i++) {</span>
+<span class="lineNum">      51 </span><span class="lineCov">        212 :         if (parser-&gt;cur &gt;= parser-&gt;end || !i_isdigit(parser-&gt;cur[0]))</span>
+<span class="lineNum">      52 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">      53 </span><span class="lineCov">        211 :         *number_r = ((*number_r) * 10) + parser-&gt;cur[0] - '0';</span>
+<span class="lineNum">      54 </span><span class="lineCov">        211 :         parser-&gt;cur++;</span>
+<span class="lineNum">      55 </span>            :     }
+<span class="lineNum">      56 </span><span class="lineCov">        155 :     return 1;</span>
+<span class="lineNum">      57 </span>            : }
+<a name="58"><span class="lineNum">      58 </span>            : </a>
+<span class="lineNum">      59 </span>            : static int
+<span class="lineNum">      60 </span><span class="lineCov">         18 : iso8601_date_parse_secfrac(struct iso8601_date_parser *parser)</span>
+<span class="lineNum">      61 </span>            : {
+<span class="lineNum">      62 </span>            :     /* time-secfrac    = &quot;.&quot; 1*DIGIT
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span>            :        NOTE: Currently not applied anywhere, so fraction is just skipped.
+<span class="lineNum">      65 </span>            :     */
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span>            :     /* &quot;.&quot; */
+<span class="lineNum">      68 </span><span class="lineCov">         18 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != '.')</span>
+<span class="lineNum">      69 </span><span class="lineCov">         17 :         return 0;</span>
+<span class="lineNum">      70 </span><span class="lineCov">          1 :     parser-&gt;cur++;</span>
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            :     /* 1DIGIT */
+<span class="lineNum">      73 </span><span class="lineCov">          1 :     if (parser-&gt;cur &gt;= parser-&gt;end || !i_isdigit(parser-&gt;cur[0]))</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      75 </span><span class="lineCov">          1 :     parser-&gt;cur++;</span>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :     /* *DIGIT */
+<span class="lineNum">      78 </span><span class="lineCov">          6 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; i_isdigit(parser-&gt;cur[0]))</span>
+<span class="lineNum">      79 </span><span class="lineCov">          4 :         parser-&gt;cur++;</span>
+<span class="lineNum">      80 </span><span class="lineCov">          1 :     return 1;</span>
+<a name="81"><span class="lineNum">      81 </span>            : }</a>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">         18 : static int is08601_date_parse_time_offset(struct iso8601_date_parser *parser)</span>
+<span class="lineNum">      84 </span>            : {
+<span class="lineNum">      85 </span><span class="lineCov">         18 :     int tz_sign = 1, tz_hour = 0, tz_min = 0;</span>
+<span class="lineNum">      86 </span>            :     
+<span class="lineNum">      87 </span>            :     /* time-offset     = &quot;Z&quot; / time-numoffset
+<span class="lineNum">      88 </span>            :        time-numoffset  = (&quot;+&quot; / &quot;-&quot;) time-hour &quot;:&quot; time-minute 
+<span class="lineNum">      89 </span>            :        time-hour       = 2DIGIT  ; 00-23
+<span class="lineNum">      90 </span>            :        time-minute     = 2DIGIT  ; 00-59
+<span class="lineNum">      91 </span>            :      */
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineCov">         18 :     if (parser-&gt;cur &gt;= parser-&gt;end)</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span>            :     /* time-offset = &quot;Z&quot; / time-numoffset */
+<span class="lineNum">      97 </span><span class="lineCov">         18 :     switch (parser-&gt;cur[0]) {</span>
+<span class="lineNum">      98 </span>            :     case '-':
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         tz_sign = -1;</span>
+<span class="lineNum">     100 </span>            :         /* fall through */
+<span class="lineNum">     101 </span>            :     case '+':
+<span class="lineNum">     102 </span><span class="lineCov">         10 :         parser-&gt;cur++;</span>
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span>            :         /* time-hour = 2DIGIT */
+<span class="lineNum">     105 </span><span class="lineCov">         10 :         if (iso8601_date_parse_number(parser, 2, &amp;tz_hour) &lt;= 0)</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     107 </span><span class="lineCov">         10 :         if (tz_hour &gt; 23)</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span>            :         /* &quot;:&quot; */
+<span class="lineNum">     111 </span><span class="lineCov">         10 :         if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != ':')</span>
+<span class="lineNum">     112 </span><span class="lineCov">          2 :             return -1;</span>
+<span class="lineNum">     113 </span><span class="lineCov">          8 :         parser-&gt;cur++;</span>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span>            :         /* time-minute = 2DIGIT */
+<span class="lineNum">     116 </span><span class="lineCov">          8 :         if (iso8601_date_parse_number(parser, 2, &amp;tz_min) &lt;= 0)</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     118 </span><span class="lineCov">          8 :         if (tz_min &gt; 59)</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     120 </span><span class="lineCov">          8 :         break;</span>
+<span class="lineNum">     121 </span>            :     case 'Z':
+<span class="lineNum">     122 </span>            :     case 'z':
+<span class="lineNum">     123 </span><span class="lineCov">          6 :         parser-&gt;cur++;</span>
+<span class="lineNum">     124 </span><span class="lineCov">          6 :         break;</span>
+<span class="lineNum">     125 </span>            :     default:
+<span class="lineNum">     126 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     127 </span>            :     }
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">         14 :     parser-&gt;timezone_offset = tz_sign*(tz_hour*60 + tz_min);</span>
+<span class="lineNum">     130 </span><span class="lineCov">         14 :     return 1;</span>
+<a name="131"><span class="lineNum">     131 </span>            : }</a>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineCov">         22 : static int is08601_date_parse_full_time(struct iso8601_date_parser *parser)</span>
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span>            :     /* full-time       = partial-time time-offset
+<span class="lineNum">     136 </span>            :        partial-time    = time-hour &quot;:&quot; time-minute &quot;:&quot; time-second [time-secfrac]      
+<span class="lineNum">     137 </span>            :        time-hour       = 2DIGIT  ; 00-23
+<span class="lineNum">     138 </span>            :        time-minute     = 2DIGIT  ; 00-59
+<span class="lineNum">     139 </span>            :        time-second     = 2DIGIT  ; 00-58, 00-59, 00-60 based on leap second
+<span class="lineNum">     140 </span>            :                                  ; rules
+<span class="lineNum">     141 </span>            :      */
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span>            :     /* time-hour = 2DIGIT */
+<span class="lineNum">     144 </span><span class="lineCov">         22 :     if (iso8601_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_hour) &lt;= 0)</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span>            :     /* &quot;:&quot; */
+<span class="lineNum">     148 </span><span class="lineCov">         22 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != ':')</span>
+<span class="lineNum">     149 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     150 </span><span class="lineCov">         20 :     parser-&gt;cur++;</span>
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span>            :     /* time-minute = 2DIGIT */
+<span class="lineNum">     153 </span><span class="lineCov">         20 :     if (iso8601_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_min) &lt;= 0)</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span>            :     /* &quot;:&quot; */
+<span class="lineNum">     157 </span><span class="lineCov">         20 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != ':')</span>
+<span class="lineNum">     158 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     159 </span><span class="lineCov">         18 :     parser-&gt;cur++;</span>
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span>            :     /* time-second = 2DIGIT */
+<span class="lineNum">     162 </span><span class="lineCov">         18 :     if (iso8601_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_sec) &lt;= 0)</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span>            :     /* [time-secfrac] */
+<span class="lineNum">     166 </span><span class="lineCov">         18 :     if (iso8601_date_parse_secfrac(parser) &lt; 0)</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span>            :     /* time-offset */
+<span class="lineNum">     170 </span><span class="lineCov">         18 :     if (is08601_date_parse_time_offset(parser) &lt;= 0)</span>
+<span class="lineNum">     171 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     172 </span><span class="lineCov">         14 :     return 1;</span>
+<a name="173"><span class="lineNum">     173 </span>            : }</a>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">         28 : static int is08601_date_parse_full_date(struct iso8601_date_parser *parser)</span>
+<span class="lineNum">     176 </span>            : {
+<span class="lineNum">     177 </span>            :     /* full-date       = date-fullyear &quot;-&quot; date-month &quot;-&quot; date-mday
+<span class="lineNum">     178 </span>            :        date-fullyear   = 4DIGIT
+<span class="lineNum">     179 </span>            :        date-month      = 2DIGIT  ; 01-12
+<span class="lineNum">     180 </span>            :        date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 based on
+<span class="lineNum">     181 </span>            :                                  ; month/year
+<span class="lineNum">     182 </span>            :      */
+<span class="lineNum">     183 </span>            :     
+<span class="lineNum">     184 </span>            :     /* date-fullyear = 4DIGIT */
+<span class="lineNum">     185 </span><span class="lineCov">         28 :     if (iso8601_date_parse_number(parser, 4, &amp;parser-&gt;tm.tm_year) &lt;= 0)</span>
+<span class="lineNum">     186 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     187 </span><span class="lineCov">         27 :     if (parser-&gt;tm.tm_year &lt; 1900)</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     189 </span><span class="lineCov">         27 :     parser-&gt;tm.tm_year -= 1900;</span>
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span>            :     /* &quot;-&quot; */
+<span class="lineNum">     192 </span><span class="lineCov">         27 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != '-')</span>
+<span class="lineNum">     193 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     194 </span><span class="lineCov">         26 :     parser-&gt;cur++;</span>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span>            :     /* date-month = 2DIGIT */
+<span class="lineNum">     197 </span><span class="lineCov">         26 :     if (iso8601_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_mon) &lt;= 0)</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     199 </span><span class="lineCov">         26 :     parser-&gt;tm.tm_mon -= 1;</span>
+<span class="lineNum">     200 </span>            : 
+<span class="lineNum">     201 </span>            :     /* &quot;-&quot; */
+<span class="lineNum">     202 </span><span class="lineCov">         26 :     if (parser-&gt;cur &gt;= parser-&gt;end || parser-&gt;cur[0] != '-')</span>
+<span class="lineNum">     203 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     204 </span><span class="lineCov">         24 :     parser-&gt;cur++;</span>
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span>            :     /* time-second = 2DIGIT */
+<span class="lineNum">     207 </span><span class="lineCov">         24 :     if (iso8601_date_parse_number(parser, 2, &amp;parser-&gt;tm.tm_mday) &lt;= 0)</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     209 </span><span class="lineCov">         24 :     return 1;</span>
+<a name="210"><span class="lineNum">     210 </span>            : }</a>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineCov">         28 : static int iso8601_date_parse_date_time(struct iso8601_date_parser *parser)</span>
+<span class="lineNum">     213 </span>            : {
+<span class="lineNum">     214 </span>            :     /* date-time       = full-date &quot;T&quot; full-time */
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span>            :     /* full-date */
+<span class="lineNum">     217 </span><span class="lineCov">         28 :     if (is08601_date_parse_full_date(parser) &lt;= 0)</span>
+<span class="lineNum">     218 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span>            :     /* &quot;T&quot; */
+<span class="lineNum">     221 </span><span class="lineCov">         48 :     if (parser-&gt;cur &gt;= parser-&gt;end ||</span>
+<span class="lineNum">     222 </span><span class="lineCov">         27 :         (parser-&gt;cur[0] != 'T' &amp;&amp; parser-&gt;cur[0] != 't'))</span>
+<span class="lineNum">     223 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     224 </span><span class="lineCov">         22 :     parser-&gt;cur++;</span>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span>            :     /* full-time */
+<span class="lineNum">     227 </span><span class="lineCov">         22 :     if (is08601_date_parse_full_time(parser) &lt;= 0)</span>
+<span class="lineNum">     228 </span><span class="lineCov">          8 :         return -1;</span>
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineCov">         14 :     if (parser-&gt;cur != parser-&gt;end)</span>
+<span class="lineNum">     231 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     232 </span><span class="lineCov">         13 :     return 1;</span>
+<span class="lineNum">     233 </span>            : }
+<a name="234"><span class="lineNum">     234 </span>            : </a>
+<span class="lineNum">     235 </span>            : static bool
+<span class="lineNum">     236 </span><span class="lineCov">         28 : iso8601_date_do_parse(const unsigned char *data, size_t size, struct tm *tm_r,</span>
+<span class="lineNum">     237 </span>            :               time_t *timestamp_r, int *timezone_offset_r)
+<span class="lineNum">     238 </span>            : {
+<span class="lineNum">     239 </span>            :     struct iso8601_date_parser parser;
+<span class="lineNum">     240 </span>            :     time_t timestamp;
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineCov">         28 :     i_zero(&amp;parser);</span>
+<span class="lineNum">     243 </span><span class="lineCov">         28 :     parser.cur = data;</span>
+<span class="lineNum">     244 </span><span class="lineCov">         28 :     parser.end = data + size;</span>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span><span class="lineCov">         28 :     if (iso8601_date_parse_date_time(&amp;parser) &lt;= 0)</span>
+<span class="lineNum">     247 </span><span class="lineCov">         15 :         return FALSE;</span>
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineCov">         13 :     parser.tm.tm_isdst = -1;</span>
+<span class="lineNum">     250 </span><span class="lineCov">         13 :     timestamp = utc_mktime(&amp;parser.tm);</span>
+<span class="lineNum">     251 </span><span class="lineCov">         13 :     if (timestamp == (time_t)-1)</span>
+<span class="lineNum">     252 </span><span class="lineCov">          5 :         return FALSE;</span>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineCov">          8 :     *timezone_offset_r = parser.timezone_offset;</span>
+<span class="lineNum">     255 </span><span class="lineCov">          8 :     *tm_r = parser.tm;</span>
+<span class="lineNum">     256 </span><span class="lineCov">          8 :     *timestamp_r = timestamp - parser.timezone_offset * 60;</span>
+<span class="lineNum">     257 </span><span class="lineCov">          8 :     return TRUE;</span>
+<a name="258"><span class="lineNum">     258 </span>            : }</a>
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineCov">          3 : bool iso8601_date_parse(const unsigned char *data, size_t size,</span>
+<span class="lineNum">     261 </span>            :             time_t *timestamp_r, int *timezone_offset_r)
+<span class="lineNum">     262 </span>            : {
+<span class="lineNum">     263 </span>            :     struct tm tm;
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineCov">          3 :     return iso8601_date_do_parse(data, size, &amp;tm,</span>
+<span class="lineNum">     266 </span>            :                      timestamp_r, timezone_offset_r);
+<a name="267"><span class="lineNum">     267 </span>            : }</a>
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineCov">         25 : bool iso8601_date_parse_tm(const unsigned char *data, size_t size,</span>
+<span class="lineNum">     270 </span>            :                struct tm *tm_r, int *timezone_offset_r)
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span>            :     time_t timestamp;
+<span class="lineNum">     273 </span>            : 
+<span class="lineNum">     274 </span><span class="lineCov">         25 :     return iso8601_date_do_parse(data, size, tm_r,</span>
+<span class="lineNum">     275 </span>            :                      &amp;timestamp, timezone_offset_r);
+<a name="276"><span class="lineNum">     276 </span>            : }</a>
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineCov">          6 : const char *iso8601_date_create_tm(struct tm *tm, int timezone_offset)</span>
+<span class="lineNum">     279 </span>            : {
+<span class="lineNum">     280 </span>            :     const char *time_offset;
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineCov">          6 :     if (timezone_offset == INT_MAX)</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :         time_offset = &quot;Z&quot;;</span>
+<span class="lineNum">     284 </span>            :     else {
+<span class="lineNum">     285 </span><span class="lineCov">          6 :         char sign = '+';</span>
+<span class="lineNum">     286 </span><span class="lineCov">          6 :         if (timezone_offset &lt; 0) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :             timezone_offset = -timezone_offset;</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :             sign = '-';</span>
+<span class="lineNum">     289 </span>            :         } 
+<span class="lineNum">     290 </span><span class="lineCov">          6 :         time_offset = t_strdup_printf(&quot;%c%02d:%02d&quot;, sign,</span>
+<span class="lineNum">     291 </span>            :                           timezone_offset / 60,
+<span class="lineNum">     292 </span>            :                           timezone_offset % 60);
+<span class="lineNum">     293 </span>            :     }
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineCov">         18 :     return t_strdup_printf(&quot;%04d-%02d-%02dT%02d:%02d:%02d%s&quot;,</span>
+<span class="lineNum">     296 </span><span class="lineCov">         12 :             tm-&gt;tm_year + 1900, tm-&gt;tm_mon+1, tm-&gt;tm_mday,</span>
+<span class="lineNum">     297 </span>            :             tm-&gt;tm_hour, tm-&gt;tm_min, tm-&gt;tm_sec, time_offset);
+<a name="298"><span class="lineNum">     298 </span>            : }</a>
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 : const char *iso8601_date_create(time_t timestamp)</span>
+<span class="lineNum">     301 </span>            : {
+<span class="lineNum">     302 </span>            :     struct tm *tm;
+<span class="lineNum">     303 </span>            :     int timezone_offset;
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     tm = localtime(&amp;timestamp);</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     timezone_offset = utc_offset(tm, timestamp);</span>
+<span class="lineNum">     307 </span>            :     
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     return iso8601_date_create_tm(tm, timezone_offset);</span>
+<span class="lineNum">     309 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

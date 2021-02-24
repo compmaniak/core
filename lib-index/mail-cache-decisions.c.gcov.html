@@ -1,0 +1,260 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-index/mail-cache-decisions.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-index</a> - mail-cache-decisions.c<span style="font-size: 80%;"> (source / <a href="mail-cache-decisions.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">50</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2004-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /*
+<span class="lineNum">       4 </span>            :    Users can be divided to three groups:
+<span class="lineNum">       5 </span>            : 
+<span class="lineNum">       6 </span>            :    1. Most users will use only a single IMAP client which caches everything
+<span class="lineNum">       7 </span>            :       locally. For these users it's quite pointless to do any kind of caching
+<span class="lineNum">       8 </span>            :       as it only wastes disk space. That might also mean more disk I/O.
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            :    2. Some users use multiple IMAP clients which cache everything locally.
+<span class="lineNum">      11 </span>            :       These could benefit from caching until all clients have fetched the
+<span class="lineNum">      12 </span>            :       data. After that it's useless.
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            :    3. Some clients don't do permanent local caching at all. For example
+<span class="lineNum">      15 </span>            :       Pine and webmails. These clients would benefit from caching everything.
+<span class="lineNum">      16 </span>            :       Some locally caching clients might also access some data from server
+<span class="lineNum">      17 </span>            :       again, such as when searching messages. They could benefit from caching
+<span class="lineNum">      18 </span>            :       only these fields.
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :    After thinking about these a while, I figured out that people who care
+<span class="lineNum">      21 </span>            :    about performance most will be using Dovecot optimized LDA anyway
+<span class="lineNum">      22 </span>            :    which updates the indexes/cache immediately. In that case even the first
+<span class="lineNum">      23 </span>            :    user group would benefit from caching the same way as second group. LDA
+<span class="lineNum">      24 </span>            :    reads the mail anyway, so it might as well extract some information
+<span class="lineNum">      25 </span>            :    about it and store them into cache.
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            :    So, group 1. and 2. could be optimally implemented by keeping things
+<span class="lineNum">      28 </span>            :    cached only for a while. I thought a week would be good. When cache file
+<span class="lineNum">      29 </span>            :    is compressed, everything older than week will be dropped.
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            :    But how to figure out if user is in group 3? One quite easy rule would
+<span class="lineNum">      32 </span>            :    be to see if client is accessing messages older than a week. But with
+<span class="lineNum">      33 </span>            :    only that rule we might have already dropped useful cached data. It's
+<span class="lineNum">      34 </span>            :    not very nice if we have to read and cache it twice.
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            :    Most locally caching clients always fetch new messages (all but body)
+<span class="lineNum">      37 </span>            :    when they see them. They fetch them in ascending order. Noncaching
+<span class="lineNum">      38 </span>            :    clients might fetch messages in pretty much any order, as they usually
+<span class="lineNum">      39 </span>            :    don't fetch everything they can, only what's visible in screen. Some
+<span class="lineNum">      40 </span>            :    will use server side sorting/threading which also makes messages to be
+<span class="lineNum">      41 </span>            :    fetched in random order. Second rule would then be that if a session
+<span class="lineNum">      42 </span>            :    doesn't fetch messages in ascending order, the fetched field type will
+<span class="lineNum">      43 </span>            :    be permanently cached.
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            :    So, we have three caching decisions:
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            :    1. Don't cache: Clients have never wanted the field
+<span class="lineNum">      48 </span>            :    2. Cache temporarily: Clients want this only once
+<span class="lineNum">      49 </span>            :    3. Cache permanently: Clients want this more than once
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :    Different mailboxes have different decisions. Different fields have
+<span class="lineNum">      52 </span>            :    different decisions.
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :    There are some problems, such as if a client accesses message older than
+<span class="lineNum">      55 </span>            :    a week, we can't know if user just started using a new client which is
+<span class="lineNum">      56 </span>            :    just filling its local cache for the first time. Or it might be a
+<span class="lineNum">      57 </span>            :    client user hasn't just used for over a week. In these cases we
+<span class="lineNum">      58 </span>            :    shouldn't have marked the field to be permanently cached. User might
+<span class="lineNum">      59 </span>            :    also switch clients from non-caching to caching.
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            :    So we should re-evaluate our caching decisions from time to time. This
+<span class="lineNum">      62 </span>            :    is done by checking the above rules constantly and marking when was the
+<span class="lineNum">      63 </span>            :    last time the decision was right. If decision hasn't matched for two
+<span class="lineNum">      64 </span>            :    months, it's changed. I picked two months because people go to at least
+<span class="lineNum">      65 </span>            :    one month vacations where they might still be reading mails, but with
+<span class="lineNum">      66 </span>            :    different clients.
+<span class="lineNum">      67 </span>            : */
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">      70 </span>            : #include &quot;ioloop.h&quot;
+<a name="71"><span class="lineNum">      71 </span>            : #include &quot;mail-cache-private.h&quot;</a>
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 : void mail_cache_decision_state_update(struct mail_cache_view *view,</span>
+<span class="lineNum">      74 </span>            :                       uint32_t seq, unsigned int field)
+<span class="lineNum">      75 </span>            : {
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     struct mail_cache *cache = view-&gt;cache;</span>
+<span class="lineNum">      77 </span>            :     enum mail_cache_decision_type dec;
+<span class="lineNum">      78 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">      79 </span>            :     uint32_t uid;
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     i_assert(field &lt; cache-&gt;fields_count);</span>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     if (view-&gt;no_decision_updates)</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     dec = cache-&gt;fields[field].field.decision;</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     if (dec == (MAIL_CACHE_DECISION_NO | MAIL_CACHE_DECISION_FORCED)) {</span>
+<span class="lineNum">      88 </span>            :         /* don't update last_used */
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      90 </span>            :     }
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     if (ioloop_time - cache-&gt;fields[field].field.last_used &gt; 3600*24) {</span>
+<span class="lineNum">      93 </span>            :         /* update last_used about once a day */
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         cache-&gt;fields[field].field.last_used = (uint32_t)ioloop_time;</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         if (cache-&gt;field_file_map[field] != (uint32_t)-1)</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :             cache-&gt;field_header_write_pending = TRUE;</span>
+<span class="lineNum">      97 </span>            :     }
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     if (dec != MAIL_CACHE_DECISION_TEMP) {</span>
+<span class="lineNum">     100 </span>            :         /* a) forced decision
+<span class="lineNum">     101 </span>            :            b) not cached, mail_cache_decision_add() will handle this
+<span class="lineNum">     102 </span>            :            c) permanently cached already, okay. */
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     104 </span>            :     }
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     mail_index_lookup_uid(view-&gt;view, seq, &amp;uid);</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(view-&gt;view);</span>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span>            :     /* see if we want to change decision from TEMP to YES */
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (uid &lt; cache-&gt;fields[field].uid_highwater ||</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         uid &lt; hdr-&gt;day_first_uid[7]) {</span>
+<span class="lineNum">     112 </span>            :         /* a) nonordered access within this session. if client doesn't
+<span class="lineNum">     113 </span>            :               request messages in growing order, we assume it doesn't
+<span class="lineNum">     114 </span>            :               have a permanent local cache.
+<span class="lineNum">     115 </span>            :            b) accessing message older than one week. assume it's a
+<span class="lineNum">     116 </span>            :               client with no local cache. if it was just a new client
+<span class="lineNum">     117 </span>            :               generating the local cache for the first time, we'll
+<span class="lineNum">     118 </span>            :               drop back to TEMP within few months. */
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         cache-&gt;fields[field].field.decision = MAIL_CACHE_DECISION_YES;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :         cache-&gt;fields[field].decision_dirty = TRUE;</span>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :         if (cache-&gt;field_file_map[field] != (uint32_t)-1)</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :             cache-&gt;field_header_write_pending = TRUE;</span>
+<span class="lineNum">     124 </span>            :     } else {
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         cache-&gt;fields[field].uid_highwater = uid;</span>
+<span class="lineNum">     126 </span>            :     }
+<a name="127"><span class="lineNum">     127 </span>            : }</a>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 : void mail_cache_decision_add(struct mail_cache_view *view, uint32_t seq,</span>
+<span class="lineNum">     130 </span>            :                  unsigned int field)
+<span class="lineNum">     131 </span>            : {
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     struct mail_cache *cache = view-&gt;cache;</span>
+<span class="lineNum">     133 </span>            :     uint32_t uid;
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     i_assert(field &lt; cache-&gt;fields_count);</span>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     if (MAIL_CACHE_IS_UNUSABLE(cache) || view-&gt;no_decision_updates)</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     if (cache-&gt;fields[field].field.decision != MAIL_CACHE_DECISION_NO) {</span>
+<span class="lineNum">     141 </span>            :         /* a) forced decision
+<span class="lineNum">     142 </span>            :            b) we're already caching it, so it just wasn't in cache */
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     144 </span>            :     }
+<span class="lineNum">     145 </span>            : 
+<span class="lineNum">     146 </span>            :     /* field used the first time */
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     cache-&gt;fields[field].field.decision = MAIL_CACHE_DECISION_TEMP;</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     cache-&gt;fields[field].decision_dirty = TRUE;</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     cache-&gt;field_header_write_pending = TRUE;</span>
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     mail_index_lookup_uid(view-&gt;view, seq, &amp;uid);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     cache-&gt;fields[field].uid_highwater = uid;</span>
+<a name="153"><span class="lineNum">     153 </span>            : }</a>
+<span class="lineNum">     154 </span>            : 
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 : void mail_cache_decisions_copy(struct mail_index_transaction *itrans,</span>
+<span class="lineNum">     156 </span>            :                    struct mail_cache *src,
+<span class="lineNum">     157 </span>            :                    struct mail_cache *dst)
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     struct mail_cache_compress_lock *lock = NULL;</span>
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     if (mail_cache_open_and_verify(src) &lt; 0 ||</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         MAIL_CACHE_IS_UNUSABLE(src))</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     unsigned int count = 0;</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     struct mail_cache_field *fields =</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         mail_cache_register_get_list(src, pool_datastack_create(), &amp;count);</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     i_assert(fields != NULL || count == 0);</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     if (count &gt; 0)</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         mail_cache_register_fields(dst, fields, count);</span>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     dst-&gt;field_header_write_pending = TRUE;</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     (void)mail_cache_compress(dst, itrans, &amp;lock);</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     if (lock != NULL)</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         mail_cache_compress_unlock(&amp;lock);</span>
+<span class="lineNum">     176 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

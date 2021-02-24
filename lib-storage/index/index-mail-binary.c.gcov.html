@@ -1,0 +1,681 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/index-mail-binary.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">lib-storage/index</a> - index-mail-binary.c<span style="font-size: 80%;"> (source / <a href="index-mail-binary.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">296</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;safe-mkstemp.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream-crlf.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream-seekable.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;istream-base64.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;istream-qp.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;istream-header-filter.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;message-binary-part.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;message-decoder.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;mail-user.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;index-storage.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : #define MAIL_BINARY_CACHE_EXPIRE_MSECS (60*1000)
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : #define IS_CONVERTED_CTE(cte) \
+<span class="lineNum">      23 </span>            :     ((cte) == MESSAGE_CTE_QP || (cte) == MESSAGE_CTE_BASE64)
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : struct binary_block {
+<span class="lineNum">      26 </span>            :     struct istream *input;
+<span class="lineNum">      27 </span>            :     uoff_t physical_pos;
+<span class="lineNum">      28 </span>            :     unsigned int body_lines_count;
+<span class="lineNum">      29 </span>            :     bool converted, converted_hdr;
+<span class="lineNum">      30 </span>            : };
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : struct binary_ctx {
+<span class="lineNum">      33 </span>            :     struct mail *mail;
+<span class="lineNum">      34 </span>            :     struct istream *input;
+<span class="lineNum">      35 </span>            :     bool has_nuls, converted;
+<span class="lineNum">      36 </span>            :     /* each block is its own input stream. basically each converted MIME
+<span class="lineNum">      37 </span>            :        body has its own block and the parts between the MIME bodies are
+<span class="lineNum">      38 </span>            :        unconverted blocks */
+<span class="lineNum">      39 </span>            :     ARRAY(struct binary_block) blocks;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :     uoff_t copy_start_offset;
+<a name="42"><span class="lineNum">      42 </span>            : };</a>
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 : static void binary_copy_to(struct binary_ctx *ctx, uoff_t end_offset)</span>
+<span class="lineNum">      45 </span>            : {
+<span class="lineNum">      46 </span>            :     struct binary_block *block;
+<span class="lineNum">      47 </span>            :     struct istream *linput, *cinput;
+<span class="lineNum">      48 </span>            :     uoff_t orig_offset, size;
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     i_assert(end_offset &gt;= ctx-&gt;copy_start_offset);</span>
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     if (end_offset == ctx-&gt;copy_start_offset)</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     size = end_offset - ctx-&gt;copy_start_offset;</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :     orig_offset = ctx-&gt;input-&gt;v_offset;</span>
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     i_stream_seek(ctx-&gt;input, ctx-&gt;copy_start_offset);</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     linput = i_stream_create_limit(ctx-&gt;input, size);</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     cinput = i_stream_create_crlf(linput);</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;linput);</span>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     block = array_append_space(&amp;ctx-&gt;blocks);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     block-&gt;input = cinput;</span>
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     i_stream_seek(ctx-&gt;input, orig_offset);</span>
+<span class="lineNum">      67 </span>            : }
+<a name="68"><span class="lineNum">      68 </span>            : </a>
+<span class="lineNum">      69 </span>            : static void
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 : binary_cte_filter_callback(struct header_filter_istream *input,</span>
+<span class="lineNum">      71 </span>            :                struct message_header_line *hdr,
+<span class="lineNum">      72 </span>            :                bool *matched ATTR_UNUSED, void *context ATTR_UNUSED)
+<span class="lineNum">      73 </span>            : {
+<span class="lineNum">      74 </span>            :     static const char *cte_binary = &quot;Content-Transfer-Encoding: binary\r\n&quot;;
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     if (hdr != NULL &amp;&amp; hdr-&gt;eoh) {</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         i_stream_header_filter_add(input, cte_binary,</span>
+<span class="lineNum">      78 </span>            :                        strlen(cte_binary));
+<span class="lineNum">      79 </span>            :     }
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 : }</span>
+<a name="81"><span class="lineNum">      81 </span>            : </a>
+<span class="lineNum">      82 </span>            : static int
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 : add_binary_part(struct binary_ctx *ctx, const struct message_part *part,</span>
+<span class="lineNum">      84 </span>            :         bool include_hdr)
+<span class="lineNum">      85 </span>            : {
+<span class="lineNum">      86 </span>            :     static const char *filter_headers[] = {
+<span class="lineNum">      87 </span>            :         &quot;Content-Transfer-Encoding&quot;,
+<span class="lineNum">      88 </span>            :     };
+<span class="lineNum">      89 </span>            :     struct message_header_parser_ctx *parser;
+<span class="lineNum">      90 </span>            :     struct message_header_line *hdr;
+<span class="lineNum">      91 </span>            :     struct message_part *child;
+<span class="lineNum">      92 </span>            :     struct message_size hdr_size;
+<span class="lineNum">      93 </span>            :     struct istream *linput;
+<span class="lineNum">      94 </span>            :     struct binary_block *block;
+<span class="lineNum">      95 </span>            :     enum message_cte cte;
+<span class="lineNum">      96 </span>            :     uoff_t part_end_offset;
+<span class="lineNum">      97 </span>            :     int ret;
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span>            :     /* first parse the header to find c-t-e. */
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     i_stream_seek(ctx-&gt;input, part-&gt;physical_pos);</span>
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     cte = MESSAGE_CTE_78BIT;</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     parser = message_parse_header_init(ctx-&gt;input, &amp;hdr_size, 0);</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     while ((ret = message_parse_header_next(parser, &amp;hdr)) &gt; 0) {</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         if (strcasecmp(hdr-&gt;name, &quot;Content-Transfer-Encoding&quot;) == 0)</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :             cte = message_decoder_parse_cte(hdr);</span>
+<span class="lineNum">     107 </span>            :     }
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     i_assert(ret &lt; 0);</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     if (message_parse_header_has_nuls(parser)) {</span>
+<span class="lineNum">     110 </span>            :         /* we're not converting NULs to 0x80 when doing a binary fetch,
+<span class="lineNum">     111 </span>            :            even if they're in the message header. */
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         ctx-&gt;has_nuls = TRUE;</span>
+<span class="lineNum">     113 </span>            :     }
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     message_parse_header_deinit(&amp;parser);</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     if (ctx-&gt;input-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         mail_set_critical(ctx-&gt;mail,</span>
+<span class="lineNum">     118 </span>            :             &quot;read(%s) failed: %s&quot;, i_stream_get_name(ctx-&gt;input),
+<span class="lineNum">     119 </span>            :             i_stream_get_error(ctx-&gt;input));
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     121 </span>            :     }
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     if (cte == MESSAGE_CTE_UNKNOWN) {</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         mail_storage_set_error(ctx-&gt;mail-&gt;box-&gt;storage,</span>
+<span class="lineNum">     125 </span>            :                        MAIL_ERROR_CONVERSION,
+<span class="lineNum">     126 </span>            :                        &quot;Unknown Content-Transfer-Encoding.&quot;);
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     128 </span>            :     }
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     i_stream_seek(ctx-&gt;input, part-&gt;physical_pos);</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     if (!include_hdr) {</span>
+<span class="lineNum">     132 </span>            :         /* body only */
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     } else if (IS_CONVERTED_CTE(cte)) {</span>
+<span class="lineNum">     134 </span>            :         /* write header with modified content-type */
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         if (ctx-&gt;copy_start_offset != 0)</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :             binary_copy_to(ctx, part-&gt;physical_pos);</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         block = array_append_space(&amp;ctx-&gt;blocks);</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         block-&gt;physical_pos = part-&gt;physical_pos;</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         block-&gt;converted = TRUE;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         block-&gt;converted_hdr = TRUE;</span>
+<span class="lineNum">     141 </span>            : 
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         linput = i_stream_create_limit(ctx-&gt;input, (uoff_t)-1);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         block-&gt;input = i_stream_create_header_filter(linput,</span>
+<span class="lineNum">     144 </span>            :                 HEADER_FILTER_EXCLUDE | HEADER_FILTER_HIDE_BODY,
+<span class="lineNum">     145 </span>            :                 filter_headers, N_ELEMENTS(filter_headers),
+<span class="lineNum">     146 </span>            :                 binary_cte_filter_callback, NULL);
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;linput);</span>
+<span class="lineNum">     148 </span>            :     } else {
+<span class="lineNum">     149 </span>            :         /* copy everything as-is until the end of this header */
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         binary_copy_to(ctx, part-&gt;physical_pos +</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :                    part-&gt;header_size.physical_size);</span>
+<span class="lineNum">     152 </span>            :     }
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     ctx-&gt;copy_start_offset = part-&gt;physical_pos +</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         part-&gt;header_size.physical_size;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     part_end_offset = part-&gt;physical_pos +</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         part-&gt;header_size.physical_size +</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         part-&gt;body_size.physical_size;</span>
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     if (part-&gt;children != NULL) {</span>
+<span class="lineNum">     160 </span>            :         /* multipart */
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         for (child = part-&gt;children; child != NULL; child = child-&gt;next) {</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :             if (add_binary_part(ctx, child, TRUE) &lt; 0)</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     164 </span>            :         }
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :         binary_copy_to(ctx, part_end_offset);</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :         ctx-&gt;copy_start_offset = part_end_offset;</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     168 </span>            :     }
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     if (part-&gt;body_size.physical_size == 0) {</span>
+<span class="lineNum">     170 </span>            :         /* no body */
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         ctx-&gt;copy_start_offset = part_end_offset;</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     173 </span>            :     }
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span>            :     /* single part - write decoded data */
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     block = array_append_space(&amp;ctx-&gt;blocks);</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     block-&gt;physical_pos = part-&gt;physical_pos;</span>
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     i_stream_seek(ctx-&gt;input, part-&gt;physical_pos +</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :               part-&gt;header_size.physical_size);</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     linput = i_stream_create_limit(ctx-&gt;input, part-&gt;body_size.physical_size);</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     switch (cte) {</span>
+<span class="lineNum">     183 </span>            :     case MESSAGE_CTE_UNKNOWN:
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     185 </span>            :     case MESSAGE_CTE_78BIT:
+<span class="lineNum">     186 </span>            :     case MESSAGE_CTE_BINARY:
+<span class="lineNum">     187 </span>            :         /* no conversion necessary */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_HAS_NULS) != 0)</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :             ctx-&gt;has_nuls = TRUE;</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         block-&gt;input = i_stream_create_crlf(linput);</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     192 </span>            :     case MESSAGE_CTE_QP:
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :         block-&gt;input = i_stream_create_qp_decoder(linput);</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         ctx-&gt;converted = block-&gt;converted = TRUE;</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     196 </span>            :     case MESSAGE_CTE_BASE64:
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :         block-&gt;input = i_stream_create_base64_decoder(linput);</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :         ctx-&gt;converted = block-&gt;converted = TRUE;</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     200 </span>            :     }
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;linput);</span>
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     ctx-&gt;copy_start_offset = part_end_offset;</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="205"><span class="lineNum">     205 </span>            : }</a>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 : static int fd_callback(const char **path_r, void *context)</span>
+<span class="lineNum">     208 </span>            : {
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     struct mail *_mail = context;</span>
+<span class="lineNum">     210 </span>            :     string_t *path;
+<span class="lineNum">     211 </span>            :     int fd;
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     path = t_str_new(256);</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     mail_user_set_get_temp_prefix(path, _mail-&gt;box-&gt;storage-&gt;user-&gt;set);</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     fd = safe_mkstemp_hostpid(path, 0600, (uid_t)-1, (gid_t)-1);</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     if (fd == -1) {</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         i_error(&quot;Temp file creation to %s failed: %m&quot;, str_c(path));</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span>            :     /* we just want the fd, unlink it */
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     if (i_unlink(str_c(path)) &lt; 0) {</span>
+<span class="lineNum">     223 </span>            :         /* shouldn't happen.. */
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;fd);</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     226 </span>            :     }
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     *path_r = str_c(path);</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     return fd;</span>
+<a name="229"><span class="lineNum">     229 </span>            : }</a>
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 : static void binary_streams_free(struct binary_ctx *ctx)</span>
+<span class="lineNum">     232 </span>            : {
+<span class="lineNum">     233 </span>            :     struct binary_block *block;
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;ctx-&gt;blocks, block)</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;block-&gt;input);</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 : }</span>
+<a name="238"><span class="lineNum">     238 </span>            : </a>
+<span class="lineNum">     239 </span>            : static void
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 : binary_parts_update(struct binary_ctx *ctx, const struct message_part *part,</span>
+<span class="lineNum">     241 </span>            :             struct message_binary_part **msg_bin_parts)
+<span class="lineNum">     242 </span>            : {
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(ctx-&gt;mail);</span>
+<span class="lineNum">     244 </span>            :     struct binary_block *blocks;
+<span class="lineNum">     245 </span>            :     struct message_binary_part bin_part;
+<span class="lineNum">     246 </span>            :     unsigned int i, count;
+<span class="lineNum">     247 </span>            :     uoff_t size;
+<span class="lineNum">     248 </span>            :     bool found;
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     blocks = array_get_modifiable(&amp;ctx-&gt;blocks, &amp;count);</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     for (; part != NULL; part = part-&gt;next) {</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         binary_parts_update(ctx, part-&gt;children, msg_bin_parts);</span>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         i_zero(&amp;bin_part);</span>
+<span class="lineNum">     255 </span>            :         /* default to unchanged header */
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         bin_part.binary_hdr_size = part-&gt;header_size.virtual_size;</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         bin_part.physical_pos = part-&gt;physical_pos;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         found = FALSE;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :             if (blocks[i].physical_pos != part-&gt;physical_pos ||</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :                 !blocks[i].converted)</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :             size = blocks[i].input-&gt;v_offset;</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :             if (blocks[i].converted_hdr)</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :                 bin_part.binary_hdr_size = size;</span>
+<span class="lineNum">     267 </span>            :             else
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :                 bin_part.binary_body_size = size;</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :             found = TRUE;</span>
+<span class="lineNum">     270 </span>            :         }
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :         if (found) {</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :             bin_part.next = *msg_bin_parts;</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :             *msg_bin_parts = p_new(mail-&gt;mail.data_pool,</span>
+<span class="lineNum">     274 </span>            :                            struct message_binary_part, 1);
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             **msg_bin_parts = bin_part;</span>
+<span class="lineNum">     276 </span>            :         }
+<span class="lineNum">     277 </span>            :     }
+<a name="278"><span class="lineNum">     278 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 : static void binary_parts_cache(struct binary_ctx *ctx)</span>
+<span class="lineNum">     281 </span>            : {
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(ctx-&gt;mail);</span>
+<span class="lineNum">     283 </span>            :     buffer_t *buf;
+<span class="lineNum">     284 </span>            : 
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     buf = t_buffer_create(128);</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     message_binary_part_serialize(mail-&gt;data.bin_parts, buf);</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     index_mail_cache_add(mail, MAIL_CACHE_BINARY_PARTS,</span>
+<span class="lineNum">     288 </span>            :                  buf-&gt;data, buf-&gt;used);
+<a name="289"><span class="lineNum">     289 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 : static struct istream **blocks_get_streams(struct binary_ctx *ctx)</span>
+<span class="lineNum">     292 </span>            : {
+<span class="lineNum">     293 </span>            :     struct istream **streams;
+<span class="lineNum">     294 </span>            :     const struct binary_block *blocks;
+<span class="lineNum">     295 </span>            :     unsigned int i, count;
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     blocks = array_get(&amp;ctx-&gt;blocks, &amp;count);</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     streams = t_new(struct istream *, count+1);</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         streams[i] = blocks[i].input;</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         i_assert(streams[i]-&gt;v_offset == 0);</span>
+<span class="lineNum">     302 </span>            :     }
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     return streams;</span>
+<span class="lineNum">     304 </span>            : }
+<a name="305"><span class="lineNum">     305 </span>            : </a>
+<span class="lineNum">     306 </span>            : static int
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 : blocks_count_lines(struct binary_ctx *ctx, struct istream *full_input)</span>
+<span class="lineNum">     308 </span>            : {
+<span class="lineNum">     309 </span>            :     struct binary_block *blocks, *cur_block;
+<span class="lineNum">     310 </span>            :     unsigned int block_idx, block_count;
+<span class="lineNum">     311 </span>            :     uoff_t cur_block_offset, cur_block_size;
+<span class="lineNum">     312 </span>            :     const unsigned char *data, *p;
+<span class="lineNum">     313 </span>            :     size_t size, skip;
+<span class="lineNum">     314 </span>            :     ssize_t ret;
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     blocks = array_get_modifiable(&amp;ctx-&gt;blocks, &amp;block_count);</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     cur_block = blocks;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     cur_block_offset = 0;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     block_idx = 0;</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span>            :     /* count the number of lines each block contains */
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     while ((ret = i_stream_read_more(full_input, &amp;data, &amp;size)) &gt; 0) {</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         i_assert(cur_block_offset &lt;= cur_block-&gt;input-&gt;v_offset);</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :         if (cur_block-&gt;input-&gt;eof) {</span>
+<span class="lineNum">     325 </span>            :             /* this is the last input for this block. the input
+<span class="lineNum">     326 </span>            :                may also contain the next block's data, which we
+<span class="lineNum">     327 </span>            :                don't want to include in this block's line count. */
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :             cur_block_size = cur_block-&gt;input-&gt;v_offset +</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :                 i_stream_get_data_size(cur_block-&gt;input);</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :             i_assert(size &gt;= cur_block_size - cur_block_offset);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :             size = cur_block_size - cur_block_offset;</span>
+<span class="lineNum">     332 </span>            :         }
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :         skip = size;</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         while ((p = memchr(data, '\n', size)) != NULL) {</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             size -= p-data+1;</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :             data = p+1;</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :             cur_block-&gt;body_lines_count++;</span>
+<span class="lineNum">     338 </span>            :         }
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         i_stream_skip(full_input, skip);</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         cur_block_offset += skip;</span>
+<span class="lineNum">     341 </span>            : 
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :         if (cur_block-&gt;input-&gt;eof) {</span>
+<span class="lineNum">     343 </span>            :             /* go to the next block */
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :             if (++block_idx == block_count) {</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :                 i_assert(i_stream_read_eof(full_input));</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :                 ret = -1;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     348 </span>            :             }
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :             cur_block++;</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :             cur_block_offset = 0;</span>
+<span class="lineNum">     351 </span>            :         }
+<span class="lineNum">     352 </span>            :     }
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     i_assert(ret == -1);</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     if (full_input-&gt;stream_errno != 0)</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     i_assert(block_count == 0 || !i_stream_have_bytes_left(cur_block-&gt;input));</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     i_assert(block_count == 0 || block_idx+1 == block_count);</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     359 </span>            : }
+<a name="360"><span class="lineNum">     360 </span>            : </a>
+<span class="lineNum">     361 </span>            : static int
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 : index_mail_read_binary_to_cache(struct mail *_mail,</span>
+<span class="lineNum">     363 </span>            :                 const struct message_part *part,
+<span class="lineNum">     364 </span>            :                 bool include_hdr, const char *reason,
+<span class="lineNum">     365 </span>            :                 bool *binary_r, bool *converted_r)
+<span class="lineNum">     366 </span>            : {
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :     struct mail_binary_cache *cache = &amp;_mail-&gt;box-&gt;storage-&gt;binary_cache;</span>
+<span class="lineNum">     369 </span>            :     struct binary_ctx ctx;
+<span class="lineNum">     370 </span>            :     struct istream *is;
+<span class="lineNum">     371 </span>            : 
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :     ctx.mail = _mail;</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     t_array_init(&amp;ctx.blocks, 8);</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     mail_storage_free_binary_cache(_mail-&gt;box-&gt;storage);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :     if (mail_get_stream_because(_mail, NULL, NULL, reason, &amp;ctx.input) &lt; 0)</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     if (add_binary_part(&amp;ctx, part, include_hdr) &lt; 0) {</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         binary_streams_free(&amp;ctx);</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     383 </span>            :     }
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :     if (array_count(&amp;ctx.blocks) != 0) {</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         is = i_streams_merge(blocks_get_streams(&amp;ctx),</span>
+<span class="lineNum">     387 </span>            :                            IO_BLOCK_SIZE,
+<span class="lineNum">     388 </span>            :                            fd_callback, _mail);
+<span class="lineNum">     389 </span>            :     } else {
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :         is = i_stream_create_from_data(&quot;&quot;, 0);</span>
+<span class="lineNum">     391 </span>            :     }
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :     i_stream_set_name(is, t_strdup_printf(</span>
+<span class="lineNum">     393 </span>            :         &quot;&lt;binary stream of mailbox %s UID %u&gt;&quot;,
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :         _mail-&gt;box-&gt;vname, _mail-&gt;uid));</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     if (blocks_count_lines(&amp;ctx, is) &lt; 0) {</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :         if (is-&gt;stream_errno == EINVAL) {</span>
+<span class="lineNum">     397 </span>            :             /* MIME part contains invalid data */
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :             mail_storage_set_error(_mail-&gt;box-&gt;storage,</span>
+<span class="lineNum">     399 </span>            :                            MAIL_ERROR_INVALIDDATA,
+<span class="lineNum">     400 </span>            :                            &quot;Invalid data in MIME part&quot;);
+<span class="lineNum">     401 </span>            :         } else {
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :             mail_set_critical(_mail, &quot;read(%s) failed: %s&quot;,</span>
+<span class="lineNum">     403 </span>            :                       i_stream_get_name(is),
+<span class="lineNum">     404 </span>            :                       i_stream_get_error(is));
+<span class="lineNum">     405 </span>            :         }
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;is);</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         binary_streams_free(&amp;ctx);</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     409 </span>            :     }
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     if (_mail-&gt;uid &gt; 0) {</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :         cache-&gt;to = timeout_add(MAIL_BINARY_CACHE_EXPIRE_MSECS,</span>
+<span class="lineNum">     413 </span>            :                     mail_storage_free_binary_cache,
+<span class="lineNum">     414 </span>            :                     _mail-&gt;box-&gt;storage);
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         cache-&gt;box = _mail-&gt;box;</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         cache-&gt;uid = _mail-&gt;uid;</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         cache-&gt;orig_physical_pos = part-&gt;physical_pos;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         cache-&gt;include_hdr = include_hdr;</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :         cache-&gt;input = is;</span>
+<span class="lineNum">     420 </span>            :     }
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :     i_assert(!i_stream_have_bytes_left(is));</span>
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :     cache-&gt;size = is-&gt;v_offset;</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     i_stream_seek(is, 0);</span>
+<span class="lineNum">     425 </span>            : 
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :     if (part-&gt;parent == NULL &amp;&amp; include_hdr &amp;&amp;</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :         mail-&gt;data.bin_parts == NULL) {</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :         binary_parts_update(&amp;ctx, part, &amp;mail-&gt;data.bin_parts);</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :         if (_mail-&gt;uid &gt; 0)</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :             binary_parts_cache(&amp;ctx);</span>
+<span class="lineNum">     431 </span>            :     }
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     binary_streams_free(&amp;ctx);</span>
+<span class="lineNum">     433 </span>            : 
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     *binary_r = ctx.converted ? TRUE : ctx.has_nuls;</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     *converted_r = ctx.converted;</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="437"><span class="lineNum">     437 </span>            : }</a>
+<span class="lineNum">     438 </span>            : 
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 : static bool get_cached_binary_parts(struct index_mail *mail)</span>
+<span class="lineNum">     440 </span>            : {
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     const unsigned int field_idx =</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :         mail-&gt;ibox-&gt;cache_fields[MAIL_CACHE_BINARY_PARTS].idx;</span>
+<span class="lineNum">     443 </span>            :     buffer_t *part_buf;
+<span class="lineNum">     444 </span>            :     int ret;
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     if (mail-&gt;data.bin_parts != NULL)</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     448 </span>            : 
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     part_buf = t_buffer_create(128);</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :     ret = index_mail_cache_lookup_field(mail, part_buf, field_idx);</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0)</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :     if (message_binary_part_deserialize(mail-&gt;mail.data_pool,</span>
+<span class="lineNum">     455 </span>            :                         part_buf-&gt;data, part_buf-&gt;used,
+<span class="lineNum">     456 </span>            :                         &amp;mail-&gt;data.bin_parts) &lt; 0) {
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         mail_set_mail_cache_corrupted(&amp;mail-&gt;mail.mail,</span>
+<span class="lineNum">     458 </span>            :             &quot;Corrupted cached binary.parts data&quot;);
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     460 </span>            :     }
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     462 </span>            : }
+<a name="463"><span class="lineNum">     463 </span>            : </a>
+<span class="lineNum">     464 </span>            : static struct message_part *
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 : msg_part_find(struct message_part *parts, uoff_t physical_pos)</span>
+<span class="lineNum">     466 </span>            : {
+<span class="lineNum">     467 </span>            :     struct message_part *part, *child;
+<span class="lineNum">     468 </span>            : 
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :     for (part = parts; part != NULL; part = part-&gt;next) {</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :         if (part-&gt;physical_pos == physical_pos)</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :             return part;</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :         child = msg_part_find(part-&gt;children, physical_pos);</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         if (child != NULL)</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :             return child;</span>
+<span class="lineNum">     475 </span>            :     }
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">     477 </span>            : }
+<a name="478"><span class="lineNum">     478 </span>            : </a>
+<span class="lineNum">     479 </span>            : static int
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 : index_mail_get_binary_size(struct mail *_mail,</span>
+<span class="lineNum">     481 </span>            :                const struct message_part *part, bool include_hdr,
+<span class="lineNum">     482 </span>            :                uoff_t *size_r, unsigned int *lines_r)
+<span class="lineNum">     483 </span>            : {
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     485 </span>            :     struct message_part *all_parts, *msg_part;
+<span class="lineNum">     486 </span>            :     const struct message_binary_part *bin_part, *root_bin_part;
+<span class="lineNum">     487 </span>            :     uoff_t size, end_offset;
+<span class="lineNum">     488 </span>            :     unsigned int lines;
+<span class="lineNum">     489 </span>            :     bool binary, converted;
+<span class="lineNum">     490 </span>            : 
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     if (mail_get_parts(_mail, &amp;all_parts) &lt; 0)</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span>            :     /* first lookup from cache */
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :     if (!get_cached_binary_parts(mail)) {</span>
+<span class="lineNum">     496 </span>            :         /* not found. parse the whole message */
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :         if (index_mail_read_binary_to_cache(_mail, all_parts, TRUE,</span>
+<span class="lineNum">     498 </span>            :                             &quot;binary.size&quot;, &amp;binary, &amp;converted) &lt; 0)
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     500 </span>            :     }
+<span class="lineNum">     501 </span>            : 
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :     size = part-&gt;header_size.virtual_size +</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :         part-&gt;body_size.virtual_size;</span>
+<span class="lineNum">     504 </span>            :     /* note that we assume here that binary translation doesn't change the
+<span class="lineNum">     505 </span>            :        headers' line counts. this isn't true if the original message
+<span class="lineNum">     506 </span>            :        contained duplicate Content-Transfer-Encoding lines, but since
+<span class="lineNum">     507 </span>            :        that's invalid anyway we don't bother trying to handle it. */
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     lines = part-&gt;header_size.lines + part-&gt;body_size.lines;</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     end_offset = part-&gt;physical_pos + size;</span>
+<span class="lineNum">     510 </span>            : 
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     bin_part = mail-&gt;data.bin_parts; root_bin_part = NULL;</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :     for (; bin_part != NULL; bin_part = bin_part-&gt;next) {</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :         msg_part = msg_part_find(all_parts, bin_part-&gt;physical_pos);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :         if (msg_part == NULL) {</span>
+<span class="lineNum">     515 </span>            :             /* either binary.parts or mime.parts is broken */
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :             mail_set_cache_corrupted(_mail, MAIL_FETCH_MESSAGE_PARTS, t_strdup_printf(</span>
+<span class="lineNum">     517 </span>            :                 &quot;BINARY part at offset %&quot;PRIuUOFF_T&quot; not found from MIME parts&quot;,
+<span class="lineNum">     518 </span>            :                 bin_part-&gt;physical_pos));
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     520 </span>            :         }
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         if (msg_part-&gt;physical_pos &gt;= part-&gt;physical_pos &amp;&amp;</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :             msg_part-&gt;physical_pos &lt; end_offset) {</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :             if (msg_part-&gt;physical_pos == part-&gt;physical_pos)</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :                 root_bin_part = bin_part;</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             size -= msg_part-&gt;header_size.virtual_size +</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :                 msg_part-&gt;body_size.virtual_size;</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :             size += bin_part-&gt;binary_hdr_size +</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :                 bin_part-&gt;binary_body_size;</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :             lines -= msg_part-&gt;body_size.lines;</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :             lines += bin_part-&gt;binary_body_lines_count;</span>
+<span class="lineNum">     531 </span>            :         }
+<span class="lineNum">     532 </span>            :     }
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :     if (!include_hdr) {</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :         if (root_bin_part != NULL)</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :             size -= root_bin_part-&gt;binary_hdr_size;</span>
+<span class="lineNum">     536 </span>            :         else
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :             size -= part-&gt;header_size.virtual_size;</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :         lines -= part-&gt;header_size.lines;</span>
+<span class="lineNum">     539 </span>            :     }
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :     *size_r = size;</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :     *lines_r = lines;</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="543"><span class="lineNum">     543 </span>            : }</a>
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 : int index_mail_get_binary_stream(struct mail *_mail,</span>
+<span class="lineNum">     546 </span>            :                  const struct message_part *part,
+<span class="lineNum">     547 </span>            :                  bool include_hdr, uoff_t *size_r,
+<span class="lineNum">     548 </span>            :                  unsigned int *lines_r, bool *binary_r,
+<span class="lineNum">     549 </span>            :                  struct istream **stream_r)
+<span class="lineNum">     550 </span>            : {
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :     struct mail_binary_cache *cache = &amp;_mail-&gt;box-&gt;storage-&gt;binary_cache;</span>
+<span class="lineNum">     553 </span>            :     struct istream *input;
+<span class="lineNum">     554 </span>            :     bool binary, converted;
+<span class="lineNum">     555 </span>            : 
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :     if (stream_r == NULL) {</span>
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :         return index_mail_get_binary_size(_mail, part, include_hdr,</span>
+<span class="lineNum">     558 </span>            :                           size_r, lines_r);
+<span class="lineNum">     559 </span>            :     }
+<span class="lineNum">     560 </span>            :     /* current implementation doesn't bother implementing this,
+<span class="lineNum">     561 </span>            :        because it's not needed by anything. */
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     i_assert(lines_r == NULL);</span>
+<span class="lineNum">     563 </span>            : 
+<span class="lineNum">     564 </span>            :     /* FIXME: always put the header to temp file. skip it when needed. */
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :     if (cache-&gt;box == _mail-&gt;box &amp;&amp; cache-&gt;uid == _mail-&gt;uid &amp;&amp;</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :         cache-&gt;orig_physical_pos == part-&gt;physical_pos &amp;&amp;</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :         cache-&gt;include_hdr == include_hdr) {</span>
+<span class="lineNum">     568 </span>            :         /* we have this cached already */
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :         i_stream_seek(cache-&gt;input, 0);</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :         timeout_reset(cache-&gt;to);</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :         binary = TRUE;</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :         converted = TRUE;</span>
+<span class="lineNum">     573 </span>            :     } else {
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         if (index_mail_read_binary_to_cache(_mail, part, include_hdr,</span>
+<span class="lineNum">     575 </span>            :                             &quot;binary stream&quot;, &amp;binary, &amp;converted) &lt; 0)
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         mail-&gt;data.cache_fetch_fields |= MAIL_FETCH_STREAM_BINARY;</span>
+<span class="lineNum">     578 </span>            :     }
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     *size_r = cache-&gt;size;</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :     *binary_r = binary;</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :     if (!converted) {</span>
+<span class="lineNum">     582 </span>            :         /* don't keep this cached. it's exactly the same as
+<span class="lineNum">     583 </span>            :            the original stream */
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :         i_assert(mail-&gt;data.stream != NULL);</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         i_stream_seek(mail-&gt;data.stream, part-&gt;physical_pos +</span>
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :                   (include_hdr ? 0 :</span>
+<span class="lineNum">     587 </span>            :                    part-&gt;header_size.physical_size));
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :         input = i_stream_create_crlf(mail-&gt;data.stream);</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :         *stream_r = i_stream_create_limit(input, *size_r);</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;input);</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         mail_storage_free_binary_cache(_mail-&gt;box-&gt;storage);</span>
+<span class="lineNum">     592 </span>            :     } else {
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :         *stream_r = cache-&gt;input;</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         i_stream_ref(cache-&gt;input);</span>
+<span class="lineNum">     595 </span>            :     }
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     597 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

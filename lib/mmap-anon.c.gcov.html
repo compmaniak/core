@@ -1,0 +1,267 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/mmap-anon.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - mmap-anon.c<span style="font-size: 80%;"> (source / <a href="mmap-anon.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /* @UNSAFE: whole file */
+<span class="lineNum">       4 </span>            : 
+<span class="lineNum">       5 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;mmap-util.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #ifndef MAP_ANONYMOUS
+<span class="lineNum">      11 </span>            : #  ifdef MAP_ANON
+<span class="lineNum">      12 </span>            : #    define MAP_ANONYMOUS MAP_ANON
+<span class="lineNum">      13 </span>            : #  else
+<span class="lineNum">      14 </span>            : #    define MAP_ANONYMOUS 0
+<span class="lineNum">      15 </span>            : #  endif
+<span class="lineNum">      16 </span>            : #endif
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : #ifndef HAVE_LINUX_MREMAP
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : #include &lt;sys/mman.h&gt;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : #define MMAP_SIGNATURE 0xdeadbeef
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : #define PAGE_ALIGN(size) \
+<span class="lineNum">      25 </span>            :     (((size) + (size_t)page_size-1) &amp; ~(size_t)(page_size-1))
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : struct anon_header {
+<span class="lineNum">      28 </span>            :     unsigned int signature;
+<span class="lineNum">      29 </span>            :     size_t size;
+<span class="lineNum">      30 </span>            : };
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : static int page_size = 0;
+<span class="lineNum">      33 </span>            : static int header_size = 0;
+<span class="lineNum">      34 </span>            : static int zero_fd = -1;
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : static void movable_mmap_init(void)
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span>            : #if MAP_ANONYMOUS == 0
+<span class="lineNum">      39 </span>            :     /* mmap()ing /dev/zero should be the same with some platforms */
+<span class="lineNum">      40 </span>            :     zero_fd = open(&quot;/dev/zero&quot;, O_RDWR);
+<span class="lineNum">      41 </span>            :     if (zero_fd == -1)
+<span class="lineNum">      42 </span>            :         i_fatal(&quot;Can't open /dev/zero for creating anonymous mmap: %m&quot;);
+<span class="lineNum">      43 </span>            :     fd_close_on_exec(zero_fd, TRUE);
+<span class="lineNum">      44 </span>            : #endif
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span>            :     page_size = getpagesize();
+<span class="lineNum">      47 </span>            :     header_size = page_size;
+<span class="lineNum">      48 </span>            : }
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span>            : void *mmap_anon(size_t length)
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span>            :     struct anon_header *hdr;
+<span class="lineNum">      53 </span>            :     void *base;
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :     if (header_size == 0)
+<span class="lineNum">      56 </span>            :         movable_mmap_init();
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span>            :     /* we need extra page to store the pieces which construct
+<span class="lineNum">      59 </span>            :        the full mmap. also allocate only page-aligned mmap sizes. */
+<span class="lineNum">      60 </span>            :     length = PAGE_ALIGN(length + header_size);
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span>            :     base = mmap(NULL, length, PROT_READ | PROT_WRITE,
+<span class="lineNum">      63 </span>            :             MAP_ANONYMOUS | MAP_PRIVATE, zero_fd, 0);
+<span class="lineNum">      64 </span>            :     if (base == MAP_FAILED)
+<span class="lineNum">      65 </span>            :         return MAP_FAILED;
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span>            :     /* initialize the header */
+<span class="lineNum">      68 </span>            :     hdr = base;
+<span class="lineNum">      69 </span>            :     hdr-&gt;signature = MMAP_SIGNATURE;
+<span class="lineNum">      70 </span>            :     hdr-&gt;size = length - header_size;
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            :     return (char *) hdr + header_size;
+<span class="lineNum">      73 </span>            : }
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span>            : static void *mremap_move(struct anon_header *hdr, size_t new_size)
+<span class="lineNum">      76 </span>            : {
+<span class="lineNum">      77 </span>            :     void *new_base;
+<span class="lineNum">      78 </span>            :     char *p;
+<span class="lineNum">      79 </span>            :     size_t block_size, old_size;
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span>            :     new_base = mmap_anon(new_size);
+<span class="lineNum">      82 </span>            :     if (new_base == MAP_FAILED)
+<span class="lineNum">      83 </span>            :         return MAP_FAILED;
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span>            :     /* If we're moving large memory areas, it takes less memory to
+<span class="lineNum">      86 </span>            :        copy the memory pages in smaller blocks. */
+<span class="lineNum">      87 </span>            :     old_size = hdr-&gt;size;
+<span class="lineNum">      88 </span>            :     block_size = 1024*1024;
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span>            :     p = (char *) hdr + header_size + hdr-&gt;size;
+<span class="lineNum">      91 </span>            :     do {
+<span class="lineNum">      92 </span>            :         if (block_size &gt; old_size)
+<span class="lineNum">      93 </span>            :             block_size = old_size;
+<span class="lineNum">      94 </span>            :         p -= block_size;
+<span class="lineNum">      95 </span>            :         old_size -= block_size;
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span>            :         memcpy((char *) new_base + old_size, p, block_size);
+<span class="lineNum">      98 </span>            :         if (munmap((void *) p, block_size) &lt; 0)
+<span class="lineNum">      99 </span>            :             i_panic(&quot;munmap() failed: %m&quot;);
+<span class="lineNum">     100 </span>            :     } while (old_size != 0);
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span>            :     if (munmap((void *) hdr, header_size) &lt; 0)
+<span class="lineNum">     103 </span>            :         i_panic(&quot;munmap() failed: %m&quot;);
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span>            :     return new_base;
+<span class="lineNum">     106 </span>            : }
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span>            : void *mremap_anon(void *old_address, size_t old_size  ATTR_UNUSED,
+<span class="lineNum">     109 </span>            :           size_t new_size, unsigned long flags)
+<span class="lineNum">     110 </span>            : {
+<span class="lineNum">     111 </span>            :     struct anon_header *hdr;
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span>            :     if (old_address == NULL || old_address == MAP_FAILED) {
+<span class="lineNum">     114 </span>            :         errno = EINVAL;
+<span class="lineNum">     115 </span>            :         return MAP_FAILED;
+<span class="lineNum">     116 </span>            :     }
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span>            :     hdr = (struct anon_header *) ((char *) old_address - header_size);
+<span class="lineNum">     119 </span>            :     if (hdr-&gt;signature != MMAP_SIGNATURE)
+<span class="lineNum">     120 </span>            :         i_panic(&quot;movable_mremap(): Invalid old_address&quot;);
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span>            :     new_size = PAGE_ALIGN(new_size);
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span>            :     if (new_size &gt; hdr-&gt;size) {
+<span class="lineNum">     125 </span>            :         /* grow */
+<span class="lineNum">     126 </span>            :         if ((flags &amp; MREMAP_MAYMOVE) == 0) {
+<span class="lineNum">     127 </span>            :             errno = ENOMEM;
+<span class="lineNum">     128 </span>            :             return MAP_FAILED;
+<span class="lineNum">     129 </span>            :         }
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span>            :         return mremap_move(hdr, new_size);
+<span class="lineNum">     132 </span>            :     }
+<span class="lineNum">     133 </span>            : 
+<span class="lineNum">     134 </span>            :     if (new_size &lt; hdr-&gt;size) {
+<span class="lineNum">     135 </span>            :         /* shrink */
+<span class="lineNum">     136 </span>            :         if (munmap((void *) ((char *) hdr + header_size + new_size),
+<span class="lineNum">     137 </span>            :                hdr-&gt;size - new_size) &lt; 0)
+<span class="lineNum">     138 </span>            :             i_panic(&quot;munmap() failed: %m&quot;);
+<span class="lineNum">     139 </span>            :         hdr-&gt;size = new_size;
+<span class="lineNum">     140 </span>            :     }
+<span class="lineNum">     141 </span>            : 
+<span class="lineNum">     142 </span>            :     return old_address;
+<span class="lineNum">     143 </span>            : }
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span>            : int munmap_anon(void *start, size_t length ATTR_UNUSED)
+<span class="lineNum">     146 </span>            : {
+<span class="lineNum">     147 </span>            :     struct anon_header *hdr;
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span>            :     if (start == NULL || start == MAP_FAILED) {
+<span class="lineNum">     150 </span>            :         errno = EINVAL;
+<span class="lineNum">     151 </span>            :         return -1;
+<span class="lineNum">     152 </span>            :     }
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span>            :     hdr = (struct anon_header *) ((char *) start - header_size);
+<span class="lineNum">     155 </span>            :     if (hdr-&gt;signature != MMAP_SIGNATURE)
+<span class="lineNum">     156 </span>            :         i_panic(&quot;movable_munmap(): Invalid address&quot;);
+<span class="lineNum">     157 </span>            : 
+<span class="lineNum">     158 </span>            :     if (munmap((void *) hdr, hdr-&gt;size + header_size) &lt; 0)
+<span class="lineNum">     159 </span>            :         i_panic(&quot;munmap() failed: %m&quot;);
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span>            :     return 0;
+<span class="lineNum">     162 </span>            : }
+<span class="lineNum">     163 </span>            : 
+<a name="164"><span class="lineNum">     164 </span>            : #else</a>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 : void *mmap_anon(size_t length)</span>
+<span class="lineNum">     167 </span>            : {
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     return mmap(NULL, length, PROT_READ | PROT_WRITE,</span>
+<span class="lineNum">     169 </span>            :             MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+<a name="170"><span class="lineNum">     170 </span>            : }</a>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 : void *mremap_anon(void *old_address, size_t old_size, size_t new_size,</span>
+<span class="lineNum">     173 </span>            :           unsigned long flags)
+<span class="lineNum">     174 </span>            : {
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     return mremap(old_address, old_size, new_size, flags);</span>
+<a name="176"><span class="lineNum">     176 </span>            : }</a>
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 : int munmap_anon(void *start, size_t length)</span>
+<span class="lineNum">     179 </span>            : {
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :     return munmap(start, length);</span>
+<span class="lineNum">     181 </span>            : }
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span>            : #endif
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,1093 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-imap/imap-url.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-imap</a> - imap-url.c<span style="font-size: 80%;"> (source / <a href="imap-url.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">418</td>
+            <td class="headerCovTableEntry">446</td>
+            <td class="headerCovTableEntryHi">93.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryHi">90.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;strfuncs.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;str-sanitize.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;iso8601-date.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;uri-util.h&quot;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #include &quot;imap-url.h&quot;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : /*
+<span class="lineNum">      18 </span>            :  * IMAP URL parsing
+<span class="lineNum">      19 </span>            :  */
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : /*
+<span class="lineNum">      22 </span>            : IMAP URL Grammar overview
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : RFC5092 Section 11:
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            : imapurl          = &quot;imap://&quot; iserver ipath-query
+<span class="lineNum">      27 </span>            :                    ; Defines an absolute IMAP URL
+<span class="lineNum">      28 </span>            : iserver          = [iuserinfo &quot;@&quot;] host [ &quot;:&quot; port ]
+<span class="lineNum">      29 </span>            :                    ; This is the same as &quot;authority&quot; defined in [URI-GEN].
+<span class="lineNum">      30 </span>            : iuserinfo        = enc-user [iauth] / [enc-user] iauth
+<span class="lineNum">      31 </span>            :                    ; conforms to the generic syntax of &quot;userinfo&quot; as
+<span class="lineNum">      32 </span>            :                    ; defined in [URI-GEN].
+<span class="lineNum">      33 </span>            : enc-user         = 1*achar
+<span class="lineNum">      34 </span>            :                    ; %-encoded version of [IMAP4] authorization identity or
+<span class="lineNum">      35 </span>            :                    ; &quot;userid&quot;.
+<span class="lineNum">      36 </span>            : iauth            = &quot;;AUTH=&quot; ( &quot;*&quot; / enc-auth-type )
+<span class="lineNum">      37 </span>            : enc-auth-type    = 1*achar
+<span class="lineNum">      38 </span>            :                    ; %-encoded version of [IMAP4] &quot;auth-type&quot;
+<span class="lineNum">      39 </span>            : ipath-query      = [&quot;/&quot; [ icommand ]]
+<span class="lineNum">      40 </span>            :                    ; Corresponds to &quot;path-abempty [ &quot;?&quot; query ]&quot; in
+<span class="lineNum">      41 </span>            :                    ; [URI-GEN]
+<span class="lineNum">      42 </span>            : icommand         = imessagelist /
+<span class="lineNum">      43 </span>            :                    imessagepart [iurlauth]
+<span class="lineNum">      44 </span>            : imessagelist     = imailbox-ref [ &quot;?&quot; enc-search ]
+<span class="lineNum">      45 </span>            :                    ; &quot;enc-search&quot; is [URI-GEN] &quot;query&quot;.
+<span class="lineNum">      46 </span>            : imessagepart     = imailbox-ref iuid [isection] [ipartial]
+<span class="lineNum">      47 </span>            : imailbox-ref     = enc-mailbox [uidvalidity]
+<span class="lineNum">      48 </span>            : uidvalidity      = &quot;;UIDVALIDITY=&quot; nz-number
+<span class="lineNum">      49 </span>            :                    ; See [IMAP4] for &quot;nz-number&quot; definition
+<span class="lineNum">      50 </span>            : iuid             = &quot;/&quot; iuid-only
+<span class="lineNum">      51 </span>            : iuid-only        = &quot;;UID=&quot; nz-number
+<span class="lineNum">      52 </span>            :                    ; See [IMAP4] for &quot;nz-number&quot; definition
+<span class="lineNum">      53 </span>            : isection         = &quot;/&quot; isection-only
+<span class="lineNum">      54 </span>            : isection-only    = &quot;;SECTION=&quot; enc-section
+<span class="lineNum">      55 </span>            : ipartial         = &quot;/&quot; ipartial-only
+<span class="lineNum">      56 </span>            : ipartial-only    = &quot;;PARTIAL=&quot; partial-range
+<span class="lineNum">      57 </span>            : enc-search       = 1*bchar
+<span class="lineNum">      58 </span>            :                    ; %-encoded version of [IMAPABNF]
+<span class="lineNum">      59 </span>            :                    ; &quot;search-program&quot;.  Note that IMAP4
+<span class="lineNum">      60 </span>            :                    ; literals may not be used in
+<span class="lineNum">      61 </span>            :                    ; a &quot;search-program&quot;, i.e., only
+<span class="lineNum">      62 </span>            :                    ; quoted or non-synchronizing
+<span class="lineNum">      63 </span>            :                    ; literals (if the server supports
+<span class="lineNum">      64 </span>            :                    ; LITERAL+ [LITERAL+]) are allowed.
+<span class="lineNum">      65 </span>            : enc-mailbox      = 1*bchar
+<span class="lineNum">      66 </span>            :                    ; %-encoded version of [IMAP4] &quot;mailbox&quot;
+<span class="lineNum">      67 </span>            : enc-section      = 1*bchar
+<span class="lineNum">      68 </span>            :                    ; %-encoded version of [IMAP4] &quot;section-spec&quot;
+<span class="lineNum">      69 </span>            : partial-range    = number [&quot;.&quot; nz-number]
+<span class="lineNum">      70 </span>            :                    ; partial FETCH.  The first number is
+<span class="lineNum">      71 </span>            :                    ; the offset of the first byte,
+<span class="lineNum">      72 </span>            :                    ; the second number is the length of
+<span class="lineNum">      73 </span>            :                    ; the fragment.
+<span class="lineNum">      74 </span>            : bchar            = achar / &quot;:&quot; / &quot;@&quot; / &quot;/&quot;
+<span class="lineNum">      75 </span>            : achar            = uchar / &quot;&amp;&quot; / &quot;=&quot;
+<span class="lineNum">      76 </span>            :                    ;; Same as [URI-GEN] 'unreserved / sub-delims /
+<span class="lineNum">      77 </span>            :                    ;; pct-encoded', but &quot;;&quot; is disallowed.
+<span class="lineNum">      78 </span>            : uchar            = unreserved / sub-delims-sh / pct-encoded
+<span class="lineNum">      79 </span>            : sub-delims-sh    = &quot;!&quot; / &quot;$&quot; / &quot;'&quot; / &quot;(&quot; / &quot;)&quot; /
+<span class="lineNum">      80 </span>            :                    &quot;*&quot; / &quot;+&quot; / &quot;,&quot;
+<span class="lineNum">      81 </span>            :                    ;; Same as [URI-GEN] sub-delims,
+<span class="lineNum">      82 </span>            :                    ;; but without &quot;;&quot;, &quot;&amp;&quot; and &quot;=&quot;.
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span>            : The following rules are only used in the presence of the IMAP
+<span class="lineNum">      85 </span>            : [URLAUTH] extension:
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span>            : authimapurl      = &quot;imap://&quot; iserver &quot;/&quot; imessagepart
+<span class="lineNum">      88 </span>            :                    ; Same as &quot;imapurl&quot; when &quot;[icommand]&quot; is
+<span class="lineNum">      89 </span>            :                    ; &quot;imessagepart&quot;
+<span class="lineNum">      90 </span>            : authimapurlfull  = authimapurl iurlauth
+<span class="lineNum">      91 </span>            :                    ; Same as &quot;imapurl&quot; when &quot;[icommand]&quot; is
+<span class="lineNum">      92 </span>            :                    ; &quot;imessagepart iurlauth&quot;
+<span class="lineNum">      93 </span>            : authimapurlrump  = authimapurl iurlauth-rump
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span>            : iurlauth         = iurlauth-rump iua-verifier
+<span class="lineNum">      96 </span>            : enc-urlauth      = 32*HEXDIG
+<span class="lineNum">      97 </span>            : iua-verifier     = &quot;:&quot; uauth-mechanism &quot;:&quot; enc-urlauth
+<span class="lineNum">      98 </span>            : iurlauth-rump    = [expire] &quot;;URLAUTH=&quot; access
+<span class="lineNum">      99 </span>            : access           = (&quot;submit+&quot; enc-user) / (&quot;user+&quot; enc-user) /
+<span class="lineNum">     100 </span>            :                    &quot;authuser&quot; / &quot;anonymous&quot;
+<span class="lineNum">     101 </span>            : expire           = &quot;;EXPIRE=&quot; date-time
+<span class="lineNum">     102 </span>            :                    ; date-time is defined in [DATETIME]
+<span class="lineNum">     103 </span>            : uauth-mechanism  = &quot;INTERNAL&quot; / 1*(ALPHA / DIGIT / &quot;-&quot; / &quot;.&quot;)
+<span class="lineNum">     104 </span>            :                    ; Case-insensitive.
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span>            : [URI-GEN] RFC3986 Appendix A:
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span>            : Implemented in src/lib/uri-util.c
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span>            : */
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span>            : /*
+<span class="lineNum">     113 </span>            :  * Imap URL parser
+<span class="lineNum">     114 </span>            :  */
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span>            : struct imap_url_parser {
+<span class="lineNum">     117 </span>            :     struct uri_parser parser;
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span>            :     enum imap_url_parse_flags flags;
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span>            :     struct imap_url *url;
+<span class="lineNum">     122 </span>            :     const struct imap_url *base;
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span>            :     bool relative:1;
+<span class="lineNum">     125 </span>            : };
+<a name="126"><span class="lineNum">     126 </span>            : </a>
+<span class="lineNum">     127 </span>            : static int
+<span class="lineNum">     128 </span><span class="lineCov">         73 : imap_url_parse_number(struct uri_parser *parser, const char *data,</span>
+<span class="lineNum">     129 </span>            :               uint32_t *number_r)
+<span class="lineNum">     130 </span>            : {
+<span class="lineNum">     131 </span>            :     /* [IMAP4] RFC3501, Section 9
+<span class="lineNum">     132 </span>            :      *
+<span class="lineNum">     133 </span>            :      * number          = 1*DIGIT
+<span class="lineNum">     134 </span>            :      *                   ; Unsigned 32-bit integer
+<span class="lineNum">     135 </span>            :      *                   ; (0 &lt;= n &lt; 4,294,967,296)
+<span class="lineNum">     136 </span>            :      */
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineCov">         73 :     if (i_isdigit(*data)) {</span>
+<span class="lineNum">     139 </span><span class="lineCov">         73 :         if (str_to_uint32(data, number_r) == 0)</span>
+<span class="lineNum">     140 </span><span class="lineCov">         71 :             return 1;</span>
+<span class="lineNum">     141 </span><span class="lineCov">          2 :         parser-&gt;error = &quot;IMAP number is too high&quot;;</span>
+<span class="lineNum">     142 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     143 </span>            :     }
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     146 </span>            :         &quot;Value '%s' is not a valid IMAP number&quot;, data);
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     148 </span>            : }
+<a name="149"><span class="lineNum">     149 </span>            : </a>
+<span class="lineNum">     150 </span>            : static int
+<span class="lineNum">     151 </span><span class="lineCov">         23 : imap_url_parse_offset(struct uri_parser *parser, const char *data,</span>
+<span class="lineNum">     152 </span>            :               uoff_t *number_r)
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span>            :     /* Syntax for big (uoff_t) numbers. Not strictly IMAP syntax, but this
+<span class="lineNum">     155 </span>            :        is handled similarly for Dovecot IMAP FETCH BODY partial &lt;.&gt;
+<span class="lineNum">     156 </span>            :        implementation. */
+<span class="lineNum">     157 </span><span class="lineCov">         23 :     if (i_isdigit(*data)) {</span>
+<span class="lineNum">     158 </span><span class="lineCov">         22 :         if (str_to_uoff(data, number_r) == 0)</span>
+<span class="lineNum">     159 </span><span class="lineCov">         20 :             return 1;</span>
+<span class="lineNum">     160 </span><span class="lineCov">          2 :         parser-&gt;error = &quot;IMAP number is too high&quot;;</span>
+<span class="lineNum">     161 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     162 </span>            :     }
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span><span class="lineCov">          1 :     parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     165 </span>            :         &quot;Value '%s' is not a valid IMAP number&quot;, data);
+<span class="lineNum">     166 </span><span class="lineCov">          1 :     return -1;</span>
+<a name="167"><span class="lineNum">     167 </span>            : }</a>
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span><span class="lineCov">        149 : static int imap_url_parse_iserver(struct imap_url_parser *url_parser)</span>
+<span class="lineNum">     170 </span>            : {
+<span class="lineNum">     171 </span><span class="lineCov">        149 :     struct uri_parser *parser = &amp;url_parser-&gt;parser;</span>
+<span class="lineNum">     172 </span>            :     struct uri_authority auth;
+<span class="lineNum">     173 </span><span class="lineCov">        149 :     struct imap_url *url = url_parser-&gt;url;</span>
+<span class="lineNum">     174 </span>            :     const char *data;
+<span class="lineNum">     175 </span><span class="lineCov">        149 :     int ret = 0;</span>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span>            :     /* imapurl          = &quot;imap://&quot; iserver {...}
+<span class="lineNum">     178 </span>            :      * inetwork-path    = &quot;//&quot; iserver {...}
+<span class="lineNum">     179 </span>            :      * iserver          = [iuserinfo &quot;@&quot;] host [&quot;:&quot; port]
+<span class="lineNum">     180 </span>            :      *                    ; This is the same as &quot;authority&quot; defined
+<span class="lineNum">     181 </span>            :      *                    ; in [URI-GEN].
+<span class="lineNum">     182 </span>            :      * iuserinfo        = enc-user [iauth] / [enc-user] iauth
+<span class="lineNum">     183 </span>            :      *                    ; conforms to the generic syntax of &quot;userinfo&quot; as
+<span class="lineNum">     184 </span>            :      *                    ; defined in [URI-GEN].
+<span class="lineNum">     185 </span>            :      * enc-user         = 1*achar
+<span class="lineNum">     186 </span>            :      *                    ; %-encoded version of [IMAP4] authorization identity or
+<span class="lineNum">     187 </span>            :      *                    ; &quot;userid&quot;.
+<span class="lineNum">     188 </span>            :      * iauth            = &quot;;AUTH=&quot; ( &quot;*&quot; / enc-auth-type )
+<span class="lineNum">     189 </span>            :      * enc-auth-type    = 1*achar
+<span class="lineNum">     190 </span>            :      *                    ; %-encoded version of [IMAP4] &quot;auth-type&quot;
+<span class="lineNum">     191 </span>            :      */
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span>            :     /* &quot;//&quot; iserver */
+<span class="lineNum">     194 </span><span class="lineCov">        149 :     if ((ret = uri_parse_slashslash_host_authority</span>
+<span class="lineNum">     195 </span>            :         (parser, &amp;auth)) &lt;= 0)
+<span class="lineNum">     196 </span><span class="lineCov">         33 :         return ret;</span>
+<span class="lineNum">     197 </span><span class="lineCov">        116 :     if (auth.host.name == NULL || *auth.host.name == '\0') {</span>
+<span class="lineNum">     198 </span>            :         /* This situation is not documented anywhere, but it is not
+<span class="lineNum">     199 </span>            :            currently useful either and potentially problematic if not
+<span class="lineNum">     200 </span>            :            handled explicitly everywhere. So, it is denied hier for now.
+<span class="lineNum">     201 </span>            :          */
+<span class="lineNum">     202 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;IMAP URL does not allow empty host identifier&quot;;</span>
+<span class="lineNum">     203 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     204 </span>            :     }
+<span class="lineNum">     205 </span>            :     /* iuserinfo        = enc-user [iauth] / [enc-user] iauth */
+<span class="lineNum">     206 </span><span class="lineCov">        115 :     if (auth.enc_userinfo != NULL) {</span>
+<span class="lineNum">     207 </span>            :         const char *p, *uend;
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span>            :         /* Scan for &quot;;AUTH=&quot; */
+<span class="lineNum">     210 </span><span class="lineCov">        432 :         for (p = auth.enc_userinfo; *p != '\0'; p++) {</span>
+<span class="lineNum">     211 </span><span class="lineCov">        381 :             if (*p == ';')</span>
+<span class="lineNum">     212 </span><span class="lineCov">         23 :                 break;</span>
+<span class="lineNum">     213 </span>            :             /* check for unallowed userinfo characters */
+<span class="lineNum">     214 </span><span class="lineCov">        358 :             if (*p == ':') {</span>
+<span class="lineNum">     215 </span><span class="lineCov">          1 :                 parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     216 </span>            :                     &quot;Stray ':' in userinfo `%s'&quot;, auth.enc_userinfo);
+<span class="lineNum">     217 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     218 </span>            :             }
+<span class="lineNum">     219 </span>            :         }
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineCov">         74 :         uend = p;</span>
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span><span class="lineCov">         74 :         if (*p == ';') {</span>
+<span class="lineNum">     224 </span><span class="lineCov">         23 :             if (strncasecmp(p, &quot;;AUTH=&quot;, 6) != 0) {</span>
+<span class="lineNum">     225 </span><span class="lineCov">          1 :                 parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     226 </span>            :                     &quot;Stray ';' in userinfo `%s'&quot;,
+<span class="lineNum">     227 </span>            :                     auth.enc_userinfo);
+<span class="lineNum">     228 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     229 </span>            :             }
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineCov">        121 :             for (p += 6; *p != '\0'; p++) {</span>
+<span class="lineNum">     232 </span><span class="lineCov">        101 :                 if (*p == ';' || *p == ':') {</span>
+<span class="lineNum">     233 </span><span class="lineCov">          4 :                     parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     234 </span><span class="lineCov">          2 :                         &quot;Stray '%c' in userinfo `%s'&quot;, *p, auth.enc_userinfo);</span>
+<span class="lineNum">     235 </span><span class="lineCov">          2 :                     return -1;</span>
+<span class="lineNum">     236 </span>            :                 }
+<span class="lineNum">     237 </span>            :             }
+<span class="lineNum">     238 </span>            :         }
+<span class="lineNum">     239 </span>            : 
+<span class="lineNum">     240 </span>            :         /* enc-user */
+<span class="lineNum">     241 </span><span class="lineCov">         71 :         if (url != NULL &amp;&amp; uend &gt; auth.enc_userinfo) {</span>
+<span class="lineNum">     242 </span><span class="lineCov">         69 :             if (!uri_data_decode(parser, auth.enc_userinfo, uend, &amp;data))</span>
+<span class="lineNum">     243 </span><span class="lineCov">          3 :                 return -1;</span>
+<span class="lineNum">     244 </span><span class="lineCov">         66 :             url-&gt;userid = p_strdup(parser-&gt;pool, data);</span>
+<span class="lineNum">     245 </span>            :         }
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span>            :         /* ( &quot;*&quot; / enc-auth-type ) */
+<span class="lineNum">     248 </span><span class="lineCov">         68 :         if (*uend == ';') {</span>
+<span class="lineNum">     249 </span><span class="lineCov">         19 :             p = uend + 6;</span>
+<span class="lineNum">     250 </span><span class="lineCov">         19 :             if (*p == '\0') {</span>
+<span class="lineNum">     251 </span><span class="lineCov">          1 :                 parser-&gt;error = &quot;Empty auth-type value after ';AUTH='&quot;;</span>
+<span class="lineNum">     252 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     253 </span>            :             }
+<span class="lineNum">     254 </span><span class="lineCov">         18 :             if (url != NULL) {</span>
+<span class="lineNum">     255 </span><span class="lineCov">         18 :                 if (!uri_data_decode(parser, p, NULL, &amp;data))</span>
+<span class="lineNum">     256 </span><span class="lineCov">          3 :                     return -1;</span>
+<span class="lineNum">     257 </span><span class="lineCov">         15 :                 url-&gt;auth_type = p_strdup(parser-&gt;pool, data);</span>
+<span class="lineNum">     258 </span>            :             }
+<span class="lineNum">     259 </span>            :         }
+<span class="lineNum">     260 </span>            :     }
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineCov">        104 :     if (url != NULL) {</span>
+<span class="lineNum">     263 </span><span class="lineCov">        104 :         url-&gt;host = auth.host;</span>
+<span class="lineNum">     264 </span><span class="lineCov">        104 :         url-&gt;port = auth.port;</span>
+<span class="lineNum">     265 </span>            :     }
+<span class="lineNum">     266 </span><span class="lineCov">        104 :     return 1;</span>
+<span class="lineNum">     267 </span>            : }
+<a name="268"><span class="lineNum">     268 </span>            : </a>
+<span class="lineNum">     269 </span>            : static int
+<span class="lineNum">     270 </span><span class="lineCov">         20 : imap_url_parse_urlauth(struct imap_url_parser *url_parser, const char *urlext)</span>
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span><span class="lineCov">         20 :     struct uri_parser *parser = &amp;url_parser-&gt;parser;</span>
+<span class="lineNum">     273 </span><span class="lineCov">         20 :     struct imap_url *url = url_parser-&gt;url;</span>
+<span class="lineNum">     274 </span>            :     const char *p, *q, *data;
+<span class="lineNum">     275 </span>            :     buffer_t *uauth_token;
+<span class="lineNum">     276 </span><span class="lineCov">         20 :     time_t expire = (time_t)-1;</span>
+<span class="lineNum">     277 </span>            :     int tz;
+<span class="lineNum">     278 </span>            : 
+<span class="lineNum">     279 </span>            :     /* iurlauth         = iurlauth-rump iua-verifier
+<span class="lineNum">     280 </span>            :      * enc-urlauth      = 32*HEXDIG
+<span class="lineNum">     281 </span>            :      * iua-verifier     = &quot;:&quot; uauth-mechanism &quot;:&quot; enc-urlauth
+<span class="lineNum">     282 </span>            :      * iurlauth-rump    = [expire] &quot;;URLAUTH=&quot; access
+<span class="lineNum">     283 </span>            :      * access           = (&quot;submit+&quot; enc-user) / (&quot;user+&quot; enc-user) /
+<span class="lineNum">     284 </span>            :      *                    &quot;authuser&quot; / &quot;anonymous&quot;
+<span class="lineNum">     285 </span>            :      * expire           = &quot;;EXPIRE=&quot; date-time
+<span class="lineNum">     286 </span>            :      *                    ; date-time is defined in [DATETIME]
+<span class="lineNum">     287 </span>            :      * uauth-mechanism  = &quot;INTERNAL&quot; / 1*(ALPHA / DIGIT / &quot;-&quot; / &quot;.&quot;)
+<span class="lineNum">     288 </span>            :      *                    ; Case-insensitive.
+<span class="lineNum">     289 </span>            :      */
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span>            :     /* &quot;;EXPIRE=&quot; date-time */
+<span class="lineNum">     292 </span><span class="lineCov">         20 :     if (strncasecmp(urlext, &quot;;EXPIRE=&quot;, 8) == 0) {</span>
+<span class="lineNum">     293 </span><span class="lineCov">          5 :         if ((url_parser-&gt;flags &amp; IMAP_URL_PARSE_ALLOW_URLAUTH) == 0) {</span>
+<span class="lineNum">     294 </span><span class="lineCov">          1 :             parser-&gt;error = &quot;`;EXPIRE=' is not allowed in this context&quot;;</span>
+<span class="lineNum">     295 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     296 </span>            :         }
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineCov">          4 :         if ((p = strchr(urlext+8, ';')) != NULL) {</span>
+<span class="lineNum">     299 </span><span class="lineCov">          3 :             if (!iso8601_date_parse((const unsigned char *)urlext+8,</span>
+<span class="lineNum">     300 </span><span class="lineCov">          3 :                         p-urlext-8, &amp;expire, &amp;tz)) {</span>
+<span class="lineNum">     301 </span><span class="lineCov">          1 :                 parser-&gt;error = &quot;invalid date-time for `;EXPIRE='&quot;;</span>
+<span class="lineNum">     302 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     303 </span>            :             }
+<span class="lineNum">     304 </span><span class="lineCov">          2 :             urlext = p;</span>
+<span class="lineNum">     305 </span>            :         }
+<span class="lineNum">     306 </span>            :     }
+<span class="lineNum">     307 </span>            : 
+<span class="lineNum">     308 </span>            :     /* &quot;;URLAUTH=&quot; access */
+<span class="lineNum">     309 </span><span class="lineCov">         18 :     if (strncasecmp(urlext, &quot;;URLAUTH=&quot;, 9) != 0) {</span>
+<span class="lineNum">     310 </span><span class="lineCov">          2 :         if (expire != (time_t)-1) {</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :             parser-&gt;error = &quot;`;EXPIRE=' without `;URLAUTH='&quot;;</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     313 </span>            :         }
+<span class="lineNum">     314 </span><span class="lineCov">          2 :         return 0;</span>
+<span class="lineNum">     315 </span>            :     }
+<span class="lineNum">     316 </span><span class="lineCov">         16 :     urlext += 9;</span>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span><span class="lineCov">         16 :     if (url != NULL)</span>
+<span class="lineNum">     319 </span><span class="lineCov">         16 :         url-&gt;uauth_expire = expire;</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineCov">         16 :     if ((url_parser-&gt;flags &amp; IMAP_URL_PARSE_ALLOW_URLAUTH) == 0) {</span>
+<span class="lineNum">     322 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;`;URLAUTH=' is not allowed in this context&quot;;</span>
+<span class="lineNum">     323 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     324 </span>            :     }
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineCov">         15 :     if (url_parser-&gt;relative) {</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :         parser-&gt;error = &quot;IMAP URLAUTH requires absolute URL&quot;;</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     329 </span>            :     }
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span><span class="lineCov">         15 :     if ((p = strchr(urlext, ':')) == NULL) {</span>
+<span class="lineNum">     332 </span><span class="lineCov">          5 :         size_t len = strlen(urlext);</span>
+<span class="lineNum">     333 </span><span class="lineCov">          5 :         if (len == 0) {</span>
+<span class="lineNum">     334 </span><span class="lineCov">          1 :             parser-&gt;error = &quot;Missing URLAUTH access specifier&quot;;</span>
+<span class="lineNum">     335 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     336 </span>            :         }   
+<span class="lineNum">     337 </span><span class="lineCov">          4 :         p = urlext+len;</span>
+<span class="lineNum">     338 </span><span class="lineCov">         10 :     } else if (p == urlext) {</span>
+<span class="lineNum">     339 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Empty URLAUTH access specifier&quot;;</span>
+<span class="lineNum">     340 </span><span class="lineCov">          1 :         return -1;  </span>
+<span class="lineNum">     341 </span>            :     }
+<span class="lineNum">     342 </span>            : 
+<span class="lineNum">     343 </span>            :     /* parse access */
+<span class="lineNum">     344 </span><span class="lineCov">         13 :     if ((q = strchr(urlext, '+')) == NULL) {</span>
+<span class="lineNum">     345 </span>            :         /* application */
+<span class="lineNum">     346 </span><span class="lineCov">          8 :         if (url != NULL) {</span>
+<span class="lineNum">     347 </span><span class="lineCov">          8 :             url-&gt;uauth_access_application =</span>
+<span class="lineNum">     348 </span><span class="lineCov">          8 :                 p_strdup_until(parser-&gt;pool, urlext, p);</span>
+<span class="lineNum">     349 </span>            :         }
+<span class="lineNum">     350 </span>            :     } else {
+<span class="lineNum">     351 </span>            :         /* application &quot;+&quot; enc-user */
+<span class="lineNum">     352 </span><span class="lineCov">          5 :         if (urlext == q) {</span>
+<span class="lineNum">     353 </span><span class="lineCov">          1 :             parser-&gt;error = &quot;Empty URLAUTH access application&quot;;</span>
+<span class="lineNum">     354 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     355 </span>            :         }
+<span class="lineNum">     356 </span><span class="lineCov">          4 :         if (q+1 == p) {</span>
+<span class="lineNum">     357 </span><span class="lineCov">          1 :             parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     358 </span>            :                 &quot;Empty URLAUTH access user for `%s' application&quot;,
+<span class="lineNum">     359 </span>            :                 t_strdup_until(urlext, q));
+<span class="lineNum">     360 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     361 </span>            :         }
+<span class="lineNum">     362 </span><span class="lineCov">          3 :         if (!uri_data_decode(parser, q+1, p, &amp;data))</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     364 </span><span class="lineCov">          3 :         if (url != NULL) {</span>
+<span class="lineNum">     365 </span><span class="lineCov">          3 :             url-&gt;uauth_access_application =</span>
+<span class="lineNum">     366 </span><span class="lineCov">          3 :                 p_strdup_until(parser-&gt;pool, urlext, q);</span>
+<span class="lineNum">     367 </span><span class="lineCov">          3 :             url-&gt;uauth_access_user = p_strdup(parser-&gt;pool, data);</span>
+<span class="lineNum">     368 </span>            :         }
+<span class="lineNum">     369 </span>            :     }
+<span class="lineNum">     370 </span>            : 
+<span class="lineNum">     371 </span><span class="lineCov">         11 :     if (url != NULL) {</span>
+<span class="lineNum">     372 </span>            :         /* get rump url */
+<span class="lineNum">     373 </span><span class="lineCov">         11 :         if ((url_parser-&gt;flags &amp; IMAP_URL_PARSE_SCHEME_EXTERNAL) == 0) {</span>
+<span class="lineNum">     374 </span><span class="lineCov">         11 :             url-&gt;uauth_rumpurl = p_strdup_until(parser-&gt;pool,</span>
+<span class="lineNum">     375 </span><span class="lineCov">         11 :                 parser-&gt;begin, parser-&gt;end-strlen(p));</span>
+<span class="lineNum">     376 </span>            :         } else {
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :             url-&gt;uauth_rumpurl = p_strconcat(parser-&gt;pool, &quot;imap:&quot;,</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :                 t_strdup_until(parser-&gt;begin, parser-&gt;end-strlen(p)),</span>
+<span class="lineNum">     379 </span>            :                 NULL);
+<span class="lineNum">     380 </span>            :         }
+<span class="lineNum">     381 </span>            :     }
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineCov">         11 :     if (*p == '\0') {</span>
+<span class="lineNum">     384 </span>            :         /* rump url; caller should check whether this is appropriate */
+<span class="lineNum">     385 </span><span class="lineCov">          4 :         return 1;</span>
+<span class="lineNum">     386 </span>            :     }
+<span class="lineNum">     387 </span>            : 
+<span class="lineNum">     388 </span>            :     /* iua-verifier     = &quot;:&quot; uauth-mechanism &quot;:&quot; enc-urlauth */
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineCov">          7 :     q = p + 1;</span>
+<span class="lineNum">     391 </span><span class="lineCov">          7 :     if (*q == '\0') {</span>
+<span class="lineNum">     392 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Missing URLAUTH verifier&quot;;</span>
+<span class="lineNum">     393 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     394 </span>            :     }
+<span class="lineNum">     395 </span><span class="lineCov">          6 :     if ((p = strchr(q, ':')) == NULL || p[1] == '\0') {</span>
+<span class="lineNum">     396 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Missing URLAUTH token&quot;;</span>
+<span class="lineNum">     397 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     398 </span>            :     }
+<span class="lineNum">     399 </span><span class="lineCov">          5 :     if (p == q) {</span>
+<span class="lineNum">     400 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Missing URLAUTH mechanism&quot;;</span>
+<span class="lineNum">     401 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     402 </span>            :     }
+<span class="lineNum">     403 </span><span class="lineCov">          4 :     if (url != NULL) {</span>
+<span class="lineNum">     404 </span>            :         /* get mechanism */
+<span class="lineNum">     405 </span><span class="lineCov">          4 :         url-&gt;uauth_mechanism = p_strdup_until(parser-&gt;pool, q, p);</span>
+<span class="lineNum">     406 </span>            :     }
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span>            :     /* enc-urlauth      = 32*HEXDIG */
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineCov">          4 :     q = p+1;</span>
+<span class="lineNum">     411 </span><span class="lineCov">          4 :     if (strlen(q) &lt; 32) {</span>
+<span class="lineNum">     412 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Too short URLAUTH token&quot;;</span>
+<span class="lineNum">     413 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     414 </span>            :     }
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineCov">          3 :     uauth_token = t_buffer_create(64);</span>
+<span class="lineNum">     417 </span><span class="lineCov">          3 :     if (hex_to_binary(q, uauth_token) &lt; 0) {</span>
+<span class="lineNum">     418 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Invalid URLAUTH token&quot;;</span>
+<span class="lineNum">     419 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     420 </span>            :     }
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineCov">          2 :     if (url != NULL) {</span>
+<span class="lineNum">     423 </span><span class="lineCov">          2 :         url-&gt;uauth_token = uauth_token-&gt;data;</span>
+<span class="lineNum">     424 </span><span class="lineCov">          2 :         url-&gt;uauth_token_size = uauth_token-&gt;used;</span>
+<span class="lineNum">     425 </span>            :     }
+<span class="lineNum">     426 </span><span class="lineCov">          2 :     return 1;</span>
+<span class="lineNum">     427 </span>            : }
+<a name="428"><span class="lineNum">     428 </span>            : </a>
+<span class="lineNum">     429 </span>            : static int
+<span class="lineNum">     430 </span><span class="lineCov">        111 : imap_url_parse_path(struct imap_url_parser *url_parser,</span>
+<span class="lineNum">     431 </span>            :             const char *const *path, int relative,
+<span class="lineNum">     432 </span>            :             bool *is_messagelist_r)
+<span class="lineNum">     433 </span>            : {
+<span class="lineNum">     434 </span><span class="lineCov">        111 :     struct uri_parser *parser = &amp;url_parser-&gt;parser;</span>
+<span class="lineNum">     435 </span><span class="lineCov">        111 :     struct imap_url *url = url_parser-&gt;url;</span>
+<span class="lineNum">     436 </span>            :     const char *const *segment;
+<span class="lineNum">     437 </span><span class="lineCov">        111 :     string_t *mailbox, *section = NULL;</span>
+<span class="lineNum">     438 </span><span class="lineCov">        111 :     uint32_t uid = 0, uidvalidity = 0;</span>
+<span class="lineNum">     439 </span><span class="lineCov">        111 :     uoff_t partial_offset = 0, partial_size = 0;</span>
+<span class="lineNum">     440 </span><span class="lineCov">        111 :     bool have_partial = FALSE;</span>
+<span class="lineNum">     441 </span><span class="lineCov">        111 :     const char *p, *value, *urlext = NULL;</span>
+<span class="lineNum">     442 </span><span class="lineCov">        111 :     bool mailbox_endslash = FALSE, section_endslash = FALSE;</span>
+<span class="lineNum">     443 </span>            :     int ret;
+<span class="lineNum">     444 </span>            : 
+<span class="lineNum">     445 </span>            :     /* icommand         = imessagelist /
+<span class="lineNum">     446 </span>            :      *                    imessagepart [iurlauth]
+<span class="lineNum">     447 </span>            :      * imessagelist     = imailbox-ref [ &quot;?&quot; enc-search ]
+<span class="lineNum">     448 </span>            :      *                    ; &quot;enc-search&quot; is [URI-GEN] &quot;query&quot;.
+<span class="lineNum">     449 </span>            :      * imessagepart     = imailbox-ref iuid [isection] [ipartial]
+<span class="lineNum">     450 </span>            :      * imailbox-ref     = enc-mailbox [uidvalidity]
+<span class="lineNum">     451 </span>            :      * uidvalidity      = &quot;;UIDVALIDITY=&quot; nz-number
+<span class="lineNum">     452 </span>            :      * iuid             = &quot;/&quot; iuid-only
+<span class="lineNum">     453 </span>            :      * iuid-only        = &quot;;UID=&quot; nz-number
+<span class="lineNum">     454 </span>            :      *                    ; See [IMAP4] for &quot;nz-number&quot; definition
+<span class="lineNum">     455 </span>            :      * isection         = &quot;/&quot; isection-only
+<span class="lineNum">     456 </span>            :      * isection-only    = &quot;;SECTION=&quot; enc-section
+<span class="lineNum">     457 </span>            :      * ipartial         = &quot;/&quot; ipartial-only
+<span class="lineNum">     458 </span>            :      * ipartial-only    = &quot;;PARTIAL=&quot; partial-range
+<span class="lineNum">     459 </span>            :      * enc-mailbox      = 1*bchar
+<span class="lineNum">     460 </span>            :      *                    ; %-encoded version of [IMAP4] &quot;mailbox&quot;
+<span class="lineNum">     461 </span>            :      * enc-section      = 1*bchar
+<span class="lineNum">     462 </span>            :      *                    ; %-encoded version of [IMAP4] &quot;section-spec&quot;
+<span class="lineNum">     463 </span>            :      * partial-range    = number [&quot;.&quot; nz-number]
+<span class="lineNum">     464 </span>            :      *                    ; partial FETCH.  The first number is
+<span class="lineNum">     465 </span>            :      *                    ; the offset of the first byte,
+<span class="lineNum">     466 </span>            :      *                    ; the second number is the length of
+<span class="lineNum">     467 </span>            :      *                    ; the fragment.
+<span class="lineNum">     468 </span>            :      */
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span>            :     /* IMAP URL syntax is quite horrible to parse. It relies upon the
+<span class="lineNum">     471 </span>            :        generic URI path resolution, but the icommand syntax also relies on
+<span class="lineNum">     472 </span>            :        ';' separators. We use the generic URI path parse functions to
+<span class="lineNum">     473 </span>            :        adhere to the URI path resolution rules and glue back together path
+<span class="lineNum">     474 </span>            :        segments when these are part of the same (mailbox or section) value.
+<span class="lineNum">     475 </span>            :     */
+<span class="lineNum">     476 </span>            : 
+<span class="lineNum">     477 </span><span class="lineCov">        111 :     mailbox = t_str_new(256);</span>
+<span class="lineNum">     478 </span><span class="lineCov">        111 :     segment = path;</span>
+<span class="lineNum">     479 </span>            : 
+<span class="lineNum">     480 </span>            :     /* Resolve relative URI path; determine what to copy from the base URI */
+<span class="lineNum">     481 </span><span class="lineCov">        111 :     if (url != NULL &amp;&amp; url_parser-&gt;base != NULL &amp;&amp; relative &gt; 0) {</span>
+<span class="lineNum">     482 </span><span class="lineCov">         21 :         const struct imap_url *base = url_parser-&gt;base;</span>
+<span class="lineNum">     483 </span><span class="lineCov">         21 :         int rel = relative;</span>
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span>            :         /* /;PARTIAL= */
+<span class="lineNum">     486 </span><span class="lineCov">         21 :         if (base-&gt;have_partial &amp;&amp; --rel &lt;= 0) {</span>
+<span class="lineNum">     487 </span><span class="lineCov">          3 :             have_partial = base-&gt;have_partial;</span>
+<span class="lineNum">     488 </span><span class="lineCov">          3 :             partial_offset = base-&gt;partial_offset;</span>
+<span class="lineNum">     489 </span><span class="lineCov">          3 :             partial_size = base-&gt;partial_size;</span>
+<span class="lineNum">     490 </span>            :         }
+<span class="lineNum">     491 </span>            :         /* /;SECTION= */
+<span class="lineNum">     492 </span><span class="lineCov">         21 :         if (base-&gt;section != NULL) {</span>
+<span class="lineNum">     493 </span><span class="lineCov">          7 :             p = base-&gt;section + strlen(base-&gt;section);</span>
+<span class="lineNum">     494 </span>            :             /* determine what to retain from base section path */
+<span class="lineNum">     495 </span><span class="lineCov">         43 :             for (; p &gt; base-&gt;section &amp;&amp; rel &gt; 0; p--) {</span>
+<span class="lineNum">     496 </span><span class="lineCov">         38 :                 if (*p =='/' &amp;&amp; --rel &lt;= 0) break; </span>
+<span class="lineNum">     497 </span>            :             }
+<span class="lineNum">     498 </span><span class="lineCov">          7 :             if (--rel &lt;= 0 &amp;&amp; p &gt; base-&gt;section) {</span>
+<span class="lineNum">     499 </span><span class="lineCov">          3 :                 if (p[-1] == '/') section_endslash = TRUE;</span>
+<span class="lineNum">     500 </span><span class="lineCov">          3 :                 if (section == NULL)</span>
+<span class="lineNum">     501 </span><span class="lineCov">          3 :                     section = t_str_new(256);</span>
+<span class="lineNum">     502 </span><span class="lineCov">          3 :                 str_append_n(section, base-&gt;section, p-base-&gt;section);</span>
+<span class="lineNum">     503 </span>            :             }
+<span class="lineNum">     504 </span>            :         }
+<span class="lineNum">     505 </span>            :         /* /;UID= */
+<span class="lineNum">     506 </span><span class="lineCov">         21 :         if (base-&gt;uid &gt; 0 &amp;&amp; --rel &lt;= 0) {</span>
+<span class="lineNum">     507 </span><span class="lineCov">         11 :             uid = base-&gt;uid;</span>
+<span class="lineNum">     508 </span>            :         }
+<span class="lineNum">     509 </span>            :         /* /mail/box;UIDVALIDITY= */
+<span class="lineNum">     510 </span><span class="lineCov">         21 :         if (base-&gt;mailbox != NULL) {</span>
+<span class="lineNum">     511 </span><span class="lineCov">         21 :             uidvalidity = base-&gt;uidvalidity;</span>
+<span class="lineNum">     512 </span><span class="lineCov">         21 :             p = base-&gt;mailbox + strlen(base-&gt;mailbox);</span>
+<span class="lineNum">     513 </span>            :             /* mailbox has implicit trailing '/' */
+<span class="lineNum">     514 </span><span class="lineCov">         21 :             if (p[-1] != '/' &amp;&amp; base-&gt;uid == 0 &amp;&amp; rel &gt; 0)</span>
+<span class="lineNum">     515 </span><span class="lineCov">          7 :                 rel--;</span>
+<span class="lineNum">     516 </span>            :             /* determine what to retain from base mailbox path */
+<span class="lineNum">     517 </span><span class="lineCov">         68 :             for (; p &gt; base-&gt;mailbox &amp;&amp; rel &gt; 0; p--) {</span>
+<span class="lineNum">     518 </span><span class="lineCov">         52 :                 if (*p =='/') {</span>
+<span class="lineNum">     519 </span><span class="lineCov">          7 :                     uidvalidity = 0;</span>
+<span class="lineNum">     520 </span><span class="lineCov">          7 :                     if (--rel &lt;= 0)</span>
+<span class="lineNum">     521 </span><span class="lineCov">          5 :                         break;</span>
+<span class="lineNum">     522 </span>            :                 }
+<span class="lineNum">     523 </span>            :             }
+<span class="lineNum">     524 </span><span class="lineCov">         21 :             if (--rel &lt;= 0 &amp;&amp; p &gt; base-&gt;mailbox) {</span>
+<span class="lineNum">     525 </span><span class="lineCov">         19 :                 if (p[-1] == '/')</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :                     mailbox_endslash = TRUE;</span>
+<span class="lineNum">     527 </span><span class="lineCov">         19 :                 str_append_n(mailbox, base-&gt;mailbox,</span>
+<span class="lineNum">     528 </span><span class="lineCov">         19 :                          p - base-&gt;mailbox);</span>
+<span class="lineNum">     529 </span>            :             }
+<span class="lineNum">     530 </span>            :         }
+<span class="lineNum">     531 </span>            :     }
+<span class="lineNum">     532 </span>            : 
+<span class="lineNum">     533 </span>            :     /* Scan for last mailbox-ref segment */
+<span class="lineNum">     534 </span><span class="lineCov">        111 :     if (segment != NULL) {</span>
+<span class="lineNum">     535 </span><span class="lineCov">        107 :         if (relative == 0 || (!have_partial &amp;&amp; section == NULL)) {</span>
+<span class="lineNum">     536 </span><span class="lineCov">        104 :             p = NULL;</span>
+<span class="lineNum">     537 </span><span class="lineCov">        308 :             while (*segment != NULL) {</span>
+<span class="lineNum">     538 </span>            :                 /* ';' must be pct-encoded; if it is not, this is
+<span class="lineNum">     539 </span>            :                      either the last mailbox-ref path segment containing
+<span class="lineNum">     540 </span>            :                      ';UIDVALIDITY=' or the subsequent iuid ';UID=' path
+<span class="lineNum">     541 </span>            :                      segment */
+<span class="lineNum">     542 </span><span class="lineCov">        169 :                 if ((p = strchr(*segment, ';')) != NULL)</span>
+<span class="lineNum">     543 </span><span class="lineCov">         69 :                     break;</span>
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineCov">        100 :                 if (**segment != '\0') {</span>
+<span class="lineNum">     546 </span><span class="lineCov">        144 :                     if (segment &gt; path ||</span>
+<span class="lineNum">     547 </span><span class="lineCov">        132 :                             (!mailbox_endslash &amp;&amp; str_len(mailbox) &gt; 0))</span>
+<span class="lineNum">     548 </span><span class="lineCov">         16 :                         str_append_c(mailbox, '/');</span>
+<span class="lineNum">     549 </span><span class="lineCov">         78 :                     if (!uri_data_decode(parser, *segment, NULL, &amp;value))</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :                         return -1;</span>
+<span class="lineNum">     551 </span><span class="lineCov">         78 :                     str_append(mailbox, value);</span>
+<span class="lineNum">     552 </span><span class="lineCov">         78 :                     mailbox_endslash = FALSE;</span>
+<span class="lineNum">     553 </span>            :                 }
+<span class="lineNum">     554 </span><span class="lineCov">        100 :                 segment++;</span>
+<span class="lineNum">     555 </span>            :             }
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span>            :             /* Handle ';' */
+<span class="lineNum">     558 </span><span class="lineCov">        104 :             if (p != NULL) {</span>
+<span class="lineNum">     559 </span>            :                 /* [uidvalidity] */
+<span class="lineNum">     560 </span><span class="lineCov">         69 :                 if (strncasecmp(p, &quot;;UIDVALIDITY=&quot;, 13) == 0) {</span>
+<span class="lineNum">     561 </span>            :                     /* append last bit of mailbox */
+<span class="lineNum">     562 </span><span class="lineCov">         22 :                     if (*segment != p) {</span>
+<span class="lineNum">     563 </span><span class="lineCov">         37 :                         if (segment &gt; path ||</span>
+<span class="lineNum">     564 </span><span class="lineCov">         32 :                                 (!mailbox_endslash &amp;&amp; str_len(mailbox) &gt; 0))</span>
+<span class="lineNum">     565 </span><span class="lineCov">          6 :                             str_append_c(mailbox, '/');</span>
+<span class="lineNum">     566 </span><span class="lineCov">         21 :                         if (!uri_data_decode(parser, *segment, p, &amp;value))</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :                             return -1;</span>
+<span class="lineNum">     568 </span><span class="lineCov">         21 :                         str_append(mailbox, value);</span>
+<span class="lineNum">     569 </span>            :                     }
+<span class="lineNum">     570 </span>            : 
+<span class="lineNum">     571 </span>            :                     /* &quot;;UIDVALIDITY=&quot; nz-number */
+<span class="lineNum">     572 </span><span class="lineCov">         22 :                     if (strchr(p+13, ';') != NULL) {</span>
+<span class="lineNum">     573 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;Encountered stray ';' after UIDVALIDITY&quot;;</span>
+<span class="lineNum">     574 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     575 </span>            :                     }
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span>            :                     /* nz-number */
+<span class="lineNum">     578 </span><span class="lineCov">         21 :                     if (p[13] == '\0') {</span>
+<span class="lineNum">     579 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;Empty UIDVALIDITY value&quot;;</span>
+<span class="lineNum">     580 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     581 </span>            :                     }
+<span class="lineNum">     582 </span><span class="lineCov">         20 :                     if (imap_url_parse_number(parser, p+13, &amp;uidvalidity) &lt;= 0)</span>
+<span class="lineNum">     583 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     584 </span><span class="lineCov">         19 :                     if (uidvalidity == 0) {</span>
+<span class="lineNum">     585 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;UIDVALIDITY cannot be zero&quot;;</span>
+<span class="lineNum">     586 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     587 </span>            :                     }
+<span class="lineNum">     588 </span><span class="lineCov">         18 :                     segment++;</span>
+<span class="lineNum">     589 </span><span class="lineCov">         47 :                 } else if (p != *segment) {</span>
+<span class="lineNum">     590 </span><span class="lineCov">          1 :                     parser-&gt;error = &quot;Encountered stray ';' in mailbox reference&quot;;</span>
+<span class="lineNum">     591 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     592 </span>            :                 }
+<span class="lineNum">     593 </span>            :             }
+<span class="lineNum">     594 </span>            : 
+<span class="lineNum">     595 </span>            :             /* iuid */
+<span class="lineNum">     596 </span><span class="lineCov">         99 :             if (*segment != NULL &amp;&amp; strncasecmp(*segment, &quot;;UID=&quot;, 5) == 0) {</span>
+<span class="lineNum">     597 </span>            :                 /* &quot;;UID=&quot; nz-number */
+<span class="lineNum">     598 </span><span class="lineCov">         55 :                 value = (*segment)+5;</span>
+<span class="lineNum">     599 </span><span class="lineCov">         55 :                 if ((p = strchr(value,';')) != NULL) {</span>
+<span class="lineNum">     600 </span><span class="lineCov">         18 :                     if (segment[1] != NULL ) {</span>
+<span class="lineNum">     601 </span>            :                         /* not the last segment, so it cannot be extension like iurlauth */
+<span class="lineNum">     602 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;Encountered stray ';' in UID path segment&quot;;</span>
+<span class="lineNum">     603 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     604 </span>            :                     }
+<span class="lineNum">     605 </span><span class="lineCov">         17 :                     urlext = p;</span>
+<span class="lineNum">     606 </span><span class="lineCov">         17 :                     value = t_strdup_until(value, p);</span>
+<span class="lineNum">     607 </span>            :                 }
+<span class="lineNum">     608 </span>            :                 /* nz-number */
+<span class="lineNum">     609 </span><span class="lineCov">         54 :                 if (*value == '\0') {</span>
+<span class="lineNum">     610 </span><span class="lineCov">          1 :                     parser-&gt;error = &quot;Empty UID value&quot;;</span>
+<span class="lineNum">     611 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     612 </span>            :                 }
+<span class="lineNum">     613 </span><span class="lineCov">         53 :                 if (imap_url_parse_number(parser, value, &amp;uid) &lt;= 0)</span>
+<span class="lineNum">     614 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     615 </span><span class="lineCov">         52 :                 if (uid == 0) {</span>
+<span class="lineNum">     616 </span><span class="lineCov">          1 :                     parser-&gt;error = &quot;UID cannot be zero&quot;;</span>
+<span class="lineNum">     617 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     618 </span>            :                 }
+<span class="lineNum">     619 </span><span class="lineCov">         51 :                 segment++;</span>
+<span class="lineNum">     620 </span>            :             }
+<span class="lineNum">     621 </span>            :         }
+<span class="lineNum">     622 </span>            : 
+<span class="lineNum">     623 </span>            :         /* [isection] [ipartial] */
+<span class="lineNum">     624 </span><span class="lineCov">         98 :         if (*segment != NULL &amp;&amp; uid &gt; 0) {</span>
+<span class="lineNum">     625 </span>            :             /* [isection] */
+<span class="lineNum">     626 </span><span class="lineCov">         62 :             if (section != NULL ||</span>
+<span class="lineNum">     627 </span><span class="lineCov">         30 :                   strncasecmp(*segment, &quot;;SECTION=&quot;, 9) == 0) {</span>
+<span class="lineNum">     628 </span>            :                 /* &quot;;SECTION=&quot; enc-section */
+<span class="lineNum">     629 </span><span class="lineCov">         21 :                 if (section == NULL) {</span>
+<span class="lineNum">     630 </span><span class="lineCov">         19 :                     section = t_str_new(256);</span>
+<span class="lineNum">     631 </span><span class="lineCov">         19 :                     value = (*segment) + 9;</span>
+<span class="lineNum">     632 </span>            :                 } else {
+<span class="lineNum">     633 </span><span class="lineCov">          2 :                     value = *segment;</span>
+<span class="lineNum">     634 </span>            :                 }
+<span class="lineNum">     635 </span>            : 
+<span class="lineNum">     636 </span>            :                 /* enc-section can contain slashes, so we merge path segments until one
+<span class="lineNum">     637 </span>            :                      contains ';' */
+<span class="lineNum">     638 </span><span class="lineCov">         52 :                 while ((p = strchr(value,';')) == NULL) {</span>
+<span class="lineNum">     639 </span><span class="lineCov">         23 :                     if (!section_endslash &amp;&amp; str_len(section) &gt; 0)</span>
+<span class="lineNum">     640 </span><span class="lineCov">          4 :                         str_append_c(section, '/');</span>
+<span class="lineNum">     641 </span><span class="lineCov">         23 :                     if (*value != '\0') {</span>
+<span class="lineNum">     642 </span><span class="lineCov">         20 :                         if (!uri_data_decode(parser, value, NULL, &amp;value))</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :                             return -1;</span>
+<span class="lineNum">     644 </span><span class="lineCov">         20 :                         str_append(section, value);</span>
+<span class="lineNum">     645 </span><span class="lineCov">         20 :                         section_endslash = FALSE;</span>
+<span class="lineNum">     646 </span>            :                     }
+<span class="lineNum">     647 </span>            : 
+<span class="lineNum">     648 </span><span class="lineCov">         23 :                     segment++;</span>
+<span class="lineNum">     649 </span><span class="lineCov">         23 :                     if (*segment == NULL)</span>
+<span class="lineNum">     650 </span><span class="lineCov">         13 :                         break;</span>
+<span class="lineNum">     651 </span><span class="lineCov">         10 :                     value = *segment;</span>
+<span class="lineNum">     652 </span>            :                 }
+<span class="lineNum">     653 </span>            : 
+<span class="lineNum">     654 </span><span class="lineCov">         21 :                 if (p != NULL) {</span>
+<span class="lineNum">     655 </span>            :                     /* found ';' */
+<span class="lineNum">     656 </span><span class="lineCov">          8 :                     if (p != value) {</span>
+<span class="lineNum">     657 </span>            :                         /* it is not at the beginning of the path segment */
+<span class="lineNum">     658 </span><span class="lineCov">          1 :                         if (segment[1] != NULL) {</span>
+<span class="lineNum">     659 </span>            :                             /* not the last segment, so it cannot be extension like iurlauth */
+<span class="lineNum">     660 </span><span class="lineCov">          1 :                             parser-&gt;error = &quot;Encountered stray ';' in SECTION path segment&quot;;</span>
+<span class="lineNum">     661 </span><span class="lineCov">          1 :                             return -1;</span>
+<span class="lineNum">     662 </span>            :                         }
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :                         urlext = p;</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :                         value = t_strdup_until(value, p);</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :                         if (!section_endslash &amp;&amp; str_len(section) &gt; 0)</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :                             str_append_c(section, '/');</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :                         if (!uri_data_decode(parser, value, NULL, &amp;value))</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :                             return -1;</span>
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :                         str_append(section, value);</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :                         segment++;</span>
+<span class="lineNum">     671 </span>            :                     }
+<span class="lineNum">     672 </span>            :                 }
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineCov">         20 :                 if (str_len(section) == 0) {</span>
+<span class="lineNum">     675 </span><span class="lineCov">          1 :                     parser-&gt;error = &quot;Empty SECTION value&quot;;</span>
+<span class="lineNum">     676 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     677 </span>            :                 }
+<span class="lineNum">     678 </span>            :             }
+<span class="lineNum">     679 </span>            : 
+<span class="lineNum">     680 </span>            :             /* [ipartial] */
+<span class="lineNum">     681 </span><span class="lineCov">         48 :             if (*segment != NULL &amp;&amp;</span>
+<span class="lineNum">     682 </span><span class="lineCov">         18 :                   strncasecmp(*segment, &quot;;PARTIAL=&quot;, 9) == 0) {</span>
+<span class="lineNum">     683 </span><span class="lineCov">         16 :                 have_partial = TRUE;</span>
+<span class="lineNum">     684 </span>            : 
+<span class="lineNum">     685 </span>            :                 /* &quot;;PARTIAL=&quot; partial-range */
+<span class="lineNum">     686 </span><span class="lineCov">         16 :                 value = (*segment) + 9;</span>
+<span class="lineNum">     687 </span><span class="lineCov">         16 :                 if ((p = strchr(value,';')) != NULL) {</span>
+<span class="lineNum">     688 </span><span class="lineCov">          3 :                     urlext = p;</span>
+<span class="lineNum">     689 </span><span class="lineCov">          3 :                     value = t_strdup_until(value, p);</span>
+<span class="lineNum">     690 </span>            :                 }
+<span class="lineNum">     691 </span><span class="lineCov">         16 :                 if (*value == '\0') {</span>
+<span class="lineNum">     692 </span><span class="lineCov">          1 :                     parser-&gt;error = &quot;Empty PARTIAL value&quot;;</span>
+<span class="lineNum">     693 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     694 </span>            :                 }
+<span class="lineNum">     695 </span>            :                 /* partial-range = number [&quot;.&quot; nz-number] */
+<span class="lineNum">     696 </span><span class="lineCov">         15 :                 if ((p = strchr(value,'.')) != NULL) {</span>
+<span class="lineNum">     697 </span><span class="lineCov">         14 :                     if (p[1] == '\0') {</span>
+<span class="lineNum">     698 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;Empty PARTIAL size&quot;;</span>
+<span class="lineNum">     699 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     700 </span>            :                     }
+<span class="lineNum">     701 </span><span class="lineCov">         13 :                     if (imap_url_parse_offset(parser, p+1, &amp;partial_size) &lt;= 0)</span>
+<span class="lineNum">     702 </span><span class="lineCov">          2 :                         return -1;</span>
+<span class="lineNum">     703 </span><span class="lineCov">         11 :                     if (partial_size == 0) {</span>
+<span class="lineNum">     704 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;PARTIAL size cannot be zero&quot;;</span>
+<span class="lineNum">     705 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     706 </span>            :                     }
+<span class="lineNum">     707 </span><span class="lineCov">         10 :                     value = t_strdup_until(value, p);</span>
+<span class="lineNum">     708 </span><span class="lineCov">         10 :                     if (*value == '\0') {</span>
+<span class="lineNum">     709 </span><span class="lineCov">          1 :                         parser-&gt;error = &quot;Empty PARTIAL offset&quot;;</span>
+<span class="lineNum">     710 </span><span class="lineCov">          1 :                         return -1;</span>
+<span class="lineNum">     711 </span>            :                     }
+<span class="lineNum">     712 </span>            :                 }
+<span class="lineNum">     713 </span><span class="lineCov">         10 :                 if (imap_url_parse_offset(parser,value, &amp;partial_offset) &lt;= 0)</span>
+<span class="lineNum">     714 </span><span class="lineCov">          1 :                     return -1;</span>
+<span class="lineNum">     715 </span><span class="lineCov">          9 :                 segment++;</span>
+<span class="lineNum">     716 </span>            :             }
+<span class="lineNum">     717 </span>            :         }
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span><span class="lineCov">         89 :         if (*segment != NULL) {</span>
+<span class="lineNum">     720 </span><span class="lineCov">          3 :             if (urlext != NULL || **segment != '\0' || *(segment+1) != NULL ) {</span>
+<span class="lineNum">     721 </span><span class="lineCov">          1 :                 parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     722 </span>            :                     &quot;Unexpected IMAP URL path segment: `%s'&quot;,
+<span class="lineNum">     723 </span>            :                     str_sanitize(*segment, 80));
+<span class="lineNum">     724 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     725 </span>            :             }
+<span class="lineNum">     726 </span>            :         }
+<span class="lineNum">     727 </span>            :     }
+<span class="lineNum">     728 </span>            : 
+<span class="lineNum">     729 </span>            :     /* &quot;;&quot; {...} at end of URL */ 
+<span class="lineNum">     730 </span><span class="lineCov">         92 :     if (urlext != NULL) {</span>
+<span class="lineNum">     731 </span>            :         /* [iurlauth] */
+<span class="lineNum">     732 </span><span class="lineCov">         20 :         if ((ret = imap_url_parse_urlauth(url_parser, urlext)) &lt; 0)</span>
+<span class="lineNum">     733 </span><span class="lineCov">         12 :             return ret;</span>
+<span class="lineNum">     734 </span><span class="lineCov">          8 :         else if (ret == 0) {</span>
+<span class="lineNum">     735 </span>            :             /* something else */
+<span class="lineNum">     736 </span><span class="lineCov">          2 :             parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     737 </span>            :                 &quot;Unrecognized IMAP URL extension: %s&quot;,
+<span class="lineNum">     738 </span>            :                 str_sanitize(urlext, 80));
+<span class="lineNum">     739 </span><span class="lineCov">          2 :             return -1;</span>
+<span class="lineNum">     740 </span>            :         }
+<span class="lineNum">     741 </span>            :     }
+<span class="lineNum">     742 </span>            : 
+<span class="lineNum">     743 </span><span class="lineCov">         78 :     if (is_messagelist_r != NULL)</span>
+<span class="lineNum">     744 </span><span class="lineCov">         78 :         *is_messagelist_r = (uid == 0);</span>
+<span class="lineNum">     745 </span>            : 
+<span class="lineNum">     746 </span><span class="lineCov">         78 :     if (url != NULL) {</span>
+<span class="lineNum">     747 </span><span class="lineCov">         78 :         if (str_len(mailbox) &gt; 0)</span>
+<span class="lineNum">     748 </span><span class="lineCov">         64 :             url-&gt;mailbox = p_strdup(parser-&gt;pool, str_c(mailbox));</span>
+<span class="lineNum">     749 </span><span class="lineCov">         78 :         url-&gt;uidvalidity = uidvalidity;</span>
+<span class="lineNum">     750 </span><span class="lineCov">         78 :         url-&gt;uid = uid;</span>
+<span class="lineNum">     751 </span><span class="lineCov">         78 :         if (section != NULL)</span>
+<span class="lineNum">     752 </span><span class="lineCov">         20 :             url-&gt;section = p_strdup(parser-&gt;pool, str_c(section));</span>
+<span class="lineNum">     753 </span><span class="lineCov">         78 :         url-&gt;have_partial = have_partial;</span>
+<span class="lineNum">     754 </span><span class="lineCov">         78 :         url-&gt;partial_offset = partial_offset;</span>
+<span class="lineNum">     755 </span><span class="lineCov">         78 :         url-&gt;partial_size = partial_size;</span>
+<span class="lineNum">     756 </span>            :     }
+<span class="lineNum">     757 </span><span class="lineCov">         78 :     return 1;</span>
+<a name="758"><span class="lineNum">     758 </span>            : }</a>
+<span class="lineNum">     759 </span>            : 
+<span class="lineNum">     760 </span><span class="lineCov">        150 : static bool imap_url_do_parse(struct imap_url_parser *url_parser)</span>
+<span class="lineNum">     761 </span>            : {
+<span class="lineNum">     762 </span><span class="lineCov">        150 :     struct uri_parser *parser = &amp;url_parser-&gt;parser;</span>
+<span class="lineNum">     763 </span>            :     const char *const *path;
+<span class="lineNum">     764 </span><span class="lineCov">        150 :     bool is_messagelist = FALSE;</span>
+<span class="lineNum">     765 </span><span class="lineCov">        150 :     bool have_scheme = FALSE;</span>
+<span class="lineNum">     766 </span>            :     int relative;
+<span class="lineNum">     767 </span>            :     const char *query;
+<span class="lineNum">     768 </span>            :     int ret, sret;
+<span class="lineNum">     769 </span>            : 
+<span class="lineNum">     770 </span>            :     /*
+<span class="lineNum">     771 </span>            :      * imapurl          = &quot;imap://&quot; iserver ipath-query
+<span class="lineNum">     772 </span>            :      *                   ; Defines an absolute IMAP URL
+<span class="lineNum">     773 </span>            :      * iserver          = [iuserinfo &quot;@&quot;] host [&quot;:&quot; port]
+<span class="lineNum">     774 </span>            :      *                    ; This is the same as &quot;authority&quot; defined
+<span class="lineNum">     775 </span>            :      *                    ; in [URI-GEN].
+<span class="lineNum">     776 </span>            :      * ipath-query      = [&quot;/&quot; [ icommand ]]
+<span class="lineNum">     777 </span>            :      *                   ; Corresponds to &quot;path-abempty [ &quot;?&quot; query ]&quot; in
+<span class="lineNum">     778 </span>            :      *                   ; [URI-GEN]
+<span class="lineNum">     779 </span>            :      * icommand         = imessagelist /
+<span class="lineNum">     780 </span>            :      *                    imessagepart [iurlauth]
+<span class="lineNum">     781 </span>            :      * imessagelist     = imailbox-ref [ &quot;?&quot; enc-search ]
+<span class="lineNum">     782 </span>            :      *                    ; &quot;enc-search&quot; is [URI-GEN] &quot;query&quot;.
+<span class="lineNum">     783 </span>            :      * imessagepart     = imailbox-ref iuid [isection] [ipartial]
+<span class="lineNum">     784 </span>            :      * enc-search       = 1*bchar
+<span class="lineNum">     785 </span>            :      *                    ; %-encoded version of [IMAPABNF]
+<span class="lineNum">     786 </span>            :      *                    ; &quot;search-program&quot;.  Note that IMAP4
+<span class="lineNum">     787 </span>            :      *                    ; literals may not be used in
+<span class="lineNum">     788 </span>            :      *                    ; a &quot;search-program&quot;, i.e., only
+<span class="lineNum">     789 </span>            :      *                    ; quoted or non-synchronizing
+<span class="lineNum">     790 </span>            :      *                    ; literals (if the server supports
+<span class="lineNum">     791 </span>            :      *                    ; LITERAL+ [LITERAL+]) are allowed.
+<span class="lineNum">     792 </span>            :      */
+<span class="lineNum">     793 </span>            : 
+<span class="lineNum">     794 </span>            :     /* &quot;imap:&quot; */
+<span class="lineNum">     795 </span><span class="lineCov">        150 :     if ((url_parser-&gt;flags &amp; IMAP_URL_PARSE_SCHEME_EXTERNAL) == 0) {</span>
+<span class="lineNum">     796 </span>            :         const char *scheme;
+<span class="lineNum">     797 </span>            : 
+<span class="lineNum">     798 </span><span class="lineCov">        150 :         if (uri_parse_scheme(parser, &amp;scheme) &lt;= 0) {</span>
+<span class="lineNum">     799 </span><span class="lineCov">         26 :             parser-&gt;cur = parser-&gt;begin;</span>
+<span class="lineNum">     800 </span>            :         } else {
+<span class="lineNum">     801 </span><span class="lineCov">        124 :             if (strcasecmp(scheme, &quot;imap&quot;) != 0) {</span>
+<span class="lineNum">     802 </span><span class="lineCov">          1 :                 parser-&gt;error = &quot;Not an IMAP URL&quot;;</span>
+<span class="lineNum">     803 </span><span class="lineCov">          1 :                 return FALSE;</span>
+<span class="lineNum">     804 </span>            :             }
+<span class="lineNum">     805 </span><span class="lineCov">        123 :             have_scheme = TRUE;</span>
+<span class="lineNum">     806 </span>            :         }
+<span class="lineNum">     807 </span>            :     } else {
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :         have_scheme = TRUE;</span>
+<span class="lineNum">     809 </span>            :     }
+<span class="lineNum">     810 </span>            : 
+<span class="lineNum">     811 </span>            :     /* &quot;//&quot; iserver */
+<span class="lineNum">     812 </span><span class="lineCov">        149 :     if ((sret = imap_url_parse_iserver(url_parser)) &lt; 0)</span>
+<span class="lineNum">     813 </span><span class="lineCov">         19 :         return FALSE;</span>
+<span class="lineNum">     814 </span>            : 
+<span class="lineNum">     815 </span><span class="lineCov">        130 :     if (have_scheme &amp;&amp; sret == 0) {</span>
+<span class="lineNum">     816 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Absolute IMAP URL requires `//' after `imap:'&quot;;</span>
+<span class="lineNum">     817 </span><span class="lineCov">          1 :         return FALSE;</span>
+<span class="lineNum">     818 </span>            :     }
+<span class="lineNum">     819 </span>            : 
+<span class="lineNum">     820 </span><span class="lineCov">        233 :     if (sret &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     821 </span><span class="lineCov">        104 :         (url_parser-&gt;flags &amp; IMAP_URL_PARSE_REQUIRE_RELATIVE) != 0) {</span>
+<span class="lineNum">     822 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Relative URL required&quot;;</span>
+<span class="lineNum">     823 </span><span class="lineCov">          1 :         return FALSE;</span>
+<span class="lineNum">     824 </span>            :     }
+<span class="lineNum">     825 </span>            : 
+<span class="lineNum">     826 </span>            :     /* ipath-query      = [&quot;/&quot; [ icommand ]]  ; excludes `[ &quot;?&quot; enc-search ]` */
+<span class="lineNum">     827 </span><span class="lineCov">        128 :     if ((ret = uri_parse_path(parser, &amp;relative, &amp;path)) &lt; 0)</span>
+<span class="lineNum">     828 </span><span class="lineCov">          4 :         return FALSE;</span>
+<span class="lineNum">     829 </span>            : 
+<span class="lineNum">     830 </span>            :     /* Relative urls are only valid when we have a base url */
+<span class="lineNum">     831 </span><span class="lineCov">        124 :     if (sret == 0) {</span>
+<span class="lineNum">     832 </span><span class="lineCov">         25 :         if (url_parser-&gt;base == NULL) {</span>
+<span class="lineNum">     833 </span><span class="lineCov">          3 :             parser-&gt;error = &quot;Relative URL not allowed&quot;;</span>
+<span class="lineNum">     834 </span><span class="lineCov">          3 :             return FALSE;</span>
+<span class="lineNum">     835 </span><span class="lineCov">         22 :         } else if (url_parser-&gt;url != NULL) {</span>
+<span class="lineNum">     836 </span><span class="lineCov">         22 :             struct imap_url *url = url_parser-&gt;url;</span>
+<span class="lineNum">     837 </span><span class="lineCov">         22 :             const struct imap_url *base = url_parser-&gt;base;</span>
+<span class="lineNum">     838 </span>            : 
+<span class="lineNum">     839 </span><span class="lineCov">         22 :             uri_host_copy(parser-&gt;pool, &amp;url-&gt;host, &amp;base-&gt;host);</span>
+<span class="lineNum">     840 </span><span class="lineCov">         22 :             url-&gt;port = base-&gt;port;</span>
+<span class="lineNum">     841 </span><span class="lineCov">         22 :             url-&gt;userid = p_strdup_empty(parser-&gt;pool, base-&gt;userid);</span>
+<span class="lineNum">     842 </span><span class="lineCov">         22 :             url-&gt;auth_type = p_strdup_empty(parser-&gt;pool, base-&gt;auth_type);</span>
+<span class="lineNum">     843 </span>            :         }
+<span class="lineNum">     844 </span>            : 
+<span class="lineNum">     845 </span><span class="lineCov">         22 :         url_parser-&gt;relative = TRUE;</span>
+<span class="lineNum">     846 </span>            :     }
+<span class="lineNum">     847 </span>            : 
+<span class="lineNum">     848 </span>            :     /* Parse path, i.e. `[ icommand ]` from `*( &quot;/&quot; segment )` */
+<span class="lineNum">     849 </span><span class="lineCov">        121 :     if (ret &gt; 0 || url_parser-&gt;relative) {</span>
+<span class="lineNum">     850 </span><span class="lineCov">        111 :         if ((ret = imap_url_parse_path(url_parser, path, relative,</span>
+<span class="lineNum">     851 </span>            :                            &amp;is_messagelist)) &lt; 0)
+<span class="lineNum">     852 </span><span class="lineCov">         33 :             return FALSE;</span>
+<span class="lineNum">     853 </span>            :     }
+<span class="lineNum">     854 </span>            : 
+<span class="lineNum">     855 </span>            :     /* [ &quot;?&quot; enc-search ] */
+<span class="lineNum">     856 </span><span class="lineCov">         88 :     if ((ret = uri_parse_query(parser, &amp;query)) != 0) {</span>
+<span class="lineNum">     857 </span><span class="lineCov">          4 :         if (ret &lt; 0)</span>
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     859 </span>            : 
+<span class="lineNum">     860 </span><span class="lineCov">          4 :         if (!is_messagelist) {</span>
+<span class="lineNum">     861 </span><span class="lineCov">          1 :             parser-&gt;error =</span>
+<span class="lineNum">     862 </span>            :                 &quot;Search query part only valid for messagelist-type IMAP URL&quot;;
+<span class="lineNum">     863 </span><span class="lineCov">          1 :             return FALSE;</span>
+<span class="lineNum">     864 </span><span class="lineCov">          3 :         } else if (*query == '\0') {</span>
+<span class="lineNum">     865 </span><span class="lineCov">          1 :             parser-&gt;error = &quot;Empty IMAP URL search query not allowed&quot;;</span>
+<span class="lineNum">     866 </span><span class="lineCov">          1 :             return FALSE;</span>
+<span class="lineNum">     867 </span>            :         }
+<span class="lineNum">     868 </span>            : 
+<span class="lineNum">     869 </span><span class="lineCov">          2 :         if (url_parser-&gt;url != NULL) {</span>
+<span class="lineNum">     870 </span><span class="lineCov">          2 :             if (!uri_data_decode(parser, query, NULL, &amp;query))</span>
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     872 </span><span class="lineCov">          4 :             url_parser-&gt;url-&gt;search_program =</span>
+<span class="lineNum">     873 </span><span class="lineCov">          2 :                 p_strdup(parser-&gt;pool, query);</span>
+<span class="lineNum">     874 </span>            :         }
+<span class="lineNum">     875 </span>            :     }
+<span class="lineNum">     876 </span>            : 
+<span class="lineNum">     877 </span>            :     /* IMAP URL has no fragment */
+<span class="lineNum">     878 </span><span class="lineCov">         86 :     if ((ret = uri_parse_fragment(parser, &amp;query)) != 0) {</span>
+<span class="lineNum">     879 </span><span class="lineCov">          1 :         if (ret == 1)</span>
+<span class="lineNum">     880 </span><span class="lineCov">          1 :             parser-&gt;error = &quot;Fragment component not allowed in IMAP URL&quot;;</span>
+<span class="lineNum">     881 </span><span class="lineCov">          1 :         return FALSE;</span>
+<span class="lineNum">     882 </span>            :     }
+<span class="lineNum">     883 </span>            : 
+<span class="lineNum">     884 </span>            :     /* must be at end of URL now */
+<span class="lineNum">     885 </span><span class="lineCov">         85 :     i_assert(parser-&gt;cur == parser-&gt;end);</span>
+<span class="lineNum">     886 </span>            : 
+<span class="lineNum">     887 </span><span class="lineCov">         85 :     return TRUE;</span>
+<span class="lineNum">     888 </span>            : }
+<span class="lineNum">     889 </span>            : 
+<a name="890"><span class="lineNum">     890 </span>            : /* Public API */</a>
+<span class="lineNum">     891 </span>            : 
+<span class="lineNum">     892 </span><span class="lineCov">        150 : int imap_url_parse(const char *url, const struct imap_url *base,</span>
+<span class="lineNum">     893 </span>            :            enum imap_url_parse_flags flags,
+<span class="lineNum">     894 </span>            :            struct imap_url **url_r, const char **error_r)
+<span class="lineNum">     895 </span>            : {
+<span class="lineNum">     896 </span>            :     struct imap_url_parser url_parser;
+<span class="lineNum">     897 </span>            : 
+<span class="lineNum">     898 </span>            :     /* base != NULL indicates whether relative URLs are allowed. However, certain
+<span class="lineNum">     899 </span>            :        flags may also dictate whether relative URLs are allowed/required. */
+<span class="lineNum">     900 </span><span class="lineCov">        150 :     i_assert((flags &amp; IMAP_URL_PARSE_REQUIRE_RELATIVE) == 0 || base != NULL);</span>
+<span class="lineNum">     901 </span><span class="lineCov">        150 :     i_assert((flags &amp; IMAP_URL_PARSE_SCHEME_EXTERNAL) == 0 || base == NULL);</span>
+<span class="lineNum">     902 </span>            : 
+<span class="lineNum">     903 </span><span class="lineCov">        150 :     i_zero(&amp;url_parser);</span>
+<span class="lineNum">     904 </span><span class="lineCov">        150 :     uri_parser_init(&amp;url_parser.parser, pool_datastack_create(), url);</span>
+<span class="lineNum">     905 </span>            : 
+<span class="lineNum">     906 </span><span class="lineCov">        150 :     url_parser.url = t_new(struct imap_url, 1);</span>
+<span class="lineNum">     907 </span><span class="lineCov">        150 :     url_parser.url-&gt;uauth_expire = (time_t)-1;</span>
+<span class="lineNum">     908 </span><span class="lineCov">        150 :     url_parser.base = base;</span>
+<span class="lineNum">     909 </span><span class="lineCov">        150 :     url_parser.flags = flags;</span>
+<span class="lineNum">     910 </span>            : 
+<span class="lineNum">     911 </span><span class="lineCov">        150 :     if (!imap_url_do_parse(&amp;url_parser)) {</span>
+<span class="lineNum">     912 </span><span class="lineCov">         65 :         *error_r = url_parser.parser.error;</span>
+<span class="lineNum">     913 </span><span class="lineCov">         65 :         return -1;</span>
+<span class="lineNum">     914 </span>            :     }
+<span class="lineNum">     915 </span><span class="lineCov">         85 :     *url_r = url_parser.url;</span>
+<span class="lineNum">     916 </span><span class="lineCov">         85 :     return 0;</span>
+<span class="lineNum">     917 </span>            : }
+<span class="lineNum">     918 </span>            : 
+<span class="lineNum">     919 </span>            : /*
+<span class="lineNum">     920 </span>            :  * IMAP URL construction
+<span class="lineNum">     921 </span>            :  */
+<a name="922"><span class="lineNum">     922 </span>            : </a>
+<span class="lineNum">     923 </span>            : static void
+<span class="lineNum">     924 </span><span class="lineCov">         13 : imap_url_append_mailbox(const struct imap_url *url, string_t *urlstr)</span>
+<span class="lineNum">     925 </span>            : {
+<span class="lineNum">     926 </span><span class="lineCov">         13 :     uri_append_path_data(urlstr, &quot;;&quot;, url-&gt;mailbox);</span>
+<span class="lineNum">     927 </span><span class="lineCov">         13 :     if (url-&gt;uidvalidity != 0)</span>
+<span class="lineNum">     928 </span><span class="lineCov">          8 :         str_printfa(urlstr, &quot;;UIDVALIDITY=%u&quot;, url-&gt;uidvalidity);</span>
+<span class="lineNum">     929 </span><span class="lineCov">         13 :     if (url-&gt;uid == 0) {</span>
+<span class="lineNum">     930 </span>            :         /* message list */
+<span class="lineNum">     931 </span><span class="lineCov">          4 :         if (url-&gt;search_program != NULL) {</span>
+<span class="lineNum">     932 </span><span class="lineCov">          1 :             str_append_c(urlstr, '?');</span>
+<span class="lineNum">     933 </span><span class="lineCov">          1 :             uri_append_query_data(urlstr, &quot;;&quot;, url-&gt;search_program);</span>
+<span class="lineNum">     934 </span>            :         }
+<span class="lineNum">     935 </span>            :     } else {
+<span class="lineNum">     936 </span>            :         /* message part */
+<span class="lineNum">     937 </span><span class="lineCov">          9 :         str_printfa(urlstr, &quot;/;UID=%u&quot;, url-&gt;uid);</span>
+<span class="lineNum">     938 </span><span class="lineCov">          9 :         if (url-&gt;section != NULL) {</span>
+<span class="lineNum">     939 </span><span class="lineCov">          7 :             str_append(urlstr, &quot;/;SECTION=&quot;);</span>
+<span class="lineNum">     940 </span><span class="lineCov">          7 :             uri_append_path_data(urlstr, &quot;;&quot;, url-&gt;section);</span>
+<span class="lineNum">     941 </span>            :         }
+<span class="lineNum">     942 </span><span class="lineCov">          9 :         if (url-&gt;have_partial) {</span>
+<span class="lineNum">     943 </span><span class="lineCov">          5 :             str_append(urlstr, &quot;/;PARTIAL=&quot;);</span>
+<span class="lineNum">     944 </span><span class="lineCov">          5 :             if (url-&gt;partial_size == 0) {</span>
+<span class="lineNum">     945 </span><span class="lineCov">          1 :                 str_printfa(urlstr, &quot;%&quot;PRIuUOFF_T,</span>
+<span class="lineNum">     946 </span>            :                         url-&gt;partial_offset);
+<span class="lineNum">     947 </span>            :             } else {
+<span class="lineNum">     948 </span><span class="lineCov">          4 :                 str_printfa(urlstr, &quot;%&quot;PRIuUOFF_T&quot;.%&quot;PRIuUOFF_T,</span>
+<span class="lineNum">     949 </span>            :                         url-&gt;partial_offset,
+<span class="lineNum">     950 </span>            :                         url-&gt;partial_size);
+<span class="lineNum">     951 </span>            :             }
+<span class="lineNum">     952 </span>            :         }
+<span class="lineNum">     953 </span>            : 
+<span class="lineNum">     954 </span>            :         /* urlauth */
+<span class="lineNum">     955 </span><span class="lineCov">          9 :         if (url-&gt;uauth_access_application != NULL) {</span>
+<span class="lineNum">     956 </span><span class="lineCov">          3 :             if (url-&gt;uauth_expire != (time_t)-1) {</span>
+<span class="lineNum">     957 </span><span class="lineNoCov">          0 :                 str_append(urlstr, &quot;;EXPIRE=&quot;);</span>
+<span class="lineNum">     958 </span><span class="lineNoCov">          0 :                 str_append(urlstr, iso8601_date_create(url-&gt;uauth_expire));</span>
+<span class="lineNum">     959 </span>            :             }
+<span class="lineNum">     960 </span><span class="lineCov">          3 :             str_append(urlstr, &quot;;URLAUTH=&quot;);</span>
+<span class="lineNum">     961 </span><span class="lineCov">          3 :             str_append(urlstr, url-&gt;uauth_access_application);</span>
+<span class="lineNum">     962 </span><span class="lineCov">          3 :             if (url-&gt;uauth_access_user != NULL) {</span>
+<span class="lineNum">     963 </span><span class="lineCov">          2 :                 str_append_c(urlstr, '+');</span>
+<span class="lineNum">     964 </span><span class="lineCov">          2 :                 uri_append_user_data(urlstr, &quot;;&quot;,</span>
+<span class="lineNum">     965 </span>            :                              url-&gt;uauth_access_user);
+<span class="lineNum">     966 </span>            :             }
+<span class="lineNum">     967 </span>            :         }
+<span class="lineNum">     968 </span>            :     }
+<a name="969"><span class="lineNum">     969 </span><span class="lineCov">         13 : }</span></a>
+<span class="lineNum">     970 </span>            : 
+<span class="lineNum">     971 </span><span class="lineCov">         23 : const char *imap_url_create(const struct imap_url *url)</span>
+<span class="lineNum">     972 </span>            : {
+<span class="lineNum">     973 </span><span class="lineCov">         23 :     string_t *urlstr = t_str_new(512);</span>
+<span class="lineNum">     974 </span>            : 
+<span class="lineNum">     975 </span>            :     /* scheme */
+<span class="lineNum">     976 </span><span class="lineCov">         23 :     uri_append_scheme(urlstr, &quot;imap&quot;);</span>
+<span class="lineNum">     977 </span><span class="lineCov">         23 :     str_append(urlstr, &quot;//&quot;);</span>
+<span class="lineNum">     978 </span>            : 
+<span class="lineNum">     979 </span>            :     /* user */
+<span class="lineNum">     980 </span><span class="lineCov">         23 :     if (url-&gt;userid != NULL || url-&gt;auth_type != NULL) {</span>
+<span class="lineNum">     981 </span><span class="lineCov">         20 :         if (url-&gt;userid != NULL)</span>
+<span class="lineNum">     982 </span><span class="lineCov">         20 :             uri_append_user_data(urlstr, &quot;;:&quot;, url-&gt;userid);</span>
+<span class="lineNum">     983 </span><span class="lineCov">         20 :         if (url-&gt;auth_type != NULL) {</span>
+<span class="lineNum">     984 </span><span class="lineCov">         12 :             str_append(urlstr, &quot;;AUTH=&quot;);</span>
+<span class="lineNum">     985 </span><span class="lineCov">         12 :             uri_append_user_data(urlstr, &quot;;:&quot;, url-&gt;auth_type);</span>
+<span class="lineNum">     986 </span>            :         }
+<span class="lineNum">     987 </span><span class="lineCov">         20 :         str_append_c(urlstr, '@');</span>
+<span class="lineNum">     988 </span>            :     }
+<span class="lineNum">     989 </span>            : 
+<span class="lineNum">     990 </span>            :     /* server */
+<span class="lineNum">     991 </span><span class="lineCov">         23 :     uri_append_host(urlstr, &amp;url-&gt;host);</span>
+<span class="lineNum">     992 </span><span class="lineCov">         23 :     uri_append_port(urlstr, url-&gt;port);</span>
+<span class="lineNum">     993 </span>            : 
+<span class="lineNum">     994 </span>            :     /* Older syntax (RFC 2192) requires this slash at all times */
+<span class="lineNum">     995 </span><span class="lineCov">         23 :     str_append_c(urlstr, '/');</span>
+<span class="lineNum">     996 </span>            : 
+<span class="lineNum">     997 </span>            :     /* mailbox */
+<span class="lineNum">     998 </span><span class="lineCov">         23 :     if (url-&gt;mailbox != NULL)</span>
+<span class="lineNum">     999 </span><span class="lineCov">         13 :         imap_url_append_mailbox(url, urlstr);</span>
+<span class="lineNum">    1000 </span><span class="lineCov">         23 :     return str_c(urlstr);</span>
+<span class="lineNum">    1001 </span>            : }
+<a name="1002"><span class="lineNum">    1002 </span>            : </a>
+<span class="lineNum">    1003 </span>            : const char *
+<span class="lineNum">    1004 </span><span class="lineNoCov">          0 : imap_url_add_urlauth(const char *rumpurl, const char *mechanism,</span>
+<span class="lineNum">    1005 </span>            :              const unsigned char *token, size_t token_len)
+<span class="lineNum">    1006 </span>            : {
+<span class="lineNum">    1007 </span><span class="lineNoCov">          0 :     return t_strconcat(rumpurl, &quot;:&quot;, t_str_lcase(mechanism), &quot;:&quot;,</span>
+<span class="lineNum">    1008 </span>            :                binary_to_hex(token, token_len), NULL);
+<span class="lineNum">    1009 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

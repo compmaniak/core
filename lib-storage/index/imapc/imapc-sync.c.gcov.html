@@ -1,0 +1,690 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/imapc/imapc-sync.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/imapc</a> - imapc-sync.c<span style="font-size: 80%;"> (source / <a href="imapc-sync.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">317</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">24</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2007-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;sort.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;imap-util.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;mail-cache.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;mail-index-modseq.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;index-sync-private.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;imapc-msgmap.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;imapc-list.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;imapc-storage.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;imapc-sync.h&quot;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : struct imapc_sync_command {
+<span class="lineNum">      18 </span>            :     struct imapc_sync_context *ctx;
+<span class="lineNum">      19 </span>            :     char *cmd_str;
+<span class="lineNum">      20 </span>            :     bool ignore_no;
+<a name="21"><span class="lineNum">      21 </span>            : };</a>
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span><span class="lineNoCov">          0 : static void imapc_sync_callback(const struct imapc_command_reply *reply,</span>
+<span class="lineNum">      24 </span>            :                 void *context)
+<span class="lineNum">      25 </span>            : {
+<span class="lineNum">      26 </span><span class="lineNoCov">          0 :     struct imapc_sync_command *cmd = context;</span>
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 :     struct imapc_sync_context *ctx = cmd-&gt;ctx;</span>
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;sync_command_count &gt; 0);</span>
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :     if (reply-&gt;state == IMAPC_COMMAND_STATE_OK)</span>
+<span class="lineNum">      32 </span>            :         ;
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 :     else if (reply-&gt;state == IMAPC_COMMAND_STATE_NO &amp;&amp; cmd-&gt;ignore_no) {</span>
+<span class="lineNum">      34 </span>            :         /* maybe the message was expunged already.
+<span class="lineNum">      35 </span>            :            some servers fail STOREs with NO in such situation. */
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :     } else if (reply-&gt;state == IMAPC_COMMAND_STATE_DISCONNECTED) {</span>
+<span class="lineNum">      37 </span>            :         /* the disconnection is already logged, don't flood
+<span class="lineNum">      38 </span>            :            the logs unnecessarily */
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 :         mail_storage_set_internal_error(&amp;ctx-&gt;mbox-&gt;storage-&gt;storage);</span>
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">      41 </span>            :     } else {
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">      43 </span>            :                      &quot;imapc: Sync command '%s' failed: %s&quot;,
+<span class="lineNum">      44 </span>            :                      cmd-&gt;cmd_str, reply-&gt;text_full);
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">      46 </span>            :     }
+<span class="lineNum">      47 </span>            :     
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     if (--ctx-&gt;sync_command_count == 0)</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :         imapc_client_stop(ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client);</span>
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     i_free(cmd-&gt;cmd_str);</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     i_free(cmd);</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 : }</span>
+<a name="53"><span class="lineNum">      53 </span>            : </a>
+<span class="lineNum">      54 </span>            : static struct imapc_command *
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 : imapc_sync_cmd_full(struct imapc_sync_context *ctx, const char *cmd_str,</span>
+<span class="lineNum">      56 </span>            :             bool ignore_no)
+<span class="lineNum">      57 </span>            : {
+<span class="lineNum">      58 </span>            :     struct imapc_sync_command *sync_cmd;
+<span class="lineNum">      59 </span>            :     struct imapc_command *cmd;
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     sync_cmd = i_new(struct imapc_sync_command, 1);</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     sync_cmd-&gt;ctx = ctx;</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     sync_cmd-&gt;cmd_str = i_strdup(cmd_str);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     sync_cmd-&gt;ignore_no = ignore_no;</span>
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     ctx-&gt;sync_command_count++;</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     cmd = imapc_client_mailbox_cmd(ctx-&gt;mbox-&gt;client_box,</span>
+<span class="lineNum">      68 </span>            :                        imapc_sync_callback, sync_cmd);
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     imapc_command_set_flags(cmd, IMAPC_COMMAND_FLAG_RETRIABLE);</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     imapc_command_send(cmd, cmd_str);</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     return cmd;</span>
+<span class="lineNum">      72 </span>            : }
+<a name="73"><span class="lineNum">      73 </span>            : </a>
+<span class="lineNum">      74 </span>            : static struct imapc_command *
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 : imapc_sync_cmd(struct imapc_sync_context *ctx, const char *cmd_str)</span>
+<span class="lineNum">      76 </span>            : {
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     return imapc_sync_cmd_full(ctx, cmd_str, FALSE);</span>
+<a name="78"><span class="lineNum">      78 </span>            : }</a>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 : static unsigned int imapc_sync_store_hash(const struct imapc_sync_store *store)</span>
+<span class="lineNum">      81 </span>            : {
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     return str_hash(store-&gt;flags) ^ store-&gt;modify_type;</span>
+<a name="83"><span class="lineNum">      83 </span>            : }</a>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 : static int imapc_sync_store_cmp(const struct imapc_sync_store *store1,</span>
+<span class="lineNum">      86 </span>            :                 const struct imapc_sync_store *store2)
+<span class="lineNum">      87 </span>            : {
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     if (store1-&gt;modify_type != store2-&gt;modify_type)</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     return strcmp(store1-&gt;flags, store2-&gt;flags);</span>
+<a name="91"><span class="lineNum">      91 </span>            : }</a>
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 : static const char *imapc_sync_flags_sort(const char *flags)</span>
+<span class="lineNum">      94 </span>            : {
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     if (strchr(flags, ' ') == NULL)</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :         return flags;</span>
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     const char **str = t_strsplit(flags, &quot; &quot;);</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     i_qsort(str, str_array_length(str), sizeof(const char *),</span>
+<span class="lineNum">     100 </span>            :         i_strcasecmp_p);
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     return t_strarray_join(str, &quot; &quot;);</span>
+<span class="lineNum">     102 </span>            : }
+<a name="103"><span class="lineNum">     103 </span>            : </a>
+<span class="lineNum">     104 </span>            : static void
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 : imapc_sync_store_flush(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     106 </span>            : {
+<span class="lineNum">     107 </span>            :     struct imapc_sync_store *store;
+<span class="lineNum">     108 </span>            :     const char *sorted_flags;
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (ctx-&gt;prev_uid1 == 0)</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     sorted_flags = imapc_sync_flags_sort(str_c(ctx-&gt;prev_flags));</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     struct imapc_sync_store store_lookup = {</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         .modify_type = ctx-&gt;prev_modify_type,</span>
+<span class="lineNum">     116 </span>            :         .flags = sorted_flags,
+<span class="lineNum">     117 </span>            :     };
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     store = hash_table_lookup(ctx-&gt;stores, &amp;store_lookup);</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     if (store == NULL) {</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :         store = p_new(ctx-&gt;pool, struct imapc_sync_store, 1);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         store-&gt;modify_type = ctx-&gt;prev_modify_type;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :         store-&gt;flags = p_strdup(ctx-&gt;pool, sorted_flags);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         p_array_init(&amp;store-&gt;uids, ctx-&gt;pool, 4);</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         hash_table_insert(ctx-&gt;stores, store, store);</span>
+<span class="lineNum">     125 </span>            :     }
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     seq_range_array_add_range(&amp;store-&gt;uids, ctx-&gt;prev_uid1, ctx-&gt;prev_uid2);</span>
+<span class="lineNum">     127 </span>            : }
+<a name="128"><span class="lineNum">     128 </span>            : </a>
+<span class="lineNum">     129 </span>            : static void
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 : imapc_sync_store(struct imapc_sync_context *ctx,</span>
+<span class="lineNum">     131 </span>            :          enum modify_type modify_type, uint32_t uid1, uint32_t uid2,
+<span class="lineNum">     132 </span>            :          const char *flags)
+<span class="lineNum">     133 </span>            : {
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     if (ctx-&gt;prev_flags == NULL) {</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         ctx-&gt;prev_flags = str_new(ctx-&gt;pool, 128);</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         hash_table_create(&amp;ctx-&gt;stores, ctx-&gt;pool, 0,</span>
+<span class="lineNum">     137 </span>            :                   imapc_sync_store_hash, imapc_sync_store_cmp);
+<span class="lineNum">     138 </span>            :     }
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     if (ctx-&gt;prev_uid1 != uid1 || ctx-&gt;prev_uid2 != uid2 ||</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         ctx-&gt;prev_modify_type != modify_type) {</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         imapc_sync_store_flush(ctx);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         ctx-&gt;prev_uid1 = uid1;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         ctx-&gt;prev_uid2 = uid2;</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         ctx-&gt;prev_modify_type = modify_type;</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         str_truncate(ctx-&gt;prev_flags, 0);</span>
+<span class="lineNum">     147 </span>            :     }
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     if (str_len(ctx-&gt;prev_flags) &gt; 0)</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :         str_append_c(ctx-&gt;prev_flags, ' ');</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     str_append(ctx-&gt;prev_flags, flags);</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 : }</span>
+<a name="152"><span class="lineNum">     152 </span>            : </a>
+<span class="lineNum">     153 </span>            : static void
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 : imapc_sync_finish_store(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     155 </span>            : {
+<span class="lineNum">     156 </span>            :     struct hash_iterate_context *iter;
+<span class="lineNum">     157 </span>            :     struct imapc_sync_store *store;
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     string_t *cmd = t_str_new(128);</span>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     imapc_sync_store_flush(ctx);</span>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     if (!hash_table_is_created(ctx-&gt;stores))</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     iter = hash_table_iterate_init(ctx-&gt;stores);</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     while (hash_table_iterate(iter, ctx-&gt;stores, &amp;store, &amp;store)) {</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         str_truncate(cmd, 0);</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :         str_append(cmd, &quot;UID STORE &quot;);</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         imap_write_seq_range(cmd, &amp;store-&gt;uids);</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         str_printfa(cmd, &quot; %cFLAGS (%s)&quot;,</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :                 store-&gt;modify_type == MODIFY_ADD ? '+' : '-',</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :                 store-&gt;flags);</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         imapc_sync_cmd_full(ctx, str_c(cmd), TRUE);</span>
+<span class="lineNum">     174 </span>            :     }
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     hash_table_iterate_deinit(&amp;iter);</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     hash_table_destroy(&amp;ctx-&gt;stores);</span>
+<span class="lineNum">     177 </span>            : }
+<a name="178"><span class="lineNum">     178 </span>            : </a>
+<span class="lineNum">     179 </span>            : static void
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 : imapc_sync_add_missing_deleted_flags(struct imapc_sync_context *ctx,</span>
+<span class="lineNum">     181 </span>            :                      uint32_t seq1, uint32_t seq2)
+<span class="lineNum">     182 </span>            : {
+<span class="lineNum">     183 </span>            :     const struct mail_index_record *rec;
+<span class="lineNum">     184 </span>            :     uint32_t seq, uid1, uid2;
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span>            :     /* if any of them has a missing \Deleted flag,
+<span class="lineNum">     187 </span>            :        just add it to all of them. */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     for (seq = seq1; seq &lt;= seq2; seq++) {</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         rec = mail_index_lookup(ctx-&gt;sync_view, seq);</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         if ((rec-&gt;flags &amp; MAIL_DELETED) == 0)</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     192 </span>            :     }
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     if (seq &lt;= seq2) {</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :         mail_index_lookup_uid(ctx-&gt;sync_view, seq1, &amp;uid1);</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :         mail_index_lookup_uid(ctx-&gt;sync_view, seq2, &amp;uid2);</span>
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :         imapc_sync_store(ctx, MODIFY_ADD, uid1, uid2, &quot;\\Deleted&quot;);</span>
+<span class="lineNum">     199 </span>            :     }
+<a name="200"><span class="lineNum">     200 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 : static void imapc_sync_index_flags(struct imapc_sync_context *ctx,</span>
+<span class="lineNum">     203 </span>            :                    const struct mail_index_sync_rec *sync_rec)
+<span class="lineNum">     204 </span>            : {
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     string_t *str = t_str_new(128);</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     i_assert(sync_rec-&gt;type == MAIL_INDEX_SYNC_TYPE_FLAGS);</span>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     if (sync_rec-&gt;add_flags != 0) {</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         i_assert((sync_rec-&gt;add_flags &amp; MAIL_RECENT) == 0);</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :         imap_write_flags(str, sync_rec-&gt;add_flags, NULL);</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         imapc_sync_store(ctx, MODIFY_ADD, sync_rec-&gt;uid1,</span>
+<span class="lineNum">     214 </span>            :                  sync_rec-&gt;uid2, str_c(str));
+<span class="lineNum">     215 </span>            :     }
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     if (sync_rec-&gt;remove_flags != 0) {</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         i_assert((sync_rec-&gt;remove_flags &amp; MAIL_RECENT) == 0);</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :         str_truncate(str, 0);</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         imap_write_flags(str, sync_rec-&gt;remove_flags, NULL);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         imapc_sync_store(ctx, MODIFY_REMOVE, sync_rec-&gt;uid1,</span>
+<span class="lineNum">     222 </span>            :                  sync_rec-&gt;uid2, str_c(str));
+<span class="lineNum">     223 </span>            :     }
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 : }</span>
+<a name="225"><span class="lineNum">     225 </span>            : </a>
+<span class="lineNum">     226 </span>            : static void
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 : imapc_sync_index_keyword(struct imapc_sync_context *ctx,</span>
+<span class="lineNum">     228 </span>            :              const struct mail_index_sync_rec *sync_rec)
+<span class="lineNum">     229 </span>            : {
+<span class="lineNum">     230 </span>            :     const char *const *kw_p;
+<span class="lineNum">     231 </span>            :     enum modify_type modify_type;
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     switch (sync_rec-&gt;type) {</span>
+<span class="lineNum">     234 </span>            :     case MAIL_INDEX_SYNC_TYPE_KEYWORD_ADD:
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         modify_type = MODIFY_ADD;</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     237 </span>            :     case MAIL_INDEX_SYNC_TYPE_KEYWORD_REMOVE:
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         modify_type = MODIFY_REMOVE;</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     240 </span>            :     default:
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     242 </span>            :     }
+<span class="lineNum">     243 </span>            : 
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     kw_p = array_idx(ctx-&gt;keywords, sync_rec-&gt;keyword_idx);</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     imapc_sync_store(ctx, modify_type, sync_rec-&gt;uid1,</span>
+<span class="lineNum">     246 </span>            :              sync_rec-&gt;uid2, *kw_p);
+<a name="247"><span class="lineNum">     247 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 : static void imapc_sync_expunge_finish(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     250 </span>            : {
+<span class="lineNum">     251 </span>            :     string_t *str;
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :     if (array_count(&amp;ctx-&gt;expunged_uids) == 0)</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     if ((ctx-&gt;mbox-&gt;capabilities &amp; IMAPC_CAPABILITY_UIDPLUS) == 0) {</span>
+<span class="lineNum">     257 </span>            :         /* just expunge everything */
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         imapc_sync_cmd(ctx, &quot;EXPUNGE&quot;);</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     260 </span>            :     }
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span>            :     /* build a list of UIDs to expunge */
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :     str = t_str_new(128);</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     str_append(str, &quot;UID EXPUNGE &quot;);</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     imap_write_seq_range(str, &amp;ctx-&gt;expunged_uids);</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     imapc_sync_cmd(ctx, str_c(str));</span>
+<a name="267"><span class="lineNum">     267 </span>            : }</a>
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 : static void imapc_sync_uid_next(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     270 </span>            : {
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     struct imapc_mailbox *mbox = ctx-&gt;mbox;</span>
+<span class="lineNum">     272 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     uint32_t uid_next = mbox-&gt;sync_uid_next;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     if (uid_next &lt; mbox-&gt;min_append_uid)</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         uid_next = mbox-&gt;min_append_uid;</span>
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(ctx-&gt;sync_view);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     if (hdr-&gt;next_uid &lt; uid_next) {</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         mail_index_update_header(ctx-&gt;trans,</span>
+<span class="lineNum">     281 </span>            :             offsetof(struct mail_index_header, next_uid),
+<span class="lineNum">     282 </span>            :             &amp;uid_next, sizeof(uid_next), FALSE);
+<span class="lineNum">     283 </span>            :     }
+<a name="284"><span class="lineNum">     284 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 : static void imapc_sync_highestmodseq(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     287 </span>            : {
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     if (imapc_mailbox_has_modseqs(ctx-&gt;mbox) &amp;&amp;</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         mail_index_modseq_get_highest(ctx-&gt;sync_view) &lt; ctx-&gt;mbox-&gt;sync_highestmodseq)</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         mail_index_update_highest_modseq(ctx-&gt;trans, ctx-&gt;mbox-&gt;sync_highestmodseq);</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 : }</span>
+<a name="292"><span class="lineNum">     292 </span>            : </a>
+<span class="lineNum">     293 </span>            : static void
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 : imapc_initial_sync_check(struct imapc_sync_context *ctx, bool nooped)</span>
+<span class="lineNum">     295 </span>            : {
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     struct imapc_msgmap *msgmap =</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :         imapc_client_mailbox_get_msgmap(ctx-&gt;mbox-&gt;client_box);</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = ctx-&gt;mbox-&gt;delayed_sync_view;</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     const struct mail_index_header *hdr = mail_index_get_header(view);</span>
+<span class="lineNum">     300 </span>            :     uint32_t rseq, lseq, ruid, luid, rcount, lcount;
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     rseq = lseq = 1;</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     rcount = imapc_msgmap_count(msgmap);</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     lcount = mail_index_view_get_messages_count(view);</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     while (rseq &lt;= rcount || lseq &lt;= lcount) {</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         if (rseq &lt;= rcount)</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :             ruid = imapc_msgmap_rseq_to_uid(msgmap, rseq);</span>
+<span class="lineNum">     308 </span>            :         else
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :             ruid = (uint32_t)-1;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         if (lseq &lt;= lcount)</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :             mail_index_lookup_uid(view, lseq, &amp;luid);</span>
+<span class="lineNum">     312 </span>            :         else
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :             luid = (uint32_t)-1;</span>
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         if (ruid == luid) {</span>
+<span class="lineNum">     316 </span>            :             /* message exists in index and in remote server */
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :             lseq++; rseq++;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         } else if (luid &lt; ruid) {</span>
+<span class="lineNum">     319 </span>            :             /* message exists in index but not in remote server */
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :             if (luid &gt;= ctx-&gt;mbox-&gt;sync_uid_next) {</span>
+<span class="lineNum">     321 </span>            :                 /* the message was added to index by another
+<span class="lineNum">     322 </span>            :                    imapc session, and it's not visible yet
+<span class="lineNum">     323 </span>            :                    in this session */
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     325 </span>            :             }
+<span class="lineNum">     326 </span>            :             /* it's already expunged and we should have marked it */
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :             i_assert(mail_index_is_expunged(view, lseq) ||</span>
+<span class="lineNum">     328 </span>            :                  seq_range_exists(&amp;ctx-&gt;mbox-&gt;delayed_expunged_uids, luid));
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :             lseq++;</span>
+<span class="lineNum">     330 </span>            :         } else {
+<span class="lineNum">     331 </span>            :             /* message doesn't exist in index, but exists in
+<span class="lineNum">     332 </span>            :                remote server */
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :             if (lseq &gt; lcount &amp;&amp; ruid &gt;= hdr-&gt;next_uid) {</span>
+<span class="lineNum">     334 </span>            :                 /* the message hasn't been yet added to index */
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     336 </span>            :             }
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span>            :             /* another imapc session expunged it =&gt;
+<span class="lineNum">     339 </span>            :                NOOP should send us an EXPUNGE event */
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :             if (!nooped) {</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :                 imapc_mailbox_noop(ctx-&gt;mbox);</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :                 imapc_initial_sync_check(ctx, TRUE);</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     344 </span>            :             }
+<span class="lineNum">     345 </span>            :             /* already nooped =&gt; index is corrupted */
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :             imapc_mailbox_set_corrupted(ctx-&gt;mbox,</span>
+<span class="lineNum">     347 </span>            :                 &quot;Expunged message uid=%u reappeared&quot;, ruid);
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :             ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :             rseq++;</span>
+<span class="lineNum">     350 </span>            :         }
+<span class="lineNum">     351 </span>            :     }
+<span class="lineNum">     352 </span>            : }
+<a name="353"><span class="lineNum">     353 </span>            : </a>
+<span class="lineNum">     354 </span>            : static void
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 : imapc_sync_send_commands(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     356 </span>            : {
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     if (ctx-&gt;mbox-&gt;exists_count == 0) {</span>
+<span class="lineNum">     358 </span>            :         /* empty mailbox - no point in fetching anything */
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     360 </span>            :     }
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     if (IMAPC_BOX_HAS_FEATURE(ctx-&gt;mbox, IMAPC_FEATURE_GMAIL_MIGRATION) &amp;&amp;</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;storage-&gt;set-&gt;pop3_deleted_flag[0] != '\0') {</span>
+<span class="lineNum">     364 </span>            :         struct imapc_command *cmd;
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         cmd = imapc_sync_cmd(ctx, &quot;SEARCH RETURN (ALL) X-GM-RAW \&quot;in:^pop\&quot;&quot;);</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :         i_free(ctx-&gt;mbox-&gt;sync_gmail_pop3_search_tag);</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;sync_gmail_pop3_search_tag =</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :             i_strdup(imapc_command_get_tag(cmd));</span>
+<span class="lineNum">     370 </span>            :     }
+<a name="371"><span class="lineNum">     371 </span>            : }</a>
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 : static void imapc_sync_index(struct imapc_sync_context *ctx)</span>
+<span class="lineNum">     374 </span>            : {
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     struct imapc_mailbox *mbox = ctx-&gt;mbox;</span>
+<span class="lineNum">     376 </span>            :     struct mail_index_sync_rec sync_rec;
+<span class="lineNum">     377 </span>            :     uint32_t seq1, seq2;
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :     i_array_init(&amp;ctx-&gt;expunged_uids, 64);</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     ctx-&gt;keywords = mail_index_get_keywords(mbox-&gt;box.index);</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     ctx-&gt;pool = pool_alloconly_create(&quot;imapc sync pool&quot;, 1024);</span>
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     while (mail_index_sync_next(ctx-&gt;index_sync_ctx, &amp;sync_rec)) T_BEGIN {</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         if (!mail_index_lookup_seq_range(ctx-&gt;sync_view,</span>
+<span class="lineNum">     385 </span>            :                          sync_rec.uid1, sync_rec.uid2,
+<span class="lineNum">     386 </span>            :                          &amp;seq1, &amp;seq2)) {
+<span class="lineNum">     387 </span>            :             /* already expunged, nothing to do. */
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         } else switch (sync_rec.type) {</span>
+<span class="lineNum">     389 </span>            :         case MAIL_INDEX_SYNC_TYPE_EXPUNGE:
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :             imapc_sync_add_missing_deleted_flags(ctx, seq1, seq2);</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :             seq_range_array_add_range(&amp;ctx-&gt;expunged_uids,</span>
+<span class="lineNum">     392 </span>            :                           sync_rec.uid1, sync_rec.uid2);
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     394 </span>            :         case MAIL_INDEX_SYNC_TYPE_FLAGS:
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :             imapc_sync_index_flags(ctx, &amp;sync_rec);</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     397 </span>            :         case MAIL_INDEX_SYNC_TYPE_KEYWORD_ADD:
+<span class="lineNum">     398 </span>            :         case MAIL_INDEX_SYNC_TYPE_KEYWORD_REMOVE:
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :             imapc_sync_index_keyword(ctx, &amp;sync_rec);</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     401 </span>            :         }
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :     imapc_sync_finish_store(ctx);</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     pool_unref(&amp;ctx-&gt;pool);</span>
+<span class="lineNum">     405 </span>            : 
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     if (!mbox-&gt;initial_sync_done)</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         imapc_sync_send_commands(ctx);</span>
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     imapc_sync_expunge_finish(ctx);</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     while (ctx-&gt;sync_command_count &gt; 0)</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :         imapc_mailbox_run(mbox);</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     array_free(&amp;ctx-&gt;expunged_uids);</span>
+<span class="lineNum">     413 </span>            : 
+<span class="lineNum">     414 </span>            :     /* add uidnext &amp; highestmodseq after all appends */
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     imapc_sync_uid_next(ctx);</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     imapc_sync_highestmodseq(ctx);</span>
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     if (mbox-&gt;box.v.sync_notify != NULL)</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :         mbox-&gt;box.v.sync_notify(&amp;mbox-&gt;box, 0, 0);</span>
+<span class="lineNum">     420 </span>            : 
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;failed) {</span>
+<span class="lineNum">     422 </span>            :         /* reset only after a successful sync */
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :         mbox-&gt;sync_fetch_first_uid = 0;</span>
+<span class="lineNum">     424 </span>            :     }
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     if (!mbox-&gt;initial_sync_done &amp;&amp; !ctx-&gt;failed) {</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :         imapc_initial_sync_check(ctx, FALSE);</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :         mbox-&gt;initial_sync_done = TRUE;</span>
+<span class="lineNum">     428 </span>            :     }
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 : }</span>
+<a name="430"><span class="lineNum">     430 </span>            : </a>
+<span class="lineNum">     431 </span>            : static int
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 : imapc_sync_begin(struct imapc_mailbox *mbox,</span>
+<span class="lineNum">     433 </span>            :          struct imapc_sync_context **ctx_r, bool force)
+<span class="lineNum">     434 </span>            : {
+<span class="lineNum">     435 </span>            :     struct imapc_sync_context *ctx;
+<span class="lineNum">     436 </span>            :     enum mail_index_sync_flags sync_flags;
+<span class="lineNum">     437 </span>            :     int ret;
+<span class="lineNum">     438 </span>            : 
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :     i_assert(!mbox-&gt;syncing);</span>
+<span class="lineNum">     440 </span>            : 
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     ctx = i_new(struct imapc_sync_context, 1);</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox = mbox;</span>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :     sync_flags = index_storage_get_sync_flags(&amp;mbox-&gt;box) |</span>
+<span class="lineNum">     445 </span>            :         MAIL_INDEX_SYNC_FLAG_FLUSH_DIRTY;
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     if (!force)</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         sync_flags |= MAIL_INDEX_SYNC_FLAG_REQUIRE_CHANGES;</span>
+<span class="lineNum">     448 </span>            : 
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     ret = mail_index_sync_begin(mbox-&gt;box.index, &amp;ctx-&gt;index_sync_ctx,</span>
+<span class="lineNum">     450 </span>            :                     &amp;ctx-&gt;sync_view, &amp;ctx-&gt;trans,
+<span class="lineNum">     451 </span>            :                     sync_flags);
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :             mailbox_set_index_error(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         i_free(ctx);</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :         *ctx_r = NULL;</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     458 </span>            :     }
+<span class="lineNum">     459 </span>            : 
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :     i_assert(mbox-&gt;sync_view == NULL);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     i_assert(mbox-&gt;delayed_sync_trans == NULL);</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     mbox-&gt;sync_view = ctx-&gt;sync_view;</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     mbox-&gt;delayed_sync_view =</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         mail_index_transaction_open_updated_view(ctx-&gt;trans);</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     mbox-&gt;delayed_sync_trans = ctx-&gt;trans;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     mbox-&gt;delayed_sync_cache_view =</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         mail_cache_view_open(mbox-&gt;box.cache, mbox-&gt;delayed_sync_view);</span>
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :     mbox-&gt;delayed_sync_cache_trans =</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         mail_cache_get_transaction(mbox-&gt;delayed_sync_cache_view,</span>
+<span class="lineNum">     470 </span>            :                        mbox-&gt;delayed_sync_trans);
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     mbox-&gt;min_append_uid = mail_index_get_header(ctx-&gt;sync_view)-&gt;next_uid;</span>
+<span class="lineNum">     472 </span>            : 
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :     mbox-&gt;syncing = TRUE;</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :     mbox-&gt;sync_ctx = ctx;</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :     if (!mbox-&gt;box.deleting)</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         imapc_sync_index(ctx);</span>
+<span class="lineNum">     477 </span>            : 
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;mbox-&gt;delayed_sync_view);</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     mbox-&gt;delayed_sync_trans = NULL;</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     mbox-&gt;sync_view = NULL;</span>
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     *ctx_r = ctx;</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="484"><span class="lineNum">     484 </span>            : }</a>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 : static int imapc_sync_finish(struct imapc_sync_context **_ctx)</span>
+<span class="lineNum">     487 </span>            : {
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :     struct imapc_sync_context *ctx = *_ctx;</span>
+<span class="lineNum">     489 </span>            :     bool changes;
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     int ret = ctx-&gt;failed ? -1 : 0;</span>
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     *_ctx = NULL;</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :         if (mail_index_sync_commit(&amp;ctx-&gt;index_sync_ctx) &lt; 0) {</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :             mailbox_set_index_error(&amp;ctx-&gt;mbox-&gt;box);</span>
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     497 </span>            :         }
+<span class="lineNum">     498 </span>            :     } else {
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :         mail_index_sync_rollback(&amp;ctx-&gt;index_sync_ctx);</span>
+<span class="lineNum">     500 </span>            :     }
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     if (ctx-&gt;mbox-&gt;sync_gmail_pop3_search_tag != NULL) {</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     503 </span>            :             &quot;gmail-pop3 search not successful&quot;);
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         i_free_and_null(ctx-&gt;mbox-&gt;sync_gmail_pop3_search_tag);</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     506 </span>            :     }
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     mail_cache_view_close(&amp;ctx-&gt;mbox-&gt;delayed_sync_cache_view);</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox-&gt;delayed_sync_cache_trans = NULL;</span>
+<span class="lineNum">     509 </span>            : 
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox-&gt;syncing = FALSE;</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox-&gt;sync_ctx = NULL;</span>
+<span class="lineNum">     512 </span>            : 
+<span class="lineNum">     513 </span>            :     /* this is done simply to commit delayed expunges if there are any
+<span class="lineNum">     514 </span>            :        (has to be done after sync is committed) */
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :     if (imapc_mailbox_commit_delayed_trans(ctx-&gt;mbox, &amp;changes) &lt; 0)</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     517 </span>            : 
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="520"><span class="lineNum">     520 </span>            : }</a>
+<span class="lineNum">     521 </span>            : 
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 : static int imapc_sync(struct imapc_mailbox *mbox)</span>
+<span class="lineNum">     523 </span>            : {
+<span class="lineNum">     524 </span>            :     struct imapc_sync_context *sync_ctx;
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     bool force = mbox-&gt;sync_fetch_first_uid != 0;</span>
+<span class="lineNum">     526 </span>            : 
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :     if ((mbox-&gt;box.flags &amp; MAILBOX_FLAG_SAVEONLY) != 0) {</span>
+<span class="lineNum">     528 </span>            :         /* we're only saving mails here - no syncing actually wanted */
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     530 </span>            :     }
+<span class="lineNum">     531 </span>            : 
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :     if (imapc_sync_begin(mbox, &amp;sync_ctx, force) &lt; 0)</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :     if (sync_ctx == NULL)</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :     if (imapc_sync_finish(&amp;sync_ctx) &lt; 0)</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     539 </span>            : }
+<a name="540"><span class="lineNum">     540 </span>            : </a>
+<span class="lineNum">     541 </span>            : static void
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 : imapc_noop_if_needed(struct imapc_mailbox *mbox, enum mailbox_sync_flags flags)</span>
+<span class="lineNum">     543 </span>            : {
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :     if (!mbox-&gt;initial_sync_done) {</span>
+<span class="lineNum">     545 </span>            :         /* we just SELECTed/EXAMINEd the mailbox, don't do another
+<span class="lineNum">     546 </span>            :            NOOP. */
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :     } else if ((flags &amp; MAILBOX_SYNC_FLAG_FAST) == 0 &amp;&amp;</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :            ((mbox-&gt;capabilities &amp; IMAPC_CAPABILITY_IDLE) == 0 ||</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :             (flags &amp; MAILBOX_SYNC_FLAG_FULL_READ) != 0)) {</span>
+<span class="lineNum">     550 </span>            :         /* do NOOP to make sure we have the latest changes before
+<span class="lineNum">     551 </span>            :            starting sync. this is necessary either because se don't
+<span class="lineNum">     552 </span>            :            support IDLE at all, or because we want to be sure that we
+<span class="lineNum">     553 </span>            :            have the latest changes (IDLE is started with a small delay,
+<span class="lineNum">     554 </span>            :            so we might not actually even be in IDLE right not) */
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :         imapc_mailbox_noop(mbox);</span>
+<span class="lineNum">     556 </span>            :     }
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 : }</span>
+<a name="558"><span class="lineNum">     558 </span>            : </a>
+<span class="lineNum">     559 </span>            : struct mailbox_sync_context *
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 : imapc_mailbox_sync_init(struct mailbox *box, enum mailbox_sync_flags flags)</span>
+<span class="lineNum">     561 </span>            : {
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     struct imapc_mailbox *mbox = IMAPC_MAILBOX(box);</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :     struct imapc_mailbox_list *list = mbox-&gt;storage-&gt;client-&gt;_list;</span>
+<span class="lineNum">     564 </span>            :     bool changes;
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :     if (list != NULL) {</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :         if (!list-&gt;refreshed_mailboxes &amp;&amp;</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :             list-&gt;last_refreshed_mailboxes &lt; ioloop_time)</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :             list-&gt;refreshed_mailboxes_recently = FALSE;</span>
+<span class="lineNum">     571 </span>            :     }
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     imapc_noop_if_needed(mbox, flags);</span>
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     if (imapc_storage_client_handle_auth_failure(mbox-&gt;storage-&gt;client))</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     else if (!mbox-&gt;state_fetched_success &amp;&amp; !mbox-&gt;state_fetching_uid1 &amp;&amp;</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :          !mbox-&gt;box.deleting) {</span>
+<span class="lineNum">     579 </span>            :         /* initial FETCH failed already */
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     581 </span>            :     }
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :     if (imapc_mailbox_commit_delayed_trans(mbox, &amp;changes) &lt; 0)</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :     if ((changes || mbox-&gt;sync_fetch_first_uid != 0 ||</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :          index_mailbox_want_full_sync(&amp;mbox-&gt;box, flags)) &amp;&amp;</span>
+<span class="lineNum">     586 </span>            :         ret == 0)
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         ret = imapc_sync(mbox);</span>
+<span class="lineNum">     588 </span>            : 
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :     return index_mailbox_sync_init(box, flags, ret &lt; 0);</span>
+<a name="590"><span class="lineNum">     590 </span>            : }</a>
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 : int imapc_mailbox_sync_deinit(struct mailbox_sync_context *ctx,</span>
+<span class="lineNum">     593 </span>            :                   struct mailbox_sync_status *status_r)
+<span class="lineNum">     594 </span>            : {
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :     struct imapc_mailbox *mbox = IMAPC_MAILBOX(ctx-&gt;box);</span>
+<span class="lineNum">     596 </span>            :     int ret;
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :     ret = index_mailbox_sync_deinit(ctx, status_r);</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :     ctx = NULL;</span>
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     if (mbox-&gt;client_box == NULL)</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     603 </span>            : 
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :     imapc_client_mailbox_idle(mbox-&gt;client_box);</span>
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     606 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

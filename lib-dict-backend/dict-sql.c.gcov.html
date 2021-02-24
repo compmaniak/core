@@ -1,0 +1,1633 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-dict-backend/dict-sql.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-dict-backend</a> - dict-sql.c<span style="font-size: 80%;"> (source / <a href="dict-sql.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">539</td>
+            <td class="headerCovTableEntry">756</td>
+            <td class="headerCovTableEntryLo">71.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">39</td>
+            <td class="headerCovTableEntry">46</td>
+            <td class="headerCovTableEntryMed">84.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;sql-api-private.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;sql-db-cache.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;dict-private.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;dict-sql-settings.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;dict-sql.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;dict-sql-private.h&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      17 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define DICT_SQL_MAX_UNUSED_CONNECTIONS 10
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : enum sql_recurse_type {
+<span class="lineNum">      22 </span>            :     SQL_DICT_RECURSE_NONE,
+<span class="lineNum">      23 </span>            :     SQL_DICT_RECURSE_ONE,
+<span class="lineNum">      24 </span>            :     SQL_DICT_RECURSE_FULL
+<span class="lineNum">      25 </span>            : };
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : struct sql_dict_param {
+<span class="lineNum">      28 </span>            :     enum dict_sql_type value_type;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            :     const char *value_str;
+<span class="lineNum">      31 </span>            :     int64_t value_int64;
+<span class="lineNum">      32 </span>            :     const void *value_binary;
+<span class="lineNum">      33 </span>            :     size_t value_binary_size;
+<span class="lineNum">      34 </span>            : };
+<span class="lineNum">      35 </span>            : ARRAY_DEFINE_TYPE(sql_dict_param, struct sql_dict_param);
+<span class="lineNum">      36 </span>            : 
+<span class="lineNum">      37 </span>            : struct sql_dict_iterate_context {
+<span class="lineNum">      38 </span>            :     struct dict_iterate_context ctx;
+<span class="lineNum">      39 </span>            :     pool_t pool;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :     enum dict_iterate_flags flags;
+<span class="lineNum">      42 </span>            :     const char **paths;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     struct sql_result *result;
+<span class="lineNum">      45 </span>            :     string_t *key;
+<span class="lineNum">      46 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">      47 </span>            :     size_t key_prefix_len, pattern_prefix_len;
+<span class="lineNum">      48 </span>            :     unsigned int path_idx, sql_fields_start_idx, next_map_idx;
+<span class="lineNum">      49 </span>            :     bool synchronous_result;
+<span class="lineNum">      50 </span>            :     bool iter_query_sent;
+<span class="lineNum">      51 </span>            :     bool allow_null_map; /* allow next map to be NULL */
+<span class="lineNum">      52 </span>            :     const char *error;
+<span class="lineNum">      53 </span>            : };
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            : struct sql_dict_inc_row {
+<span class="lineNum">      56 </span>            :     struct sql_dict_inc_row *prev;
+<span class="lineNum">      57 </span>            :     unsigned int rows;
+<span class="lineNum">      58 </span>            : };
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span>            : struct sql_dict_transaction_context {
+<span class="lineNum">      61 </span>            :     struct dict_transaction_context ctx;
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span>            :     struct sql_transaction_context *sql_ctx;
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span>            :     const struct dict_sql_map *prev_inc_map;
+<span class="lineNum">      66 </span>            :     char *prev_inc_key;
+<span class="lineNum">      67 </span>            :     long long prev_inc_diff;
+<span class="lineNum">      68 </span>            :     pool_t inc_row_pool;
+<span class="lineNum">      69 </span>            :     struct sql_dict_inc_row *inc_row;
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span>            :     const struct dict_sql_map *prev_set_map;
+<span class="lineNum">      72 </span>            :     char *prev_set_key;
+<span class="lineNum">      73 </span>            :     char *prev_set_value;
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span>            :     dict_transaction_commit_callback_t *async_callback;
+<span class="lineNum">      76 </span>            :     void *async_context;
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span>            :     char *error;
+<span class="lineNum">      79 </span>            : };
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span>            : static struct sql_db_cache *dict_sql_db_cache;
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            : static void sql_dict_prev_inc_flush(struct sql_dict_transaction_context *ctx);
+<span class="lineNum">      84 </span>            : static void sql_dict_prev_set_flush(struct sql_dict_transaction_context *ctx);
+<a name="85"><span class="lineNum">      85 </span>            : </a>
+<span class="lineNum">      86 </span>            : static int
+<span class="lineNum">      87 </span><span class="lineCov">          5 : sql_dict_init(struct dict *driver, const char *uri,</span>
+<span class="lineNum">      88 </span>            :           const struct dict_settings *set,
+<span class="lineNum">      89 </span>            :           struct dict **dict_r, const char **error_r)
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span>            :     struct sql_dict *dict;
+<span class="lineNum">      92 </span>            :     pool_t pool;
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineCov">          5 :     pool = pool_alloconly_create(&quot;sql dict&quot;, 2048);</span>
+<span class="lineNum">      95 </span><span class="lineCov">          5 :     dict = p_new(pool, struct sql_dict, 1);</span>
+<span class="lineNum">      96 </span><span class="lineCov">          5 :     dict-&gt;pool = pool;</span>
+<span class="lineNum">      97 </span><span class="lineCov">          5 :     dict-&gt;dict = *driver;</span>
+<span class="lineNum">      98 </span><span class="lineCov">          5 :     dict-&gt;username = p_strdup(pool, set-&gt;username);</span>
+<span class="lineNum">      99 </span><span class="lineCov">          5 :     dict-&gt;set = dict_sql_settings_read(uri, error_r);</span>
+<span class="lineNum">     100 </span><span class="lineCov">          5 :     if (dict-&gt;set == NULL) {</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         pool_unref(&amp;pool);</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     103 </span>            :     }
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span>            :     /* currently pgsql and sqlite don't support &quot;ON DUPLICATE KEY&quot; */
+<span class="lineNum">     106 </span><span class="lineCov">          5 :     dict-&gt;has_on_duplicate_key = strcmp(driver-&gt;name, &quot;mysql&quot;) == 0;</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineCov">          5 :     dict-&gt;db = sql_db_cache_new(dict_sql_db_cache, driver-&gt;name,</span>
+<span class="lineNum">     109 </span><span class="lineCov">          5 :                     dict-&gt;set-&gt;connect);</span>
+<span class="lineNum">     110 </span><span class="lineCov">          5 :     if ((sql_get_flags(dict-&gt;db) &amp; SQL_DB_FLAG_PREP_STATEMENTS) != 0) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         hash_table_create(&amp;dict-&gt;prep_stmt_hash, dict-&gt;pool,</span>
+<span class="lineNum">     112 </span>            :                   0, str_hash, strcmp);
+<span class="lineNum">     113 </span>            :     }
+<span class="lineNum">     114 </span><span class="lineCov">          5 :     *dict_r = &amp;dict-&gt;dict;</span>
+<span class="lineNum">     115 </span><span class="lineCov">          5 :     return 0;</span>
+<a name="116"><span class="lineNum">     116 </span>            : }</a>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineCov">          5 : static void sql_dict_prep_stmt_hash_free(struct sql_dict *dict)</span>
+<span class="lineNum">     119 </span>            : {
+<span class="lineNum">     120 </span>            :     struct hash_iterate_context *iter;
+<span class="lineNum">     121 </span>            :     struct sql_prepared_statement *prep_stmt;
+<span class="lineNum">     122 </span>            :     const char *query;
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineCov">          5 :     if (!hash_table_is_created(dict-&gt;prep_stmt_hash))</span>
+<span class="lineNum">     125 </span><span class="lineCov">         10 :         return;</span>
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     iter = hash_table_iterate_init(dict-&gt;prep_stmt_hash);</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     while (hash_table_iterate(iter, dict-&gt;prep_stmt_hash, &amp;query, &amp;prep_stmt))</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         sql_prepared_statement_deinit(&amp;prep_stmt);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     hash_table_iterate_deinit(&amp;iter);</span>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     hash_table_destroy(&amp;dict-&gt;prep_stmt_hash);</span>
+<a name="133"><span class="lineNum">     133 </span>            : }</a>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineCov">          5 : static void sql_dict_deinit(struct dict *_dict)</span>
+<span class="lineNum">     136 </span>            : {
+<span class="lineNum">     137 </span><span class="lineCov">          5 :     struct sql_dict *dict = (struct sql_dict *)_dict;</span>
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span><span class="lineCov">          5 :     sql_dict_prep_stmt_hash_free(dict);</span>
+<span class="lineNum">     140 </span><span class="lineCov">          5 :     sql_deinit(&amp;dict-&gt;db);</span>
+<span class="lineNum">     141 </span><span class="lineCov">          5 :     pool_unref(&amp;dict-&gt;pool);</span>
+<a name="142"><span class="lineNum">     142 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 : static void sql_dict_wait(struct dict *dict ATTR_UNUSED)</span>
+<span class="lineNum">     145 </span>            : {
+<span class="lineNum">     146 </span>            :     /* FIXME: lib-sql doesn't support this yet */
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 : }</span>
+<a name="148"><span class="lineNum">     148 </span>            : </a>
+<span class="lineNum">     149 </span>            : static bool
+<span class="lineNum">     150 </span><span class="lineCov">         44 : dict_sql_map_match(const struct dict_sql_map *map, const char *path,</span>
+<span class="lineNum">     151 </span>            :            ARRAY_TYPE(const_string) *values, size_t *pat_len_r,
+<span class="lineNum">     152 </span>            :            size_t *path_len_r, bool partial_ok, bool recurse)
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span><span class="lineCov">         44 :     const char *path_start = path;</span>
+<span class="lineNum">     155 </span>            :     const char *pat, *field, *p;
+<span class="lineNum">     156 </span>            :     size_t len;
+<span class="lineNum">     157 </span>            : 
+<span class="lineNum">     158 </span><span class="lineCov">         44 :     array_clear(values);</span>
+<span class="lineNum">     159 </span><span class="lineCov">         44 :     pat = map-&gt;pattern;</span>
+<span class="lineNum">     160 </span><span class="lineCov">        441 :     while (*pat != '\0' &amp;&amp; *path != '\0') {</span>
+<span class="lineNum">     161 </span><span class="lineCov">        388 :         if (*pat == '$') {</span>
+<span class="lineNum">     162 </span>            :             /* variable */
+<span class="lineNum">     163 </span><span class="lineCov">         15 :             pat++;</span>
+<span class="lineNum">     164 </span><span class="lineCov">         15 :             if (*pat == '\0') {</span>
+<span class="lineNum">     165 </span>            :                 /* pattern ended with this variable,
+<span class="lineNum">     166 </span>            :                    it'll match the rest of the path */
+<span class="lineNum">     167 </span><span class="lineCov">          7 :                 len = strlen(path);</span>
+<span class="lineNum">     168 </span><span class="lineCov">          7 :                 if (partial_ok) {</span>
+<span class="lineNum">     169 </span>            :                     /* iterating - the last field never
+<span class="lineNum">     170 </span>            :                        matches fully. if there's a trailing
+<span class="lineNum">     171 </span>            :                        '/', drop it. */
+<span class="lineNum">     172 </span><span class="lineCov">          1 :                     pat--;</span>
+<span class="lineNum">     173 </span><span class="lineCov">          1 :                     if (path[len-1] == '/') {</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :                         field = t_strndup(path, len-1);</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :                         array_append(values, &amp;field, 1);</span>
+<span class="lineNum">     176 </span>            :                     } else {
+<span class="lineNum">     177 </span><span class="lineCov">          1 :                         array_append(values, &amp;path, 1);</span>
+<span class="lineNum">     178 </span>            :                     }
+<span class="lineNum">     179 </span>            :                 } else {
+<span class="lineNum">     180 </span><span class="lineCov">          6 :                     array_append(values, &amp;path, 1);</span>
+<span class="lineNum">     181 </span><span class="lineCov">          6 :                     path += len;</span>
+<span class="lineNum">     182 </span>            :                 }
+<span class="lineNum">     183 </span><span class="lineCov">          7 :                 *path_len_r = path - path_start;</span>
+<span class="lineNum">     184 </span><span class="lineCov">          7 :                 *pat_len_r = pat - map-&gt;pattern;</span>
+<span class="lineNum">     185 </span><span class="lineCov">          7 :                 return TRUE;</span>
+<span class="lineNum">     186 </span>            :             }
+<span class="lineNum">     187 </span>            :             /* pattern matches until the next '/' in path */
+<span class="lineNum">     188 </span><span class="lineCov">          8 :             p = strchr(path, '/');</span>
+<span class="lineNum">     189 </span><span class="lineCov">          8 :             if (p != NULL) {</span>
+<span class="lineNum">     190 </span><span class="lineCov">          8 :                 field = t_strdup_until(path, p);</span>
+<span class="lineNum">     191 </span><span class="lineCov">          8 :                 array_append(values, &amp;field, 1);</span>
+<span class="lineNum">     192 </span><span class="lineCov">          8 :                 path = p;</span>
+<span class="lineNum">     193 </span>            :             } else {
+<span class="lineNum">     194 </span>            :                 /* no '/' anymore, but it'll still match a
+<span class="lineNum">     195 </span>            :                    partial */
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :                 array_append(values, &amp;path, 1);</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :                 path += strlen(path);</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :                 pat++;</span>
+<span class="lineNum">     199 </span>            :             }
+<span class="lineNum">     200 </span><span class="lineCov">        373 :         } else if (*pat == *path) {</span>
+<span class="lineNum">     201 </span><span class="lineCov">        345 :             pat++;</span>
+<span class="lineNum">     202 </span><span class="lineCov">        345 :             path++;</span>
+<span class="lineNum">     203 </span>            :         } else {
+<span class="lineNum">     204 </span><span class="lineCov">         28 :             return FALSE;</span>
+<span class="lineNum">     205 </span>            :         }
+<span class="lineNum">     206 </span>            :     }
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineCov">          9 :     *path_len_r = path - path_start;</span>
+<span class="lineNum">     209 </span><span class="lineCov">          9 :     *pat_len_r = pat - map-&gt;pattern;</span>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineCov">          9 :     if (*pat == '\0')</span>
+<span class="lineNum">     212 </span><span class="lineCov">          8 :         return *path == '\0';</span>
+<span class="lineNum">     213 </span><span class="lineCov">          1 :     else if (!partial_ok)</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     215 </span>            :     else {
+<span class="lineNum">     216 </span>            :         /* partial matches must end with '/'. */
+<span class="lineNum">     217 </span><span class="lineCov">          1 :         if (pat != map-&gt;pattern &amp;&amp; pat[-1] != '/')</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     219 </span>            :         /* if we're not recursing, there should be only one $variable
+<span class="lineNum">     220 </span>            :            left. */
+<span class="lineNum">     221 </span><span class="lineCov">          1 :         if (recurse)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     223 </span><span class="lineCov">          1 :         return pat[0] == '$' &amp;&amp; strchr(pat, '/') == NULL;</span>
+<span class="lineNum">     224 </span>            :     }
+<span class="lineNum">     225 </span>            : }
+<a name="226"><span class="lineNum">     226 </span>            : </a>
+<span class="lineNum">     227 </span>            : static const struct dict_sql_map *
+<span class="lineNum">     228 </span><span class="lineCov">         14 : sql_dict_find_map(struct sql_dict *dict, const char *path,</span>
+<span class="lineNum">     229 </span>            :           ARRAY_TYPE(const_string) *values)
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span>            :     const struct dict_sql_map *maps;
+<span class="lineNum">     232 </span>            :     unsigned int i, count;
+<span class="lineNum">     233 </span>            :     size_t len;
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineCov">         14 :     t_array_init(values, dict-&gt;set-&gt;max_field_count);</span>
+<span class="lineNum">     236 </span><span class="lineCov">         14 :     maps = array_get(&amp;dict-&gt;set-&gt;maps, &amp;count);</span>
+<span class="lineNum">     237 </span><span class="lineCov">         38 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     238 </span><span class="lineCov">         38 :         if (dict_sql_map_match(&amp;maps[i], path, values,</span>
+<span class="lineNum">     239 </span>            :                        &amp;len, &amp;len, FALSE, FALSE))
+<span class="lineNum">     240 </span><span class="lineCov">         14 :             return &amp;maps[i];</span>
+<span class="lineNum">     241 </span>            :     }
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">     243 </span>            : }
+<a name="244"><span class="lineNum">     244 </span>            : </a>
+<span class="lineNum">     245 </span>            : static void
+<span class="lineNum">     246 </span><span class="lineCov">         20 : sql_dict_statement_bind(struct sql_statement *stmt, unsigned int column_idx,</span>
+<span class="lineNum">     247 </span>            :             const struct sql_dict_param *param)
+<span class="lineNum">     248 </span>            : {
+<span class="lineNum">     249 </span><span class="lineCov">         20 :     switch (param-&gt;value_type) {</span>
+<span class="lineNum">     250 </span>            :     case DICT_SQL_TYPE_STRING:
+<span class="lineNum">     251 </span><span class="lineCov">         11 :         sql_statement_bind_str(stmt, column_idx, param-&gt;value_str);</span>
+<span class="lineNum">     252 </span><span class="lineCov">         11 :         break;</span>
+<span class="lineNum">     253 </span>            :     case DICT_SQL_TYPE_INT:
+<span class="lineNum">     254 </span>            :     case DICT_SQL_TYPE_UINT:
+<span class="lineNum">     255 </span><span class="lineCov">          9 :         sql_statement_bind_int64(stmt, column_idx, param-&gt;value_int64);</span>
+<span class="lineNum">     256 </span><span class="lineCov">          9 :         break;</span>
+<span class="lineNum">     257 </span>            :     case DICT_SQL_TYPE_HEXBLOB:
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         sql_statement_bind_binary(stmt, column_idx, param-&gt;value_binary,</span>
+<span class="lineNum">     259 </span>            :                       param-&gt;value_binary_size);
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     261 </span>            :     }
+<span class="lineNum">     262 </span><span class="lineCov">         20 : }</span>
+<a name="263"><span class="lineNum">     263 </span>            : </a>
+<span class="lineNum">     264 </span>            : static struct sql_statement *
+<span class="lineNum">     265 </span><span class="lineCov">         10 : sql_dict_statement_init(struct sql_dict *dict, const char *query,</span>
+<span class="lineNum">     266 </span>            :             const ARRAY_TYPE(sql_dict_param) *params)
+<span class="lineNum">     267 </span>            : {
+<span class="lineNum">     268 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">     269 </span>            :     struct sql_prepared_statement *prep_stmt;
+<span class="lineNum">     270 </span>            :     const struct sql_dict_param *param;
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineCov">         10 :     if (hash_table_is_created(dict-&gt;prep_stmt_hash)) {</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         prep_stmt = hash_table_lookup(dict-&gt;prep_stmt_hash, query);</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :         if (prep_stmt == NULL) {</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             const char *query_dup = p_strdup(dict-&gt;pool, query);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :             prep_stmt = sql_prepared_statement_init(dict-&gt;db, query);</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :             hash_table_insert(dict-&gt;prep_stmt_hash, query_dup, prep_stmt);</span>
+<span class="lineNum">     278 </span>            :         }
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         stmt = sql_statement_init_prepared(prep_stmt);</span>
+<span class="lineNum">     280 </span>            :     } else {
+<span class="lineNum">     281 </span>            :         /* Prepared statements not supported by the backend.
+<span class="lineNum">     282 </span>            :            Just use regular statements to avoid wasting memory. */
+<span class="lineNum">     283 </span><span class="lineCov">         10 :         stmt = sql_statement_init(dict-&gt;db, query);</span>
+<span class="lineNum">     284 </span>            :     }
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineCov">         30 :     array_foreach(params, param) {</span>
+<span class="lineNum">     287 </span><span class="lineCov">         20 :         sql_dict_statement_bind(stmt, array_foreach_idx(params, param),</span>
+<span class="lineNum">     288 </span>            :                     param);
+<span class="lineNum">     289 </span>            :     }
+<span class="lineNum">     290 </span><span class="lineCov">         10 :     return stmt;</span>
+<span class="lineNum">     291 </span>            : }
+<a name="292"><span class="lineNum">     292 </span>            : </a>
+<span class="lineNum">     293 </span>            : static int
+<span class="lineNum">     294 </span><span class="lineCov">         17 : sql_dict_value_get(const struct dict_sql_map *map,</span>
+<span class="lineNum">     295 </span>            :            enum dict_sql_type value_type, const char *field_name,
+<span class="lineNum">     296 </span>            :            const char *value, const char *value_suffix,
+<span class="lineNum">     297 </span>            :            ARRAY_TYPE(sql_dict_param) *params, const char **error_r)
+<span class="lineNum">     298 </span>            : {
+<span class="lineNum">     299 </span>            :     struct sql_dict_param *param;
+<span class="lineNum">     300 </span>            :     buffer_t *buf;
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">         17 :     param = array_append_space(params);</span>
+<span class="lineNum">     303 </span><span class="lineCov">         17 :     param-&gt;value_type = value_type;</span>
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span><span class="lineCov">         17 :     switch (value_type) {</span>
+<span class="lineNum">     306 </span>            :     case DICT_SQL_TYPE_STRING:
+<span class="lineNum">     307 </span><span class="lineCov">         11 :         if (value_suffix[0] != '\0')</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :             value = t_strconcat(value, value_suffix, NULL);</span>
+<span class="lineNum">     309 </span><span class="lineCov">         11 :         param-&gt;value_str = value;</span>
+<span class="lineNum">     310 </span><span class="lineCov">         11 :         return 0;</span>
+<span class="lineNum">     311 </span>            :     case DICT_SQL_TYPE_INT:
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         if (value_suffix[0] != '\0' ||</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :             str_to_int64(value, &amp;param-&gt;value_int64) &lt; 0) {</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(</span>
+<span class="lineNum">     315 </span>            :                 &quot;%s field's value isn't 64bit signed integer: %s%s (in pattern: %s)&quot;,
+<span class="lineNum">     316 </span>            :                 field_name, value, value_suffix, map-&gt;pattern);
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     318 </span>            :         }
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     320 </span>            :     case DICT_SQL_TYPE_UINT:
+<span class="lineNum">     321 </span><span class="lineCov">         12 :         if (value_suffix[0] != '\0' || value[0] == '-' ||</span>
+<span class="lineNum">     322 </span><span class="lineCov">          6 :             str_to_int64(value, &amp;param-&gt;value_int64) &lt; 0) {</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(</span>
+<span class="lineNum">     324 </span>            :                 &quot;%s field's value isn't 64bit unsigned integer: %s%s (in pattern: %s)&quot;,
+<span class="lineNum">     325 </span>            :                 field_name, value, value_suffix, map-&gt;pattern);
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     327 </span>            :         }
+<span class="lineNum">     328 </span><span class="lineCov">          6 :         return 0;</span>
+<span class="lineNum">     329 </span>            :     case DICT_SQL_TYPE_HEXBLOB:
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     331 </span>            :     }
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :     buf = t_buffer_create(strlen(value)/2);</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     if (hex_to_binary(value, buf) &lt; 0) {</span>
+<span class="lineNum">     335 </span>            :         /* we shouldn't get untrusted input here. it's also a bit
+<span class="lineNum">     336 </span>            :            annoying to handle this error. */
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;%s field's value isn't hexblob: %s (in pattern: %s)&quot;,</span>
+<span class="lineNum">     338 </span>            :                        field_name, value, map-&gt;pattern);
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     340 </span>            :     }
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     str_append(buf, value_suffix);</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     param-&gt;value_binary = buf-&gt;data;</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :     param-&gt;value_binary_size = buf-&gt;used;</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     345 </span>            : }
+<a name="346"><span class="lineNum">     346 </span>            : </a>
+<span class="lineNum">     347 </span>            : static int
+<span class="lineNum">     348 </span><span class="lineCov">         11 : sql_dict_field_get_value(const struct dict_sql_map *map,</span>
+<span class="lineNum">     349 </span>            :              const struct dict_sql_field *field,
+<span class="lineNum">     350 </span>            :              const char *value, const char *value_suffix,
+<span class="lineNum">     351 </span>            :              ARRAY_TYPE(sql_dict_param) *params,
+<span class="lineNum">     352 </span>            :              const char **error_r)
+<span class="lineNum">     353 </span>            : {
+<span class="lineNum">     354 </span><span class="lineCov">         11 :     return sql_dict_value_get(map, field-&gt;value_type, field-&gt;name,</span>
+<span class="lineNum">     355 </span>            :                   value, value_suffix, params, error_r);
+<span class="lineNum">     356 </span>            : }
+<a name="357"><span class="lineNum">     357 </span>            : </a>
+<span class="lineNum">     358 </span>            : static int
+<span class="lineNum">     359 </span><span class="lineCov">          8 : sql_dict_where_build(struct sql_dict *dict, const struct dict_sql_map *map,</span>
+<span class="lineNum">     360 </span>            :              const ARRAY_TYPE(const_string) *values_arr,
+<span class="lineNum">     361 </span>            :              char key1, enum sql_recurse_type recurse_type,
+<span class="lineNum">     362 </span>            :              string_t *query, ARRAY_TYPE(sql_dict_param) *params,
+<span class="lineNum">     363 </span>            :              const char **error_r)
+<span class="lineNum">     364 </span>            : {
+<span class="lineNum">     365 </span>            :     const struct dict_sql_field *sql_fields;
+<span class="lineNum">     366 </span>            :     const char *const *values;
+<span class="lineNum">     367 </span>            :     unsigned int i, count, count2, exact_count;
+<span class="lineNum">     368 </span><span class="lineCov">          8 :     bool priv = key1 == DICT_PATH_PRIVATE[0];</span>
+<span class="lineNum">     369 </span>            : 
+<span class="lineNum">     370 </span><span class="lineCov">          8 :     sql_fields = array_get(&amp;map-&gt;sql_fields, &amp;count);</span>
+<span class="lineNum">     371 </span><span class="lineCov">          8 :     values = array_get(values_arr, &amp;count2);</span>
+<span class="lineNum">     372 </span>            :     /* if we came here from iteration code there may be less values */
+<span class="lineNum">     373 </span><span class="lineCov">          8 :     i_assert(count2 &lt;= count);</span>
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span><span class="lineCov">          8 :     if (count2 == 0 &amp;&amp; !priv) {</span>
+<span class="lineNum">     376 </span>            :         /* we want everything */
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     378 </span>            :     }
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineCov">          8 :     str_append(query, &quot; WHERE&quot;);</span>
+<span class="lineNum">     381 </span><span class="lineCov">         23 :     exact_count = count == count2 &amp;&amp; recurse_type != SQL_DICT_RECURSE_NONE ?</span>
+<span class="lineNum">     382 </span><span class="lineCov">          8 :         count2-1 : count2;</span>
+<span class="lineNum">     383 </span><span class="lineCov">         17 :     for (i = 0; i &lt; exact_count; i++) {</span>
+<span class="lineNum">     384 </span><span class="lineCov">          9 :         if (i &gt; 0)</span>
+<span class="lineNum">     385 </span><span class="lineCov">          4 :             str_append(query, &quot; AND&quot;);</span>
+<span class="lineNum">     386 </span><span class="lineCov">          9 :         str_printfa(query, &quot; %s = ?&quot;, sql_fields[i].name);</span>
+<span class="lineNum">     387 </span><span class="lineCov">          9 :         if (sql_dict_field_get_value(map, &amp;sql_fields[i], values[i], &quot;&quot;,</span>
+<span class="lineNum">     388 </span>            :                          params, error_r) &lt; 0)
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     390 </span>            :     }
+<span class="lineNum">     391 </span><span class="lineCov">          8 :     switch (recurse_type) {</span>
+<span class="lineNum">     392 </span>            :     case SQL_DICT_RECURSE_NONE:
+<span class="lineNum">     393 </span><span class="lineCov">          7 :         break;</span>
+<span class="lineNum">     394 </span>            :     case SQL_DICT_RECURSE_ONE:
+<span class="lineNum">     395 </span><span class="lineCov">          1 :         if (i &gt; 0)</span>
+<span class="lineNum">     396 </span><span class="lineCov">          1 :             str_append(query, &quot; AND&quot;);</span>
+<span class="lineNum">     397 </span><span class="lineCov">          1 :         if (i &lt; count2) {</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :             str_printfa(query, &quot; %s LIKE ?&quot;, sql_fields[i].name);</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :             if (sql_dict_field_get_value(map, &amp;sql_fields[i],</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :                              values[i], &quot;/%&quot;,</span>
+<span class="lineNum">     401 </span>            :                              params, error_r) &lt; 0)
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :             str_printfa(query, &quot; AND %s NOT LIKE ?&quot;, sql_fields[i].name);</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :             if (sql_dict_field_get_value(map, &amp;sql_fields[i],</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :                              values[i], &quot;/%/%&quot;,</span>
+<span class="lineNum">     406 </span>            :                              params, error_r) &lt; 0)
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     408 </span>            :         } else {
+<span class="lineNum">     409 </span><span class="lineCov">          2 :             str_printfa(query, &quot; %s LIKE '%%' AND &quot;</span>
+<span class="lineNum">     410 </span>            :                     &quot;%s NOT LIKE '%%/%%'&quot;,
+<span class="lineNum">     411 </span><span class="lineCov">          2 :                     sql_fields[i].name, sql_fields[i].name);</span>
+<span class="lineNum">     412 </span>            :         }
+<span class="lineNum">     413 </span><span class="lineCov">          1 :         break;</span>
+<span class="lineNum">     414 </span>            :     case SQL_DICT_RECURSE_FULL:
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         if (i &lt; count2) {</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :             if (i &gt; 0)</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :                 str_append(query, &quot; AND&quot;);</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :             str_printfa(query, &quot; %s LIKE &quot;,</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :                     sql_fields[i].name);</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :             if (sql_dict_field_get_value(map, &amp;sql_fields[i],</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :                              values[i], &quot;/%&quot;,</span>
+<span class="lineNum">     422 </span>            :                              params, error_r) &lt; 0)
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     424 </span>            :         }
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     426 </span>            :     }
+<span class="lineNum">     427 </span><span class="lineCov">          8 :     if (priv) {</span>
+<span class="lineNum">     428 </span><span class="lineCov">          3 :         if (count2 &gt; 0)</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :             str_append(query, &quot; AND&quot;);</span>
+<span class="lineNum">     430 </span><span class="lineCov">          3 :         str_printfa(query, &quot; %s = '%s'&quot;, map-&gt;username_field,</span>
+<span class="lineNum">     431 </span>            :                 sql_escape_string(dict-&gt;db, dict-&gt;username));
+<span class="lineNum">     432 </span>            :     }
+<span class="lineNum">     433 </span><span class="lineCov">          8 :     return 0;</span>
+<span class="lineNum">     434 </span>            : }
+<a name="435"><span class="lineNum">     435 </span>            : </a>
+<span class="lineNum">     436 </span>            : static int
+<span class="lineNum">     437 </span><span class="lineCov">          1 : sql_lookup_get_query(struct sql_dict *dict, const char *key,</span>
+<span class="lineNum">     438 </span>            :              const struct dict_sql_map **map_r,
+<span class="lineNum">     439 </span>            :              struct sql_statement **stmt_r,
+<span class="lineNum">     440 </span>            :              const char **error_r)
+<span class="lineNum">     441 </span>            : {
+<span class="lineNum">     442 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">     443 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">     444 </span>            :     const char *error;
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineCov">          1 :     map = *map_r = sql_dict_find_map(dict, key, &amp;values);</span>
+<span class="lineNum">     447 </span><span class="lineCov">          1 :     if (map == NULL) {</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(</span>
+<span class="lineNum">     449 </span>            :             &quot;sql dict lookup: Invalid/unmapped key: %s&quot;, key);
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     451 </span>            :     }
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span><span class="lineCov">          1 :     string_t *query = t_str_new(256);</span>
+<span class="lineNum">     454 </span>            :     ARRAY_TYPE(sql_dict_param) params;
+<span class="lineNum">     455 </span><span class="lineCov">          1 :     t_array_init(&amp;params, 4);</span>
+<span class="lineNum">     456 </span><span class="lineCov">          1 :     str_printfa(query, &quot;SELECT %s FROM %s&quot;,</span>
+<span class="lineNum">     457 </span>            :             map-&gt;value_field, map-&gt;table);
+<span class="lineNum">     458 </span><span class="lineCov">          1 :     if (sql_dict_where_build(dict, map, &amp;values, key[0],</span>
+<span class="lineNum">     459 </span>            :                  SQL_DICT_RECURSE_NONE, query,
+<span class="lineNum">     460 </span>            :                  &amp;params, &amp;error) &lt; 0) {
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(</span>
+<span class="lineNum">     462 </span>            :             &quot;sql dict lookup: Failed to lookup key %s: %s&quot;, key, error);
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     464 </span>            :     }
+<span class="lineNum">     465 </span><span class="lineCov">          1 :     *stmt_r = sql_dict_statement_init(dict, str_c(query), &amp;params);</span>
+<span class="lineNum">     466 </span><span class="lineCov">          1 :     return 0;</span>
+<span class="lineNum">     467 </span>            : }
+<a name="468"><span class="lineNum">     468 </span>            : </a>
+<span class="lineNum">     469 </span>            : static const char *
+<span class="lineNum">     470 </span><span class="lineCov">         21 : sql_dict_result_unescape(enum dict_sql_type type, pool_t pool,</span>
+<span class="lineNum">     471 </span>            :              struct sql_result *result, unsigned int result_idx)
+<span class="lineNum">     472 </span>            : {
+<span class="lineNum">     473 </span>            :     const unsigned char *data;
+<span class="lineNum">     474 </span>            :     size_t size;
+<span class="lineNum">     475 </span>            :     const char *value;
+<span class="lineNum">     476 </span>            :     string_t *str;
+<span class="lineNum">     477 </span>            : 
+<span class="lineNum">     478 </span><span class="lineCov">         21 :     switch (type) {</span>
+<span class="lineNum">     479 </span>            :     case DICT_SQL_TYPE_STRING:
+<span class="lineNum">     480 </span>            :     case DICT_SQL_TYPE_INT:
+<span class="lineNum">     481 </span>            :     case DICT_SQL_TYPE_UINT:
+<span class="lineNum">     482 </span><span class="lineCov">         21 :         value = sql_result_get_field_value(result, result_idx);</span>
+<span class="lineNum">     483 </span><span class="lineCov">         21 :         return value == NULL ? &quot;&quot; : p_strdup(pool, value);</span>
+<span class="lineNum">     484 </span>            :     case DICT_SQL_TYPE_HEXBLOB:
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     486 </span>            :     }
+<span class="lineNum">     487 </span>            : 
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :     data = sql_result_get_field_value_binary(result, result_idx, &amp;size);</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :     str = str_new(pool, size*2 + 1);</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     binary_to_hex_append(str, data, size);</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     return str_c(str);</span>
+<span class="lineNum">     492 </span>            : }
+<a name="493"><span class="lineNum">     493 </span>            : </a>
+<span class="lineNum">     494 </span>            : static const char *
+<span class="lineNum">     495 </span><span class="lineCov">         11 : sql_dict_result_unescape_value(const struct dict_sql_map *map, pool_t pool,</span>
+<span class="lineNum">     496 </span>            :                    struct sql_result *result)
+<span class="lineNum">     497 </span>            : {
+<span class="lineNum">     498 </span><span class="lineCov">         11 :     return sql_dict_result_unescape(map-&gt;value_types[0], pool, result, 0);</span>
+<span class="lineNum">     499 </span>            : }
+<a name="500"><span class="lineNum">     500 </span>            : </a>
+<span class="lineNum">     501 </span>            : static const char *const *
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 : sql_dict_result_unescape_values(const struct dict_sql_map *map, pool_t pool,</span>
+<span class="lineNum">     503 </span>            :                 struct sql_result *result)
+<span class="lineNum">     504 </span>            : {
+<span class="lineNum">     505 </span>            :     const char **values;
+<span class="lineNum">     506 </span>            :     unsigned int i;
+<span class="lineNum">     507 </span>            : 
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     values = p_new(pool, const char *, map-&gt;values_count + 1);</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; map-&gt;values_count; i++) {</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         values[i] = sql_dict_result_unescape(map-&gt;value_types[i],</span>
+<span class="lineNum">     511 </span>            :                              pool, result, i);
+<span class="lineNum">     512 </span>            :     }
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     return values;</span>
+<span class="lineNum">     514 </span>            : }
+<a name="515"><span class="lineNum">     515 </span>            : </a>
+<span class="lineNum">     516 </span>            : static const char *
+<span class="lineNum">     517 </span><span class="lineCov">         10 : sql_dict_result_unescape_field(const struct dict_sql_map *map, pool_t pool,</span>
+<span class="lineNum">     518 </span>            :                    struct sql_result *result, unsigned int result_idx,
+<span class="lineNum">     519 </span>            :                    unsigned int sql_field_idx)
+<span class="lineNum">     520 </span>            : {
+<span class="lineNum">     521 </span>            :     const struct dict_sql_field *sql_field;
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span><span class="lineCov">         10 :     sql_field = array_idx(&amp;map-&gt;sql_fields, sql_field_idx);</span>
+<span class="lineNum">     524 </span><span class="lineCov">         10 :     return sql_dict_result_unescape(sql_field-&gt;value_type, pool,</span>
+<span class="lineNum">     525 </span>            :                     result, result_idx);
+<a name="526"><span class="lineNum">     526 </span>            : }</a>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineCov">          1 : static int sql_dict_lookup(struct dict *_dict, pool_t pool, const char *key,</span>
+<span class="lineNum">     529 </span>            :                const char **value_r, const char **error_r)
+<span class="lineNum">     530 </span>            : {
+<span class="lineNum">     531 </span><span class="lineCov">          1 :     struct sql_dict *dict = (struct sql_dict *)_dict;</span>
+<span class="lineNum">     532 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">     533 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">     534 </span><span class="lineCov">          1 :     struct sql_result *result = NULL;</span>
+<span class="lineNum">     535 </span>            :     int ret;
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineCov">          1 :     *value_r = NULL;</span>
+<span class="lineNum">     538 </span>            : 
+<span class="lineNum">     539 </span><span class="lineCov">          1 :     if (sql_lookup_get_query(dict, key, &amp;map, &amp;stmt, error_r) &lt; 0)</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     541 </span>            : 
+<span class="lineNum">     542 </span><span class="lineCov">          1 :     result = sql_statement_query_s(&amp;stmt);</span>
+<span class="lineNum">     543 </span><span class="lineCov">          1 :     ret = sql_result_next_row(result);</span>
+<span class="lineNum">     544 </span><span class="lineCov">          1 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;dict sql lookup failed: %s&quot;,</span>
+<span class="lineNum">     546 </span>            :                        sql_result_get_error(result));
+<span class="lineNum">     547 </span><span class="lineCov">          1 :     } else if (ret &gt; 0) {</span>
+<span class="lineNum">     548 </span><span class="lineCov">          1 :         *value_r = sql_dict_result_unescape_value(map, pool, result);</span>
+<span class="lineNum">     549 </span>            :     }
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineCov">          1 :     sql_result_unref(result);</span>
+<span class="lineNum">     552 </span><span class="lineCov">          1 :     return ret;</span>
+<span class="lineNum">     553 </span>            : }
+<span class="lineNum">     554 </span>            : 
+<span class="lineNum">     555 </span>            : struct sql_dict_lookup_context {
+<span class="lineNum">     556 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">     557 </span>            :     dict_lookup_callback_t *callback;
+<span class="lineNum">     558 </span>            :     void *context;
+<span class="lineNum">     559 </span>            : };
+<a name="560"><span class="lineNum">     560 </span>            : </a>
+<span class="lineNum">     561 </span>            : static void
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 : sql_dict_lookup_async_callback(struct sql_result *sql_result,</span>
+<span class="lineNum">     563 </span>            :                    struct sql_dict_lookup_context *ctx)
+<span class="lineNum">     564 </span>            : {
+<span class="lineNum">     565 </span>            :     struct dict_lookup_result result;
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :     i_zero(&amp;result);</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :     result.ret = sql_result_next_row(sql_result);</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :     if (result.ret &lt; 0)</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :         result.error = sql_result_get_error(sql_result);</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     else if (result.ret &gt; 0) {</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :         result.values = sql_dict_result_unescape_values(ctx-&gt;map,</span>
+<span class="lineNum">     573 </span>            :             pool_datastack_create(), sql_result);
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         result.value = result.values[0];</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :         if (result.value == NULL) {</span>
+<span class="lineNum">     576 </span>            :             /* NULL value returned. we'll treat this as
+<span class="lineNum">     577 </span>            :                &quot;not found&quot;, which is probably what is usually
+<span class="lineNum">     578 </span>            :                wanted. */
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :             result.ret = 0;</span>
+<span class="lineNum">     580 </span>            :         }
+<span class="lineNum">     581 </span>            :     }
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :     ctx-&gt;callback(&amp;result, ctx-&gt;context);</span>
+<span class="lineNum">     583 </span>            : 
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 : }</span>
+<a name="586"><span class="lineNum">     586 </span>            : </a>
+<span class="lineNum">     587 </span>            : static void
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 : sql_dict_lookup_async(struct dict *_dict, const char *key,</span>
+<span class="lineNum">     589 </span>            :               dict_lookup_callback_t *callback, void *context)
+<span class="lineNum">     590 </span>            : {
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :     struct sql_dict *dict = (struct sql_dict *)_dict;</span>
+<span class="lineNum">     592 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">     593 </span>            :     struct sql_dict_lookup_context *ctx;
+<span class="lineNum">     594 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">     595 </span>            :     const char *error;
+<span class="lineNum">     596 </span>            : 
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :     if (sql_lookup_get_query(dict, key, &amp;map, &amp;stmt, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     598 </span>            :         struct dict_lookup_result result;
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :         i_zero(&amp;result);</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         result.ret = -1;</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         result.error = error;</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         callback(&amp;result, context);</span>
+<span class="lineNum">     604 </span>            :     } else {
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :         ctx = i_new(struct sql_dict_lookup_context, 1);</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :         ctx-&gt;callback = callback;</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :         ctx-&gt;context = context;</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :         ctx-&gt;map = map;</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :         sql_statement_query(&amp;stmt, sql_dict_lookup_async_callback, ctx);</span>
+<span class="lineNum">     610 </span>            :     }
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 : }</span>
+<a name="612"><span class="lineNum">     612 </span>            : </a>
+<span class="lineNum">     613 </span>            : static const struct dict_sql_map *
+<span class="lineNum">     614 </span><span class="lineCov">          3 : sql_dict_iterate_find_next_map(struct sql_dict_iterate_context *ctx,</span>
+<span class="lineNum">     615 </span>            :                    ARRAY_TYPE(const_string) *values)
+<span class="lineNum">     616 </span>            : {
+<span class="lineNum">     617 </span><span class="lineCov">          3 :     struct sql_dict *dict = (struct sql_dict *)ctx-&gt;ctx.dict;</span>
+<span class="lineNum">     618 </span>            :     const struct dict_sql_map *maps;
+<span class="lineNum">     619 </span>            :     unsigned int i, count;
+<span class="lineNum">     620 </span>            :     size_t pat_len, path_len;
+<span class="lineNum">     621 </span><span class="lineCov">          3 :     bool recurse = (ctx-&gt;flags &amp; DICT_ITERATE_FLAG_RECURSE) != 0;</span>
+<span class="lineNum">     622 </span>            : 
+<span class="lineNum">     623 </span><span class="lineCov">          3 :     t_array_init(values, dict-&gt;set-&gt;max_field_count);</span>
+<span class="lineNum">     624 </span><span class="lineCov">          3 :     maps = array_get(&amp;dict-&gt;set-&gt;maps, &amp;count);</span>
+<span class="lineNum">     625 </span><span class="lineCov">          7 :     for (i = ctx-&gt;next_map_idx; i &lt; count; i++) {</span>
+<span class="lineNum">     626 </span><span class="lineCov">          6 :         if (dict_sql_map_match(&amp;maps[i], ctx-&gt;paths[ctx-&gt;path_idx],</span>
+<span class="lineNum">     627 </span><span class="lineCov">          2 :                        values, &amp;pat_len, &amp;path_len, TRUE, recurse) &amp;&amp;</span>
+<span class="lineNum">     628 </span><span class="lineCov">          2 :             (recurse ||</span>
+<span class="lineNum">     629 </span><span class="lineCov">          2 :              array_count(values)+1 &gt;= array_count(&amp;maps[i].sql_fields))) {</span>
+<span class="lineNum">     630 </span><span class="lineCov">          2 :             ctx-&gt;key_prefix_len = path_len;</span>
+<span class="lineNum">     631 </span><span class="lineCov">          2 :             ctx-&gt;pattern_prefix_len = pat_len;</span>
+<span class="lineNum">     632 </span><span class="lineCov">          2 :             ctx-&gt;next_map_idx = i + 1;</span>
+<span class="lineNum">     633 </span>            : 
+<span class="lineNum">     634 </span><span class="lineCov">          2 :             str_truncate(ctx-&gt;key, 0);</span>
+<span class="lineNum">     635 </span><span class="lineCov">          2 :             str_append(ctx-&gt;key, ctx-&gt;paths[ctx-&gt;path_idx]);</span>
+<span class="lineNum">     636 </span><span class="lineCov">          2 :             return &amp;maps[i];</span>
+<span class="lineNum">     637 </span>            :         }
+<span class="lineNum">     638 </span>            :     }
+<span class="lineNum">     639 </span>            : 
+<span class="lineNum">     640 </span>            :     /* try the next path, if there is any */
+<span class="lineNum">     641 </span><span class="lineCov">          1 :     ctx-&gt;path_idx++;</span>
+<span class="lineNum">     642 </span><span class="lineCov">          1 :     if (ctx-&gt;paths[ctx-&gt;path_idx] != NULL)</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :         return sql_dict_iterate_find_next_map(ctx, values);</span>
+<span class="lineNum">     644 </span><span class="lineCov">          1 :     return NULL;</span>
+<span class="lineNum">     645 </span>            : }
+<a name="646"><span class="lineNum">     646 </span>            : </a>
+<span class="lineNum">     647 </span>            : static int
+<span class="lineNum">     648 </span><span class="lineCov">          3 : sql_dict_iterate_build_next_query(struct sql_dict_iterate_context *ctx,</span>
+<span class="lineNum">     649 </span>            :                   struct sql_statement **stmt_r,
+<span class="lineNum">     650 </span>            :                   const char **error_r)
+<span class="lineNum">     651 </span>            : {
+<span class="lineNum">     652 </span><span class="lineCov">          3 :     struct sql_dict *dict = (struct sql_dict *)ctx-&gt;ctx.dict;</span>
+<span class="lineNum">     653 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">     654 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">     655 </span>            :     const struct dict_sql_field *sql_fields;
+<span class="lineNum">     656 </span>            :     enum sql_recurse_type recurse_type;
+<span class="lineNum">     657 </span>            :     unsigned int i, count;
+<span class="lineNum">     658 </span>            : 
+<span class="lineNum">     659 </span><span class="lineCov">          3 :     map = sql_dict_iterate_find_next_map(ctx, &amp;values);</span>
+<span class="lineNum">     660 </span>            :     /* NULL map is allowed if we have already done some lookups */
+<span class="lineNum">     661 </span><span class="lineCov">          3 :     if (map == NULL) {</span>
+<span class="lineNum">     662 </span><span class="lineCov">          1 :         if (!ctx-&gt;allow_null_map) {</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :             *error_r = &quot;Invalid/unmapped path&quot;;</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     665 </span>            :         }
+<span class="lineNum">     666 </span><span class="lineCov">          1 :         return 0;</span>
+<span class="lineNum">     667 </span>            :     }
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span><span class="lineCov">          2 :     if (ctx-&gt;result != NULL) {</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :         sql_result_unref(ctx-&gt;result);</span>
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :         ctx-&gt;result = NULL;</span>
+<span class="lineNum">     672 </span>            :     }
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineCov">          2 :     string_t *query = t_str_new(256);</span>
+<span class="lineNum">     675 </span><span class="lineCov">          2 :     str_append(query, &quot;SELECT &quot;);</span>
+<span class="lineNum">     676 </span><span class="lineCov">          2 :     if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_NO_VALUE) == 0)</span>
+<span class="lineNum">     677 </span><span class="lineCov">          2 :         str_printfa(query, &quot;%s,&quot;, map-&gt;value_field);</span>
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span>            :     /* get all missing fields */
+<span class="lineNum">     680 </span><span class="lineCov">          2 :     sql_fields = array_get(&amp;map-&gt;sql_fields, &amp;count);</span>
+<span class="lineNum">     681 </span><span class="lineCov">          2 :     i = array_count(&amp;values);</span>
+<span class="lineNum">     682 </span><span class="lineCov">          2 :     if (i == count) {</span>
+<span class="lineNum">     683 </span>            :         /* we always want to know the last field since we're
+<span class="lineNum">     684 </span>            :            iterating its children */
+<span class="lineNum">     685 </span><span class="lineCov">          1 :         i_assert(i &gt; 0);</span>
+<span class="lineNum">     686 </span><span class="lineCov">          1 :         i--;</span>
+<span class="lineNum">     687 </span>            :     }
+<span class="lineNum">     688 </span><span class="lineCov">          2 :     ctx-&gt;sql_fields_start_idx = i;</span>
+<span class="lineNum">     689 </span><span class="lineCov">          4 :     for (; i &lt; count; i++)</span>
+<span class="lineNum">     690 </span><span class="lineCov">          2 :         str_printfa(query, &quot;%s,&quot;, sql_fields[i].name);</span>
+<span class="lineNum">     691 </span><span class="lineCov">          2 :     str_truncate(query, str_len(query)-1);</span>
+<span class="lineNum">     692 </span>            : 
+<span class="lineNum">     693 </span><span class="lineCov">          2 :     str_printfa(query, &quot; FROM %s&quot;, map-&gt;table);</span>
+<span class="lineNum">     694 </span>            : 
+<span class="lineNum">     695 </span><span class="lineCov">          2 :     if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_RECURSE) != 0)</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :         recurse_type = SQL_DICT_RECURSE_FULL;</span>
+<span class="lineNum">     697 </span><span class="lineCov">          2 :     else if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_EXACT_KEY) != 0)</span>
+<span class="lineNum">     698 </span><span class="lineCov">          1 :         recurse_type = SQL_DICT_RECURSE_NONE;</span>
+<span class="lineNum">     699 </span>            :     else
+<span class="lineNum">     700 </span><span class="lineCov">          1 :         recurse_type = SQL_DICT_RECURSE_ONE;</span>
+<span class="lineNum">     701 </span>            : 
+<span class="lineNum">     702 </span>            :     ARRAY_TYPE(sql_dict_param) params;
+<span class="lineNum">     703 </span><span class="lineCov">          2 :     t_array_init(&amp;params, 4);</span>
+<span class="lineNum">     704 </span><span class="lineCov">          2 :     if (sql_dict_where_build(dict, map, &amp;values,</span>
+<span class="lineNum">     705 </span><span class="lineCov">          2 :                  ctx-&gt;paths[ctx-&gt;path_idx][0],</span>
+<span class="lineNum">     706 </span>            :                  recurse_type, query, &amp;params, error_r) &lt; 0)
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     708 </span>            : 
+<span class="lineNum">     709 </span><span class="lineCov">          2 :     if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_SORT_BY_KEY) != 0) {</span>
+<span class="lineNum">     710 </span><span class="lineNoCov">          0 :         str_append(query, &quot; ORDER BY &quot;);</span>
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :             str_printfa(query, &quot;%s&quot;, sql_fields[i].name);</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :             if (i &lt; count-1)</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :                 str_append_c(query, ',');</span>
+<span class="lineNum">     715 </span>            :         }
+<span class="lineNum">     716 </span><span class="lineCov">          2 :     } else if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_SORT_BY_VALUE) != 0)</span>
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :         str_printfa(query, &quot; ORDER BY %s&quot;, map-&gt;value_field);</span>
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span><span class="lineCov">          2 :     if (ctx-&gt;ctx.max_rows &gt; 0) {</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :         i_assert(ctx-&gt;ctx.row_count &lt; ctx-&gt;ctx.max_rows);</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :         str_printfa(query, &quot; LIMIT %&quot;PRIu64,</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :                 ctx-&gt;ctx.max_rows - ctx-&gt;ctx.row_count);</span>
+<span class="lineNum">     723 </span>            :     }
+<span class="lineNum">     724 </span>            : 
+<span class="lineNum">     725 </span><span class="lineCov">          2 :     *stmt_r = sql_dict_statement_init(dict, str_c(query), &amp;params);</span>
+<span class="lineNum">     726 </span><span class="lineCov">          2 :     ctx-&gt;map = map;</span>
+<span class="lineNum">     727 </span><span class="lineCov">          2 :     return 1;</span>
+<a name="728"><span class="lineNum">     728 </span>            : }</a>
+<span class="lineNum">     729 </span>            : 
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 : static void sql_dict_iterate_callback(struct sql_result *result,</span>
+<span class="lineNum">     731 </span>            :                       struct sql_dict_iterate_context *ctx)
+<span class="lineNum">     732 </span>            : {
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :     sql_result_ref(result);</span>
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :     ctx-&gt;result = result;</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     if (ctx-&gt;ctx.async_callback != NULL &amp;&amp; !ctx-&gt;synchronous_result)</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.async_callback(ctx-&gt;ctx.async_context);</span>
+<a name="737"><span class="lineNum">     737 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     738 </span>            : 
+<span class="lineNum">     739 </span><span class="lineCov">          3 : static int sql_dict_iterate_next_query(struct sql_dict_iterate_context *ctx)</span>
+<span class="lineNum">     740 </span>            : {
+<span class="lineNum">     741 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">     742 </span>            :     const char *error;
+<span class="lineNum">     743 </span><span class="lineCov">          3 :     unsigned int path_idx = ctx-&gt;path_idx;</span>
+<span class="lineNum">     744 </span>            :     int ret;
+<span class="lineNum">     745 </span>            : 
+<span class="lineNum">     746 </span><span class="lineCov">          3 :     ret = sql_dict_iterate_build_next_query(ctx, &amp;stmt, &amp;error);</span>
+<span class="lineNum">     747 </span><span class="lineCov">          3 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     748 </span>            :         /* this is expected error */
+<span class="lineNum">     749 </span><span class="lineCov">          1 :         if (ret == 0)</span>
+<span class="lineNum">     750 </span><span class="lineCov">          1 :             return ret;</span>
+<span class="lineNum">     751 </span>            :         /* failed */
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :         ctx-&gt;error = p_strdup_printf(ctx-&gt;pool,</span>
+<span class="lineNum">     753 </span>            :             &quot;sql dict iterate failed for %s: %s&quot;,
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :             ctx-&gt;paths[path_idx], error);</span>
+<span class="lineNum">     755 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     756 </span>            :     }
+<span class="lineNum">     757 </span>            : 
+<span class="lineNum">     758 </span><span class="lineCov">          2 :     if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_ASYNC) == 0) {</span>
+<span class="lineNum">     759 </span><span class="lineCov">          2 :         ctx-&gt;result = sql_statement_query_s(&amp;stmt);</span>
+<span class="lineNum">     760 </span>            :     } else {
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :         i_assert(ctx-&gt;result == NULL);</span>
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :         ctx-&gt;synchronous_result = TRUE;</span>
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :         sql_statement_query(&amp;stmt, sql_dict_iterate_callback, ctx);</span>
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :         ctx-&gt;synchronous_result = FALSE;</span>
+<span class="lineNum">     765 </span>            :     }
+<span class="lineNum">     766 </span><span class="lineCov">          2 :     return ret;</span>
+<span class="lineNum">     767 </span>            : }
+<a name="768"><span class="lineNum">     768 </span>            : </a>
+<span class="lineNum">     769 </span>            : static struct dict_iterate_context *
+<span class="lineNum">     770 </span><span class="lineCov">          2 : sql_dict_iterate_init(struct dict *_dict, const char *const *paths,</span>
+<span class="lineNum">     771 </span>            :               enum dict_iterate_flags flags)
+<span class="lineNum">     772 </span>            : {
+<span class="lineNum">     773 </span>            :     struct sql_dict_iterate_context *ctx;
+<span class="lineNum">     774 </span>            :     unsigned int i, path_count;
+<span class="lineNum">     775 </span>            :     pool_t pool;
+<span class="lineNum">     776 </span>            : 
+<span class="lineNum">     777 </span><span class="lineCov">          2 :     pool = pool_alloconly_create(&quot;sql dict iterate&quot;, 512);</span>
+<span class="lineNum">     778 </span><span class="lineCov">          2 :     ctx = p_new(pool, struct sql_dict_iterate_context, 1);</span>
+<span class="lineNum">     779 </span><span class="lineCov">          2 :     ctx-&gt;ctx.dict = _dict;</span>
+<span class="lineNum">     780 </span><span class="lineCov">          2 :     ctx-&gt;pool = pool;</span>
+<span class="lineNum">     781 </span><span class="lineCov">          2 :     ctx-&gt;flags = flags;</span>
+<span class="lineNum">     782 </span>            : 
+<span class="lineNum">     783 </span><span class="lineCov">          2 :     for (path_count = 0; paths[path_count] != NULL; path_count++) ;</span>
+<span class="lineNum">     784 </span><span class="lineCov">          2 :     ctx-&gt;paths = p_new(pool, const char *, path_count + 1);</span>
+<span class="lineNum">     785 </span><span class="lineCov">          4 :     for (i = 0; i &lt; path_count; i++)</span>
+<span class="lineNum">     786 </span><span class="lineCov">          2 :         ctx-&gt;paths[i] = p_strdup(pool, paths[i]);</span>
+<span class="lineNum">     787 </span>            : 
+<span class="lineNum">     788 </span><span class="lineCov">          2 :     ctx-&gt;key = str_new(pool, 256);</span>
+<span class="lineNum">     789 </span><span class="lineCov">          2 :     return &amp;ctx-&gt;ctx;</span>
+<a name="790"><span class="lineNum">     790 </span>            : }</a>
+<span class="lineNum">     791 </span>            : 
+<span class="lineNum">     792 </span><span class="lineCov">         13 : static bool sql_dict_iterate(struct dict_iterate_context *_ctx,</span>
+<span class="lineNum">     793 </span>            :                  const char **key_r, const char **value_r)
+<span class="lineNum">     794 </span>            : {
+<span class="lineNum">     795 </span><span class="lineCov">         13 :     struct sql_dict_iterate_context *ctx =</span>
+<span class="lineNum">     796 </span>            :         (struct sql_dict_iterate_context *)_ctx;
+<span class="lineNum">     797 </span>            :     const char *p, *value;
+<span class="lineNum">     798 </span>            :     unsigned int i, sql_field_i, count;
+<span class="lineNum">     799 </span>            :     int ret;
+<span class="lineNum">     800 </span>            : 
+<span class="lineNum">     801 </span><span class="lineCov">         13 :     _ctx-&gt;has_more = FALSE;</span>
+<span class="lineNum">     802 </span><span class="lineCov">         13 :     if (ctx-&gt;error != NULL)</span>
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     804 </span><span class="lineCov">         13 :     if (!ctx-&gt;iter_query_sent) {</span>
+<span class="lineNum">     805 </span><span class="lineCov">          3 :         ctx-&gt;iter_query_sent = TRUE;</span>
+<span class="lineNum">     806 </span><span class="lineCov">          3 :         if (sql_dict_iterate_next_query(ctx) &lt;= 0)</span>
+<span class="lineNum">     807 </span><span class="lineCov">          1 :             return FALSE;</span>
+<span class="lineNum">     808 </span>            :     }
+<span class="lineNum">     809 </span>            : 
+<span class="lineNum">     810 </span><span class="lineCov">         12 :     if (ctx-&gt;result == NULL) {</span>
+<span class="lineNum">     811 </span>            :         /* wait for async lookup to finish */
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :         i_assert((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_ASYNC) != 0);</span>
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :         _ctx-&gt;has_more = TRUE;</span>
+<span class="lineNum">     814 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     815 </span>            :     }
+<span class="lineNum">     816 </span>            : 
+<span class="lineNum">     817 </span><span class="lineCov">         12 :     ret = sql_result_next_row(ctx-&gt;result);</span>
+<span class="lineNum">     818 </span><span class="lineCov">         24 :     while (ret == SQL_RESULT_NEXT_MORE) {</span>
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :         if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_ASYNC) == 0)</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :             sql_result_more_s(&amp;ctx-&gt;result);</span>
+<span class="lineNum">     821 </span>            :         else {
+<span class="lineNum">     822 </span>            :             /* get more results asynchronously */
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :             ctx-&gt;synchronous_result = TRUE;</span>
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :             sql_result_more(&amp;ctx-&gt;result, sql_dict_iterate_callback, ctx);</span>
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :             ctx-&gt;synchronous_result = FALSE;</span>
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :             if (ctx-&gt;result == NULL) {</span>
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :                 _ctx-&gt;has_more = TRUE;</span>
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     829 </span>            :             }
+<span class="lineNum">     830 </span>            :         }
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :         ret = sql_result_next_row(ctx-&gt;result);</span>
+<span class="lineNum">     832 </span>            :     }
+<span class="lineNum">     833 </span><span class="lineCov">         12 :     if (ret == 0) {</span>
+<span class="lineNum">     834 </span>            :         /* see if there are more results in the next map.
+<span class="lineNum">     835 </span>            :            don't do it if we're looking for an exact match, since we
+<span class="lineNum">     836 </span>            :            already should have handled it. */
+<span class="lineNum">     837 </span><span class="lineCov">          2 :         if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_EXACT_KEY) != 0)</span>
+<span class="lineNum">     838 </span><span class="lineCov">          1 :             return FALSE;</span>
+<span class="lineNum">     839 </span><span class="lineCov">          1 :         ctx-&gt;iter_query_sent = FALSE;</span>
+<span class="lineNum">     840 </span>            :         /* we have gotten *SOME* results, so can allow
+<span class="lineNum">     841 </span>            :            unmapped next key now. */
+<span class="lineNum">     842 </span><span class="lineCov">          1 :         ctx-&gt;allow_null_map = TRUE;</span>
+<span class="lineNum">     843 </span><span class="lineCov">          1 :         return sql_dict_iterate(_ctx, key_r, value_r);</span>
+<span class="lineNum">     844 </span>            :     }
+<span class="lineNum">     845 </span><span class="lineCov">         10 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 :         ctx-&gt;error = p_strdup_printf(ctx-&gt;pool,</span>
+<span class="lineNum">     847 </span>            :             &quot;dict sql iterate failed: %s&quot;,
+<span class="lineNum">     848 </span>            :             sql_result_get_error(ctx-&gt;result));
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     850 </span>            :     }
+<span class="lineNum">     851 </span>            : 
+<span class="lineNum">     852 </span>            :     /* convert fetched row to dict key */
+<span class="lineNum">     853 </span><span class="lineCov">         10 :     str_truncate(ctx-&gt;key, ctx-&gt;key_prefix_len);</span>
+<span class="lineNum">     854 </span><span class="lineCov">         20 :     if (ctx-&gt;key_prefix_len &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     855 </span><span class="lineCov">         10 :         str_c(ctx-&gt;key)[ctx-&gt;key_prefix_len-1] != '/')</span>
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 :         str_append_c(ctx-&gt;key, '/');</span>
+<span class="lineNum">     857 </span>            : 
+<span class="lineNum">     858 </span><span class="lineCov">         10 :     count = sql_result_get_fields_count(ctx-&gt;result);</span>
+<span class="lineNum">     859 </span><span class="lineCov">         20 :     i = (ctx-&gt;flags &amp; DICT_ITERATE_FLAG_NO_VALUE) != 0 ? 0 :</span>
+<span class="lineNum">     860 </span><span class="lineCov">         10 :         ctx-&gt;map-&gt;values_count;</span>
+<span class="lineNum">     861 </span><span class="lineCov">         10 :     sql_field_i = ctx-&gt;sql_fields_start_idx;</span>
+<span class="lineNum">     862 </span><span class="lineCov">         20 :     for (p = ctx-&gt;map-&gt;pattern + ctx-&gt;pattern_prefix_len; *p != '\0'; p++) {</span>
+<span class="lineNum">     863 </span><span class="lineCov">         10 :         if (*p != '$')</span>
+<span class="lineNum">     864 </span><span class="lineNoCov">          0 :             str_append_c(ctx-&gt;key, *p);</span>
+<span class="lineNum">     865 </span>            :         else {
+<span class="lineNum">     866 </span><span class="lineCov">         10 :             i_assert(i &lt; count);</span>
+<span class="lineNum">     867 </span><span class="lineCov">         10 :             value = sql_dict_result_unescape_field(ctx-&gt;map,</span>
+<span class="lineNum">     868 </span>            :                     pool_datastack_create(), ctx-&gt;result, i, sql_field_i);
+<span class="lineNum">     869 </span><span class="lineCov">         10 :             if (value != NULL)</span>
+<span class="lineNum">     870 </span><span class="lineCov">         10 :                 str_append(ctx-&gt;key, value);</span>
+<span class="lineNum">     871 </span><span class="lineCov">         10 :             i++; sql_field_i++;</span>
+<span class="lineNum">     872 </span>            :         }
+<span class="lineNum">     873 </span>            :     }
+<span class="lineNum">     874 </span>            : 
+<span class="lineNum">     875 </span><span class="lineCov">         10 :     *key_r = str_c(ctx-&gt;key);</span>
+<span class="lineNum">     876 </span><span class="lineCov">         10 :     if ((ctx-&gt;flags &amp; DICT_ITERATE_FLAG_NO_VALUE) != 0)</span>
+<span class="lineNum">     877 </span><span class="lineNoCov">          0 :         *value_r = &quot;&quot;;</span>
+<span class="lineNum">     878 </span>            :     else {
+<span class="lineNum">     879 </span><span class="lineCov">         10 :         *value_r = sql_dict_result_unescape_value(ctx-&gt;map,</span>
+<span class="lineNum">     880 </span>            :                     pool_datastack_create(), ctx-&gt;result);
+<span class="lineNum">     881 </span>            :     }
+<span class="lineNum">     882 </span><span class="lineCov">         10 :     return TRUE;</span>
+<a name="883"><span class="lineNum">     883 </span>            : }</a>
+<span class="lineNum">     884 </span>            : 
+<span class="lineNum">     885 </span><span class="lineCov">          2 : static int sql_dict_iterate_deinit(struct dict_iterate_context *_ctx,</span>
+<span class="lineNum">     886 </span>            :                    const char **error_r)
+<span class="lineNum">     887 </span>            : {
+<span class="lineNum">     888 </span><span class="lineCov">          2 :     struct sql_dict_iterate_context *ctx =</span>
+<span class="lineNum">     889 </span>            :         (struct sql_dict_iterate_context *)_ctx;
+<span class="lineNum">     890 </span><span class="lineCov">          2 :     int ret = ctx-&gt;error != NULL ? -1 : 0;</span>
+<span class="lineNum">     891 </span>            : 
+<span class="lineNum">     892 </span><span class="lineCov">          2 :     *error_r = t_strdup(ctx-&gt;error);</span>
+<span class="lineNum">     893 </span><span class="lineCov">          2 :     if (ctx-&gt;result != NULL)</span>
+<span class="lineNum">     894 </span><span class="lineCov">          2 :         sql_result_unref(ctx-&gt;result);</span>
+<span class="lineNum">     895 </span><span class="lineCov">          2 :     pool_unref(&amp;ctx-&gt;pool);</span>
+<span class="lineNum">     896 </span><span class="lineCov">          2 :     return ret;</span>
+<span class="lineNum">     897 </span>            : }
+<a name="898"><span class="lineNum">     898 </span>            : </a>
+<span class="lineNum">     899 </span>            : static struct dict_transaction_context *
+<span class="lineNum">     900 </span><span class="lineCov">          6 : sql_dict_transaction_init(struct dict *_dict)</span>
+<span class="lineNum">     901 </span>            : {
+<span class="lineNum">     902 </span><span class="lineCov">          6 :     struct sql_dict *dict = (struct sql_dict *)_dict;</span>
+<span class="lineNum">     903 </span>            :     struct sql_dict_transaction_context *ctx;
+<span class="lineNum">     904 </span>            : 
+<span class="lineNum">     905 </span><span class="lineCov">          6 :     ctx = i_new(struct sql_dict_transaction_context, 1);</span>
+<span class="lineNum">     906 </span><span class="lineCov">          6 :     ctx-&gt;ctx.dict = _dict;</span>
+<span class="lineNum">     907 </span><span class="lineCov">          6 :     ctx-&gt;sql_ctx = sql_transaction_begin(dict-&gt;db);</span>
+<span class="lineNum">     908 </span>            : 
+<span class="lineNum">     909 </span><span class="lineCov">          6 :     return &amp;ctx-&gt;ctx;</span>
+<a name="910"><span class="lineNum">     910 </span>            : }</a>
+<span class="lineNum">     911 </span>            : 
+<span class="lineNum">     912 </span><span class="lineCov">          6 : static void sql_dict_transaction_free(struct sql_dict_transaction_context *ctx)</span>
+<span class="lineNum">     913 </span>            : {
+<span class="lineNum">     914 </span><span class="lineCov">          6 :     pool_unref(&amp;ctx-&gt;inc_row_pool);</span>
+<span class="lineNum">     915 </span><span class="lineCov">          6 :     i_free(ctx-&gt;prev_inc_key);</span>
+<span class="lineNum">     916 </span><span class="lineCov">          6 :     i_free(ctx-&gt;error);</span>
+<span class="lineNum">     917 </span><span class="lineCov">          6 :     i_free(ctx);</span>
+<span class="lineNum">     918 </span><span class="lineCov">          6 : }</span>
+<a name="919"><span class="lineNum">     919 </span>            : </a>
+<span class="lineNum">     920 </span>            : static bool
+<span class="lineNum">     921 </span><span class="lineCov">          6 : sql_dict_transaction_has_nonexistent(struct sql_dict_transaction_context *ctx)</span>
+<span class="lineNum">     922 </span>            : {
+<span class="lineNum">     923 </span>            :     struct sql_dict_inc_row *inc_row;
+<span class="lineNum">     924 </span>            : 
+<span class="lineNum">     925 </span><span class="lineCov">          6 :     for (inc_row = ctx-&gt;inc_row; inc_row != NULL; inc_row = inc_row-&gt;prev) {</span>
+<span class="lineNum">     926 </span><span class="lineCov">          2 :         i_assert(inc_row-&gt;rows != UINT_MAX);</span>
+<span class="lineNum">     927 </span><span class="lineCov">          2 :         if (inc_row-&gt;rows == 0)</span>
+<span class="lineNum">     928 </span><span class="lineCov">          2 :             return TRUE;</span>
+<span class="lineNum">     929 </span>            :     }
+<span class="lineNum">     930 </span><span class="lineCov">          4 :     return FALSE;</span>
+<span class="lineNum">     931 </span>            : }
+<a name="932"><span class="lineNum">     932 </span>            : </a>
+<span class="lineNum">     933 </span>            : static void
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 : sql_dict_transaction_commit_callback(const struct sql_commit_result *sql_result,</span>
+<span class="lineNum">     935 </span>            :                      struct sql_dict_transaction_context *ctx)
+<span class="lineNum">     936 </span>            : {
+<span class="lineNum">     937 </span>            :     struct dict_commit_result result;
+<span class="lineNum">     938 </span>            : 
+<span class="lineNum">     939 </span><span class="lineNoCov">          0 :     i_zero(&amp;result);</span>
+<span class="lineNum">     940 </span><span class="lineNoCov">          0 :     if (sql_result-&gt;error == NULL)</span>
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :         result.ret = sql_dict_transaction_has_nonexistent(ctx) ?</span>
+<span class="lineNum">     942 </span>            :             DICT_COMMIT_RET_NOTFOUND : DICT_COMMIT_RET_OK;
+<span class="lineNum">     943 </span>            :     else {
+<span class="lineNum">     944 </span><span class="lineNoCov">          0 :         result.error = t_strdup_printf(&quot;sql dict: commit failed: %s&quot;,</span>
+<span class="lineNum">     945 </span>            :                            sql_result-&gt;error);
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 :         switch (sql_result-&gt;error_type) {</span>
+<span class="lineNum">     947 </span>            :         case SQL_RESULT_ERROR_TYPE_UNKNOWN:
+<span class="lineNum">     948 </span>            :         default:
+<span class="lineNum">     949 </span><span class="lineNoCov">          0 :             result.ret = DICT_COMMIT_RET_FAILED;</span>
+<span class="lineNum">     950 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     951 </span>            :         case SQL_RESULT_ERROR_TYPE_WRITE_UNCERTAIN:
+<span class="lineNum">     952 </span><span class="lineNoCov">          0 :             result.ret = DICT_COMMIT_RET_WRITE_UNCERTAIN;</span>
+<span class="lineNum">     953 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     954 </span>            :         }
+<span class="lineNum">     955 </span>            :     }
+<span class="lineNum">     956 </span>            : 
+<span class="lineNum">     957 </span><span class="lineNoCov">          0 :     if (ctx-&gt;async_callback != NULL)</span>
+<span class="lineNum">     958 </span><span class="lineNoCov">          0 :         ctx-&gt;async_callback(&amp;result, ctx-&gt;async_context);</span>
+<span class="lineNum">     959 </span><span class="lineNoCov">          0 :     else if (result.ret &lt; 0)</span>
+<span class="lineNum">     960 </span><span class="lineNoCov">          0 :         i_error(&quot;%s&quot;, result.error);</span>
+<span class="lineNum">     961 </span><span class="lineNoCov">          0 :     sql_dict_transaction_free(ctx);</span>
+<span class="lineNum">     962 </span><span class="lineNoCov">          0 : }</span>
+<a name="963"><span class="lineNum">     963 </span>            : </a>
+<span class="lineNum">     964 </span>            : static void
+<span class="lineNum">     965 </span><span class="lineCov">          6 : sql_dict_transaction_commit(struct dict_transaction_context *_ctx, bool async,</span>
+<span class="lineNum">     966 </span>            :                 dict_transaction_commit_callback_t *callback,
+<span class="lineNum">     967 </span>            :                 void *context)
+<span class="lineNum">     968 </span>            : {
+<span class="lineNum">     969 </span><span class="lineCov">          6 :     struct sql_dict_transaction_context *ctx =</span>
+<span class="lineNum">     970 </span>            :         (struct sql_dict_transaction_context *)_ctx;
+<span class="lineNum">     971 </span>            :     const char *error;
+<span class="lineNum">     972 </span>            :     struct dict_commit_result result;
+<span class="lineNum">     973 </span>            : 
+<span class="lineNum">     974 </span><span class="lineCov">          6 :     if (ctx-&gt;prev_inc_map != NULL)</span>
+<span class="lineNum">     975 </span><span class="lineCov">          1 :         sql_dict_prev_inc_flush(ctx);</span>
+<span class="lineNum">     976 </span><span class="lineCov">          6 :     if (ctx-&gt;prev_set_map != NULL)</span>
+<span class="lineNum">     977 </span><span class="lineCov">          1 :         sql_dict_prev_set_flush(ctx);</span>
+<span class="lineNum">     978 </span>            : 
+<span class="lineNum">     979 </span>            :     /* note that the above calls might still set ctx-&gt;error */
+<span class="lineNum">     980 </span><span class="lineCov">          6 :     i_zero(&amp;result);</span>
+<span class="lineNum">     981 </span><span class="lineCov">          6 :     result.ret = DICT_COMMIT_RET_FAILED;</span>
+<span class="lineNum">     982 </span><span class="lineCov">          6 :     result.error = t_strdup(ctx-&gt;error);</span>
+<span class="lineNum">     983 </span>            : 
+<span class="lineNum">     984 </span><span class="lineCov">          6 :     if (ctx-&gt;error != NULL) {</span>
+<span class="lineNum">     985 </span><span class="lineNoCov">          0 :         sql_transaction_rollback(&amp;ctx-&gt;sql_ctx);</span>
+<span class="lineNum">     986 </span><span class="lineCov">          6 :     } else if (!_ctx-&gt;changed) {</span>
+<span class="lineNum">     987 </span>            :         /* nothing changed, no need to commit */
+<span class="lineNum">     988 </span><span class="lineNoCov">          0 :         sql_transaction_rollback(&amp;ctx-&gt;sql_ctx);</span>
+<span class="lineNum">     989 </span><span class="lineNoCov">          0 :         result.ret = DICT_COMMIT_RET_OK;</span>
+<span class="lineNum">     990 </span><span class="lineCov">          6 :     } else if (async) {</span>
+<span class="lineNum">     991 </span><span class="lineNoCov">          0 :         ctx-&gt;async_callback = callback;</span>
+<span class="lineNum">     992 </span><span class="lineNoCov">          0 :         ctx-&gt;async_context = context;</span>
+<span class="lineNum">     993 </span><span class="lineNoCov">          0 :         sql_transaction_commit(&amp;ctx-&gt;sql_ctx,</span>
+<span class="lineNum">     994 </span>            :             sql_dict_transaction_commit_callback, ctx);
+<span class="lineNum">     995 </span><span class="lineCov">          6 :         return;</span>
+<span class="lineNum">     996 </span><span class="lineCov">          6 :     } else if (sql_transaction_commit_s(&amp;ctx-&gt;sql_ctx, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     997 </span><span class="lineNoCov">          0 :         result.error = t_strdup_printf(</span>
+<span class="lineNum">     998 </span>            :             &quot;sql dict: commit failed: %s&quot;, error);
+<span class="lineNum">     999 </span>            :     } else {
+<span class="lineNum">    1000 </span><span class="lineCov">          6 :         if (sql_dict_transaction_has_nonexistent(ctx))</span>
+<span class="lineNum">    1001 </span><span class="lineCov">          2 :             result.ret = DICT_COMMIT_RET_NOTFOUND;</span>
+<span class="lineNum">    1002 </span>            :         else
+<span class="lineNum">    1003 </span><span class="lineCov">          4 :             result.ret = DICT_COMMIT_RET_OK;</span>
+<span class="lineNum">    1004 </span>            :     }
+<span class="lineNum">    1005 </span><span class="lineCov">          6 :     sql_dict_transaction_free(ctx);</span>
+<span class="lineNum">    1006 </span>            : 
+<span class="lineNum">    1007 </span><span class="lineCov">          6 :     callback(&amp;result, context);</span>
+<a name="1008"><span class="lineNum">    1008 </span>            : }</a>
+<span class="lineNum">    1009 </span>            : 
+<span class="lineNum">    1010 </span><span class="lineNoCov">          0 : static void sql_dict_transaction_rollback(struct dict_transaction_context *_ctx)</span>
+<span class="lineNum">    1011 </span>            : {
+<span class="lineNum">    1012 </span><span class="lineNoCov">          0 :     struct sql_dict_transaction_context *ctx =</span>
+<span class="lineNum">    1013 </span>            :         (struct sql_dict_transaction_context *)_ctx;
+<span class="lineNum">    1014 </span>            : 
+<span class="lineNum">    1015 </span><span class="lineNoCov">          0 :     sql_transaction_rollback(&amp;ctx-&gt;sql_ctx);</span>
+<span class="lineNum">    1016 </span><span class="lineNoCov">          0 :     sql_dict_transaction_free(ctx);</span>
+<span class="lineNum">    1017 </span><span class="lineNoCov">          0 : }</span>
+<a name="1018"><span class="lineNum">    1018 </span>            : </a>
+<span class="lineNum">    1019 </span>            : static struct sql_statement *
+<span class="lineNum">    1020 </span><span class="lineCov">          7 : sql_dict_transaction_stmt_init(struct sql_dict_transaction_context *ctx,</span>
+<span class="lineNum">    1021 </span>            :                    const char *query,
+<span class="lineNum">    1022 </span>            :                    const ARRAY_TYPE(sql_dict_param) *params)
+<span class="lineNum">    1023 </span>            : {
+<span class="lineNum">    1024 </span><span class="lineCov">          7 :     struct sql_dict *dict = (struct sql_dict *)ctx-&gt;ctx.dict;</span>
+<span class="lineNum">    1025 </span><span class="lineCov">          7 :     struct sql_statement *stmt =</span>
+<span class="lineNum">    1026 </span>            :         sql_dict_statement_init(dict, query, params);
+<span class="lineNum">    1027 </span>            : 
+<span class="lineNum">    1028 </span><span class="lineCov">          7 :     if (ctx-&gt;ctx.timestamp.tv_sec != 0)</span>
+<span class="lineNum">    1029 </span><span class="lineNoCov">          0 :         sql_statement_set_timestamp(stmt, &amp;ctx-&gt;ctx.timestamp);</span>
+<span class="lineNum">    1030 </span><span class="lineCov">          7 :     return stmt;</span>
+<span class="lineNum">    1031 </span>            : }
+<span class="lineNum">    1032 </span>            : 
+<span class="lineNum">    1033 </span>            : struct dict_sql_build_query_field {
+<span class="lineNum">    1034 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">    1035 </span>            :     const char *value;
+<span class="lineNum">    1036 </span>            : };
+<span class="lineNum">    1037 </span>            : 
+<span class="lineNum">    1038 </span>            : struct dict_sql_build_query {
+<span class="lineNum">    1039 </span>            :     struct sql_dict *dict;
+<span class="lineNum">    1040 </span>            : 
+<span class="lineNum">    1041 </span>            :     ARRAY(struct dict_sql_build_query_field) fields;
+<span class="lineNum">    1042 </span>            :     const ARRAY_TYPE(const_string) *extra_values;
+<span class="lineNum">    1043 </span>            :     char key1;
+<a name="1044"><span class="lineNum">    1044 </span>            : };</a>
+<span class="lineNum">    1045 </span>            : 
+<span class="lineNum">    1046 </span><span class="lineCov">          2 : static int sql_dict_set_query(struct sql_dict_transaction_context *ctx,</span>
+<span class="lineNum">    1047 </span>            :                   const struct dict_sql_build_query *build,
+<span class="lineNum">    1048 </span>            :                   struct sql_statement **stmt_r,
+<span class="lineNum">    1049 </span>            :                   const char **error_r)
+<span class="lineNum">    1050 </span>            : {
+<span class="lineNum">    1051 </span><span class="lineCov">          2 :     struct sql_dict *dict = build-&gt;dict;</span>
+<span class="lineNum">    1052 </span>            :     const struct dict_sql_build_query_field *fields;
+<span class="lineNum">    1053 </span>            :     const struct dict_sql_field *sql_fields;
+<span class="lineNum">    1054 </span>            :     ARRAY_TYPE(sql_dict_param) params;
+<span class="lineNum">    1055 </span>            :     const char *const *extra_values;
+<span class="lineNum">    1056 </span>            :     unsigned int i, field_count, count, count2;
+<span class="lineNum">    1057 </span>            :     string_t *prefix, *suffix;
+<span class="lineNum">    1058 </span>            : 
+<span class="lineNum">    1059 </span><span class="lineCov">          2 :     fields = array_get(&amp;build-&gt;fields, &amp;field_count);</span>
+<span class="lineNum">    1060 </span><span class="lineCov">          2 :     i_assert(field_count &gt; 0);</span>
+<span class="lineNum">    1061 </span>            : 
+<span class="lineNum">    1062 </span><span class="lineCov">          2 :     t_array_init(&amp;params, 4);</span>
+<span class="lineNum">    1063 </span><span class="lineCov">          2 :     prefix = t_str_new(64);</span>
+<span class="lineNum">    1064 </span><span class="lineCov">          2 :     suffix = t_str_new(256);</span>
+<span class="lineNum">    1065 </span><span class="lineCov">          2 :     str_printfa(prefix, &quot;INSERT INTO %s&quot;, fields[0].map-&gt;table);</span>
+<span class="lineNum">    1066 </span><span class="lineCov">          2 :     str_append(prefix, &quot; (&quot;);</span>
+<span class="lineNum">    1067 </span><span class="lineCov">          2 :     str_append(suffix, &quot;) VALUES (&quot;);</span>
+<span class="lineNum">    1068 </span><span class="lineCov">          5 :     for (i = 0; i &lt; field_count; i++) {</span>
+<span class="lineNum">    1069 </span><span class="lineCov">          3 :         if (i &gt; 0) {</span>
+<span class="lineNum">    1070 </span><span class="lineCov">          1 :             str_append_c(prefix, ',');</span>
+<span class="lineNum">    1071 </span><span class="lineCov">          1 :             str_append_c(suffix, ',');</span>
+<span class="lineNum">    1072 </span>            :         }
+<span class="lineNum">    1073 </span><span class="lineCov">          3 :         str_append(prefix, t_strcut(fields[i].map-&gt;value_field, ','));</span>
+<span class="lineNum">    1074 </span>            : 
+<span class="lineNum">    1075 </span><span class="lineCov">          3 :         enum dict_sql_type value_type =</span>
+<span class="lineNum">    1076 </span><span class="lineCov">          3 :             fields[i].map-&gt;value_types[0];</span>
+<span class="lineNum">    1077 </span><span class="lineCov">          3 :         str_append_c(suffix, '?');</span>
+<span class="lineNum">    1078 </span><span class="lineCov">          3 :         if (sql_dict_value_get(fields[i].map,</span>
+<span class="lineNum">    1079 </span><span class="lineCov">          3 :                        value_type, &quot;value&quot;, fields[i].value,</span>
+<span class="lineNum">    1080 </span>            :                        &quot;&quot;, &amp;params, error_r) &lt; 0)
+<span class="lineNum">    1081 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">    1082 </span>            :     }
+<span class="lineNum">    1083 </span><span class="lineCov">          2 :     if (build-&gt;key1 == DICT_PATH_PRIVATE[0]) {</span>
+<span class="lineNum">    1084 </span><span class="lineCov">          1 :         str_printfa(prefix, &quot;,%s&quot;, fields[0].map-&gt;username_field);</span>
+<span class="lineNum">    1085 </span><span class="lineCov">          1 :         str_printfa(suffix, &quot;,'%s'&quot;,</span>
+<span class="lineNum">    1086 </span>            :                 sql_escape_string(dict-&gt;db, dict-&gt;username));
+<span class="lineNum">    1087 </span>            :     }
+<span class="lineNum">    1088 </span>            : 
+<span class="lineNum">    1089 </span>            :     /* add the other fields from the key */
+<span class="lineNum">    1090 </span><span class="lineCov">          2 :     sql_fields = array_get(&amp;fields[0].map-&gt;sql_fields, &amp;count);</span>
+<span class="lineNum">    1091 </span><span class="lineCov">          2 :     extra_values = array_get(build-&gt;extra_values, &amp;count2);</span>
+<span class="lineNum">    1092 </span><span class="lineCov">          2 :     i_assert(count == count2);</span>
+<span class="lineNum">    1093 </span><span class="lineCov">          4 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">    1094 </span><span class="lineCov">          2 :         str_printfa(prefix, &quot;,%s&quot;, sql_fields[i].name);</span>
+<span class="lineNum">    1095 </span><span class="lineCov">          2 :         str_append(suffix, &quot;,?&quot;);</span>
+<span class="lineNum">    1096 </span><span class="lineCov">          2 :         if (sql_dict_field_get_value(fields[0].map, &amp;sql_fields[i],</span>
+<span class="lineNum">    1097 </span><span class="lineCov">          2 :                          extra_values[i], &quot;&quot;,</span>
+<span class="lineNum">    1098 </span>            :                          &amp;params, error_r) &lt; 0)
+<span class="lineNum">    1099 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">    1100 </span>            :     }
+<span class="lineNum">    1101 </span>            : 
+<span class="lineNum">    1102 </span><span class="lineCov">          2 :     str_append_str(prefix, suffix);</span>
+<span class="lineNum">    1103 </span><span class="lineCov">          2 :     str_append_c(prefix, ')');</span>
+<span class="lineNum">    1104 </span><span class="lineCov">          2 :     if (!dict-&gt;has_on_duplicate_key) {</span>
+<span class="lineNum">    1105 </span><span class="lineNoCov">          0 :         *stmt_r = sql_dict_transaction_stmt_init(ctx, str_c(prefix), &amp;params);</span>
+<span class="lineNum">    1106 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">    1107 </span>            :     }
+<span class="lineNum">    1108 </span>            : 
+<span class="lineNum">    1109 </span><span class="lineCov">          2 :     str_append(prefix, &quot; ON DUPLICATE KEY UPDATE &quot;);</span>
+<span class="lineNum">    1110 </span><span class="lineCov">          5 :     for (i = 0; i &lt; field_count; i++) {</span>
+<span class="lineNum">    1111 </span><span class="lineCov">          3 :         const char *first_value_field =</span>
+<span class="lineNum">    1112 </span><span class="lineCov">          3 :             t_strcut(fields[i].map-&gt;value_field, ',');</span>
+<span class="lineNum">    1113 </span><span class="lineCov">          3 :         if (i &gt; 0)</span>
+<span class="lineNum">    1114 </span><span class="lineCov">          1 :             str_append_c(prefix, ',');</span>
+<span class="lineNum">    1115 </span><span class="lineCov">          3 :         str_append(prefix, first_value_field);</span>
+<span class="lineNum">    1116 </span><span class="lineCov">          3 :         str_append_c(prefix, '=');</span>
+<span class="lineNum">    1117 </span>            : 
+<span class="lineNum">    1118 </span><span class="lineCov">          3 :         enum dict_sql_type value_type =</span>
+<span class="lineNum">    1119 </span><span class="lineCov">          3 :             fields[i].map-&gt;value_types[0];</span>
+<span class="lineNum">    1120 </span><span class="lineCov">          3 :         str_append_c(prefix, '?');</span>
+<span class="lineNum">    1121 </span><span class="lineCov">          3 :         if (sql_dict_value_get(fields[i].map,</span>
+<span class="lineNum">    1122 </span><span class="lineCov">          3 :                        value_type, &quot;value&quot;, fields[i].value,</span>
+<span class="lineNum">    1123 </span>            :                        &quot;&quot;, &amp;params, error_r) &lt; 0)
+<span class="lineNum">    1124 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">    1125 </span>            :     }
+<span class="lineNum">    1126 </span><span class="lineCov">          2 :     *stmt_r = sql_dict_transaction_stmt_init(ctx, str_c(prefix), &amp;params);</span>
+<span class="lineNum">    1127 </span><span class="lineCov">          2 :     return 0;</span>
+<span class="lineNum">    1128 </span>            : }
+<a name="1129"><span class="lineNum">    1129 </span>            : </a>
+<span class="lineNum">    1130 </span>            : static int
+<span class="lineNum">    1131 </span><span class="lineCov">          2 : sql_dict_update_query(const struct dict_sql_build_query *build,</span>
+<span class="lineNum">    1132 </span>            :               const char **query_r, ARRAY_TYPE(sql_dict_param) *params,
+<span class="lineNum">    1133 </span>            :               const char **error_r)
+<span class="lineNum">    1134 </span>            : {
+<span class="lineNum">    1135 </span><span class="lineCov">          2 :     struct sql_dict *dict = build-&gt;dict;</span>
+<span class="lineNum">    1136 </span>            :     const struct dict_sql_build_query_field *fields;
+<span class="lineNum">    1137 </span>            :     unsigned int i, field_count;
+<span class="lineNum">    1138 </span>            :     string_t *query;
+<span class="lineNum">    1139 </span>            : 
+<span class="lineNum">    1140 </span><span class="lineCov">          2 :     fields = array_get(&amp;build-&gt;fields, &amp;field_count);</span>
+<span class="lineNum">    1141 </span><span class="lineCov">          2 :     i_assert(field_count &gt; 0);</span>
+<span class="lineNum">    1142 </span>            : 
+<span class="lineNum">    1143 </span><span class="lineCov">          2 :     query = t_str_new(64);</span>
+<span class="lineNum">    1144 </span><span class="lineCov">          2 :     str_printfa(query, &quot;UPDATE %s SET &quot;, fields[0].map-&gt;table);</span>
+<span class="lineNum">    1145 </span><span class="lineCov">          5 :     for (i = 0; i &lt; field_count; i++) {</span>
+<span class="lineNum">    1146 </span><span class="lineCov">          3 :         const char *first_value_field =</span>
+<span class="lineNum">    1147 </span><span class="lineCov">          3 :             t_strcut(fields[i].map-&gt;value_field, ',');</span>
+<span class="lineNum">    1148 </span><span class="lineCov">          3 :         if (i &gt; 0)</span>
+<span class="lineNum">    1149 </span><span class="lineCov">          1 :             str_append_c(query, ',');</span>
+<span class="lineNum">    1150 </span><span class="lineCov">          3 :         str_printfa(query, &quot;%s=%s+?&quot;, first_value_field,</span>
+<span class="lineNum">    1151 </span>            :                 first_value_field);
+<span class="lineNum">    1152 </span>            :     }
+<span class="lineNum">    1153 </span>            : 
+<span class="lineNum">    1154 </span><span class="lineCov">          2 :     if (sql_dict_where_build(dict, fields[0].map, build-&gt;extra_values,</span>
+<span class="lineNum">    1155 </span><span class="lineCov">          2 :                  build-&gt;key1, SQL_DICT_RECURSE_NONE, query,</span>
+<span class="lineNum">    1156 </span>            :                  params, error_r) &lt; 0)
+<span class="lineNum">    1157 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1158 </span><span class="lineCov">          2 :     *query_r = str_c(query);</span>
+<span class="lineNum">    1159 </span><span class="lineCov">          2 :     return 0;</span>
+<a name="1160"><span class="lineNum">    1160 </span>            : }</a>
+<span class="lineNum">    1161 </span>            : 
+<span class="lineNum">    1162 </span><span class="lineCov">          1 : static void sql_dict_set_real(struct dict_transaction_context *_ctx,</span>
+<span class="lineNum">    1163 </span>            :                   const char *key, const char *value)
+<span class="lineNum">    1164 </span>            : {
+<span class="lineNum">    1165 </span><span class="lineCov">          1 :     struct sql_dict_transaction_context *ctx =</span>
+<span class="lineNum">    1166 </span>            :         (struct sql_dict_transaction_context *)_ctx;
+<span class="lineNum">    1167 </span><span class="lineCov">          1 :     struct sql_dict *dict = (struct sql_dict *)_ctx-&gt;dict;</span>
+<span class="lineNum">    1168 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">    1169 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">    1170 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">    1171 </span>            :     struct dict_sql_build_query build;
+<span class="lineNum">    1172 </span>            :     struct dict_sql_build_query_field field;
+<span class="lineNum">    1173 </span>            :     const char *error;
+<span class="lineNum">    1174 </span>            : 
+<span class="lineNum">    1175 </span><span class="lineCov">          1 :     if (ctx-&gt;error != NULL)</span>
+<span class="lineNum">    1176 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1177 </span>            : 
+<span class="lineNum">    1178 </span><span class="lineCov">          1 :     map = sql_dict_find_map(dict, key, &amp;values);</span>
+<span class="lineNum">    1179 </span><span class="lineCov">          1 :     if (map == NULL) {</span>
+<span class="lineNum">    1180 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1181 </span>            :             &quot;dict-sql: Invalid/unmapped key: %s&quot;, key);
+<span class="lineNum">    1182 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1183 </span>            :     }
+<span class="lineNum">    1184 </span>            : 
+<span class="lineNum">    1185 </span><span class="lineCov">          1 :     field.map = map;</span>
+<span class="lineNum">    1186 </span><span class="lineCov">          1 :     field.value = value;</span>
+<span class="lineNum">    1187 </span>            : 
+<span class="lineNum">    1188 </span><span class="lineCov">          1 :     i_zero(&amp;build);</span>
+<span class="lineNum">    1189 </span><span class="lineCov">          1 :     build.dict = dict;</span>
+<span class="lineNum">    1190 </span><span class="lineCov">          1 :     t_array_init(&amp;build.fields, 1);</span>
+<span class="lineNum">    1191 </span><span class="lineCov">          1 :     array_append(&amp;build.fields, &amp;field, 1);</span>
+<span class="lineNum">    1192 </span><span class="lineCov">          1 :     build.extra_values = &amp;values;</span>
+<span class="lineNum">    1193 </span><span class="lineCov">          1 :     build.key1 = key[0];</span>
+<span class="lineNum">    1194 </span>            : 
+<span class="lineNum">    1195 </span><span class="lineCov">          1 :     if (sql_dict_set_query(ctx, &amp;build, &amp;stmt, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1196 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(&quot;dict-sql: Failed to set %s=%s: %s&quot;,</span>
+<span class="lineNum">    1197 </span>            :                          key, value, error);
+<span class="lineNum">    1198 </span>            :     } else {
+<span class="lineNum">    1199 </span><span class="lineCov">          1 :         sql_update_stmt(ctx-&gt;sql_ctx, &amp;stmt);</span>
+<span class="lineNum">    1200 </span>            :     }
+<a name="1201"><span class="lineNum">    1201 </span>            : }</a>
+<span class="lineNum">    1202 </span>            : 
+<span class="lineNum">    1203 </span><span class="lineCov">          3 : static void sql_dict_unset(struct dict_transaction_context *_ctx,</span>
+<span class="lineNum">    1204 </span>            :                const char *key)
+<span class="lineNum">    1205 </span>            : {
+<span class="lineNum">    1206 </span><span class="lineCov">          3 :     struct sql_dict_transaction_context *ctx =</span>
+<span class="lineNum">    1207 </span>            :         (struct sql_dict_transaction_context *)_ctx;
+<span class="lineNum">    1208 </span><span class="lineCov">          3 :     struct sql_dict *dict = (struct sql_dict *)_ctx-&gt;dict;</span>
+<span class="lineNum">    1209 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">    1210 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">    1211 </span><span class="lineCov">          3 :     string_t *query = t_str_new(256);</span>
+<span class="lineNum">    1212 </span>            :     ARRAY_TYPE(sql_dict_param) params;
+<span class="lineNum">    1213 </span>            :     const char *error;
+<span class="lineNum">    1214 </span>            : 
+<span class="lineNum">    1215 </span><span class="lineCov">          3 :     if (ctx-&gt;error != NULL)</span>
+<span class="lineNum">    1216 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1217 </span>            : 
+<span class="lineNum">    1218 </span><span class="lineCov">          3 :     if (ctx-&gt;prev_inc_map != NULL)</span>
+<span class="lineNum">    1219 </span><span class="lineNoCov">          0 :         sql_dict_prev_inc_flush(ctx);</span>
+<span class="lineNum">    1220 </span><span class="lineCov">          3 :     if (ctx-&gt;prev_set_map != NULL)</span>
+<span class="lineNum">    1221 </span><span class="lineNoCov">          0 :         sql_dict_prev_set_flush(ctx);</span>
+<span class="lineNum">    1222 </span>            : 
+<span class="lineNum">    1223 </span><span class="lineCov">          3 :     map = sql_dict_find_map(dict, key, &amp;values);</span>
+<span class="lineNum">    1224 </span><span class="lineCov">          3 :     if (map == NULL) {</span>
+<span class="lineNum">    1225 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(&quot;dict-sql: Invalid/unmapped key: %s&quot;, key);</span>
+<span class="lineNum">    1226 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1227 </span>            :     }
+<span class="lineNum">    1228 </span>            : 
+<span class="lineNum">    1229 </span><span class="lineCov">          3 :     str_printfa(query, &quot;DELETE FROM %s&quot;, map-&gt;table);</span>
+<span class="lineNum">    1230 </span><span class="lineCov">          3 :     t_array_init(&amp;params, 4);</span>
+<span class="lineNum">    1231 </span><span class="lineCov">          3 :     if (sql_dict_where_build(dict, map, &amp;values, key[0],</span>
+<span class="lineNum">    1232 </span>            :                  SQL_DICT_RECURSE_NONE, query,
+<span class="lineNum">    1233 </span>            :                  &amp;params, &amp;error) &lt; 0) {
+<span class="lineNum">    1234 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1235 </span>            :             &quot;dict-sql: Failed to delete %s: %s&quot;, key, error);
+<span class="lineNum">    1236 </span>            :     } else {
+<span class="lineNum">    1237 </span><span class="lineCov">          3 :         struct sql_statement *stmt =</span>
+<span class="lineNum">    1238 </span><span class="lineCov">          3 :             sql_dict_transaction_stmt_init(ctx, str_c(query), &amp;params);</span>
+<span class="lineNum">    1239 </span><span class="lineCov">          3 :         sql_update_stmt(ctx-&gt;sql_ctx, &amp;stmt);</span>
+<span class="lineNum">    1240 </span>            :     }
+<span class="lineNum">    1241 </span>            : }
+<a name="1242"><span class="lineNum">    1242 </span>            : </a>
+<span class="lineNum">    1243 </span>            : static unsigned int *
+<span class="lineNum">    1244 </span><span class="lineCov">          2 : sql_dict_next_inc_row(struct sql_dict_transaction_context *ctx)</span>
+<span class="lineNum">    1245 </span>            : {
+<span class="lineNum">    1246 </span>            :     struct sql_dict_inc_row *row;
+<span class="lineNum">    1247 </span>            : 
+<span class="lineNum">    1248 </span><span class="lineCov">          2 :     if (ctx-&gt;inc_row_pool == NULL) {</span>
+<span class="lineNum">    1249 </span><span class="lineCov">          2 :         ctx-&gt;inc_row_pool =</span>
+<span class="lineNum">    1250 </span><span class="lineCov">          2 :             pool_alloconly_create(&quot;sql dict inc rows&quot;, 128);</span>
+<span class="lineNum">    1251 </span>            :     }
+<span class="lineNum">    1252 </span><span class="lineCov">          2 :     row = p_new(ctx-&gt;inc_row_pool, struct sql_dict_inc_row, 1);</span>
+<span class="lineNum">    1253 </span><span class="lineCov">          2 :     row-&gt;prev = ctx-&gt;inc_row;</span>
+<span class="lineNum">    1254 </span><span class="lineCov">          2 :     row-&gt;rows = UINT_MAX;</span>
+<span class="lineNum">    1255 </span><span class="lineCov">          2 :     ctx-&gt;inc_row = row;</span>
+<span class="lineNum">    1256 </span><span class="lineCov">          2 :     return &amp;row-&gt;rows;</span>
+<a name="1257"><span class="lineNum">    1257 </span>            : }</a>
+<span class="lineNum">    1258 </span>            : 
+<span class="lineNum">    1259 </span><span class="lineCov">          1 : static void sql_dict_atomic_inc_real(struct sql_dict_transaction_context *ctx,</span>
+<span class="lineNum">    1260 </span>            :                      const char *key, long long diff)
+<span class="lineNum">    1261 </span>            : {
+<span class="lineNum">    1262 </span><span class="lineCov">          1 :     struct sql_dict *dict = (struct sql_dict *)ctx-&gt;ctx.dict;</span>
+<span class="lineNum">    1263 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">    1264 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">    1265 </span>            :     struct dict_sql_build_query build;
+<span class="lineNum">    1266 </span>            :     struct dict_sql_build_query_field field;
+<span class="lineNum">    1267 </span>            :     ARRAY_TYPE(sql_dict_param) params;
+<span class="lineNum">    1268 </span>            :     struct sql_dict_param *param;
+<span class="lineNum">    1269 </span>            :     const char *query, *error;
+<span class="lineNum">    1270 </span>            : 
+<span class="lineNum">    1271 </span><span class="lineCov">          1 :     if (ctx-&gt;error != NULL)</span>
+<span class="lineNum">    1272 </span><span class="lineCov">          1 :         return;</span>
+<span class="lineNum">    1273 </span>            : 
+<span class="lineNum">    1274 </span><span class="lineCov">          1 :     map = sql_dict_find_map(dict, key, &amp;values);</span>
+<span class="lineNum">    1275 </span><span class="lineCov">          1 :     i_assert(map != NULL);</span>
+<span class="lineNum">    1276 </span>            : 
+<span class="lineNum">    1277 </span><span class="lineCov">          1 :     field.map = map;</span>
+<span class="lineNum">    1278 </span><span class="lineCov">          1 :     field.value = NULL; /* unused */</span>
+<span class="lineNum">    1279 </span>            : 
+<span class="lineNum">    1280 </span><span class="lineCov">          1 :     i_zero(&amp;build);</span>
+<span class="lineNum">    1281 </span><span class="lineCov">          1 :     build.dict = dict;</span>
+<span class="lineNum">    1282 </span><span class="lineCov">          1 :     t_array_init(&amp;build.fields, 1);</span>
+<span class="lineNum">    1283 </span><span class="lineCov">          1 :     array_append(&amp;build.fields, &amp;field, 1);</span>
+<span class="lineNum">    1284 </span><span class="lineCov">          1 :     build.extra_values = &amp;values;</span>
+<span class="lineNum">    1285 </span><span class="lineCov">          1 :     build.key1 = key[0];</span>
+<span class="lineNum">    1286 </span>            : 
+<span class="lineNum">    1287 </span><span class="lineCov">          1 :     t_array_init(&amp;params, 4);</span>
+<span class="lineNum">    1288 </span><span class="lineCov">          1 :     param = array_append_space(&amp;params);</span>
+<span class="lineNum">    1289 </span><span class="lineCov">          1 :     param-&gt;value_type = DICT_SQL_TYPE_INT;</span>
+<span class="lineNum">    1290 </span><span class="lineCov">          1 :     param-&gt;value_int64 = diff;</span>
+<span class="lineNum">    1291 </span>            : 
+<span class="lineNum">    1292 </span><span class="lineCov">          1 :     if (sql_dict_update_query(&amp;build, &amp;query, &amp;params, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1293 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1294 </span>            :             &quot;dict-sql: Failed to increase %s: %s&quot;, key, error);
+<span class="lineNum">    1295 </span>            :     } else {
+<span class="lineNum">    1296 </span><span class="lineCov">          1 :         struct sql_statement *stmt =</span>
+<span class="lineNum">    1297 </span><span class="lineCov">          1 :             sql_dict_transaction_stmt_init(ctx, query, &amp;params);</span>
+<span class="lineNum">    1298 </span><span class="lineCov">          1 :         sql_update_stmt_get_rows(ctx-&gt;sql_ctx, &amp;stmt,</span>
+<span class="lineNum">    1299 </span>            :                      sql_dict_next_inc_row(ctx));
+<span class="lineNum">    1300 </span>            :     }
+<a name="1301"><span class="lineNum">    1301 </span>            : }</a>
+<span class="lineNum">    1302 </span>            : 
+<span class="lineNum">    1303 </span><span class="lineCov">          1 : static void sql_dict_prev_set_flush(struct sql_dict_transaction_context *ctx)</span>
+<span class="lineNum">    1304 </span>            : {
+<span class="lineNum">    1305 </span><span class="lineCov">          1 :     sql_dict_set_real(&amp;ctx-&gt;ctx, ctx-&gt;prev_set_key, ctx-&gt;prev_set_value);</span>
+<span class="lineNum">    1306 </span><span class="lineCov">          1 :     i_free_and_null(ctx-&gt;prev_set_value);</span>
+<span class="lineNum">    1307 </span><span class="lineCov">          1 :     i_free_and_null(ctx-&gt;prev_set_key);</span>
+<span class="lineNum">    1308 </span><span class="lineCov">          1 :     ctx-&gt;prev_set_map = NULL;</span>
+<a name="1309"><span class="lineNum">    1309 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">    1310 </span>            : 
+<span class="lineNum">    1311 </span><span class="lineCov">          1 : static void sql_dict_prev_inc_flush(struct sql_dict_transaction_context *ctx)</span>
+<span class="lineNum">    1312 </span>            : {
+<span class="lineNum">    1313 </span><span class="lineCov">          1 :     sql_dict_atomic_inc_real(ctx, ctx-&gt;prev_inc_key, ctx-&gt;prev_inc_diff);</span>
+<span class="lineNum">    1314 </span><span class="lineCov">          1 :     i_free_and_null(ctx-&gt;prev_inc_key);</span>
+<span class="lineNum">    1315 </span><span class="lineCov">          1 :     ctx-&gt;prev_inc_map = NULL;</span>
+<span class="lineNum">    1316 </span><span class="lineCov">          1 : }</span>
+<a name="1317"><span class="lineNum">    1317 </span>            : </a>
+<span class="lineNum">    1318 </span>            : static bool
+<span class="lineNum">    1319 </span><span class="lineCov">          2 : sql_dict_maps_are_mergeable(struct sql_dict *dict,</span>
+<span class="lineNum">    1320 </span>            :                 const struct dict_sql_map *map1,
+<span class="lineNum">    1321 </span>            :                 const struct dict_sql_map *map2,
+<span class="lineNum">    1322 </span>            :                 const char *map1_key, const char *map2_key,
+<span class="lineNum">    1323 </span>            :                 const ARRAY_TYPE(const_string) *map2_values)
+<span class="lineNum">    1324 </span>            : {
+<span class="lineNum">    1325 </span>            :     const struct dict_sql_map *map3;
+<span class="lineNum">    1326 </span>            :     ARRAY_TYPE(const_string) map1_values;
+<span class="lineNum">    1327 </span>            :     const char *const *v1, *const *v2;
+<span class="lineNum">    1328 </span>            :     unsigned int i, count1, count2;
+<span class="lineNum">    1329 </span>            : 
+<span class="lineNum">    1330 </span><span class="lineCov">          2 :     if (strcmp(map1-&gt;table, map2-&gt;table) != 0)</span>
+<span class="lineNum">    1331 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1332 </span><span class="lineCov">          2 :     if (map1_key[0] != map2_key[0])</span>
+<span class="lineNum">    1333 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1334 </span><span class="lineCov">          2 :     if (map1_key[0] == DICT_PATH_PRIVATE[0]) {</span>
+<span class="lineNum">    1335 </span><span class="lineCov">          2 :         if (strcmp(map1-&gt;username_field, map2-&gt;username_field) != 0)</span>
+<span class="lineNum">    1336 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">    1337 </span>            :     }
+<span class="lineNum">    1338 </span>            : 
+<span class="lineNum">    1339 </span><span class="lineCov">          2 :     map3 = sql_dict_find_map(dict, map1_key, &amp;map1_values);</span>
+<span class="lineNum">    1340 </span><span class="lineCov">          2 :     i_assert(map3 == map1);</span>
+<span class="lineNum">    1341 </span>            : 
+<span class="lineNum">    1342 </span><span class="lineCov">          2 :     v1 = array_get(&amp;map1_values, &amp;count1);</span>
+<span class="lineNum">    1343 </span><span class="lineCov">          2 :     v2 = array_get(map2_values, &amp;count2);</span>
+<span class="lineNum">    1344 </span><span class="lineCov">          2 :     if (count1 != count2)</span>
+<span class="lineNum">    1345 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1346 </span>            : 
+<span class="lineNum">    1347 </span><span class="lineCov">          2 :     for (i = 0; i &lt; count1; i++) {</span>
+<span class="lineNum">    1348 </span><span class="lineNoCov">          0 :         if (strcmp(v1[i], v2[i]) != 0)</span>
+<span class="lineNum">    1349 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">    1350 </span>            :     }
+<span class="lineNum">    1351 </span><span class="lineCov">          2 :     return TRUE;</span>
+<a name="1352"><span class="lineNum">    1352 </span>            : }</a>
+<span class="lineNum">    1353 </span>            : 
+<span class="lineNum">    1354 </span><span class="lineCov">          3 : static void sql_dict_set(struct dict_transaction_context *_ctx,</span>
+<span class="lineNum">    1355 </span>            :              const char *key, const char *value)
+<span class="lineNum">    1356 </span>            : {
+<span class="lineNum">    1357 </span><span class="lineCov">          3 :     struct sql_dict_transaction_context *ctx =</span>
+<span class="lineNum">    1358 </span>            :         (struct sql_dict_transaction_context *)_ctx;
+<span class="lineNum">    1359 </span><span class="lineCov">          3 :     struct sql_dict *dict = (struct sql_dict *)_ctx-&gt;dict;</span>
+<span class="lineNum">    1360 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">    1361 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">    1362 </span>            : 
+<span class="lineNum">    1363 </span><span class="lineCov">          3 :     if (ctx-&gt;error != NULL)</span>
+<span class="lineNum">    1364 </span><span class="lineCov">          2 :         return;</span>
+<span class="lineNum">    1365 </span>            : 
+<span class="lineNum">    1366 </span><span class="lineCov">          3 :     if (ctx-&gt;prev_inc_map != NULL)</span>
+<span class="lineNum">    1367 </span><span class="lineNoCov">          0 :         sql_dict_prev_inc_flush(ctx);</span>
+<span class="lineNum">    1368 </span>            : 
+<span class="lineNum">    1369 </span><span class="lineCov">          3 :     map = sql_dict_find_map(dict, key, &amp;values);</span>
+<span class="lineNum">    1370 </span><span class="lineCov">          3 :     if (map == NULL) {</span>
+<span class="lineNum">    1371 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1372 </span>            :             &quot;sql dict set: Invalid/unmapped key: %s&quot;, key);
+<span class="lineNum">    1373 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1374 </span>            :     }
+<span class="lineNum">    1375 </span>            : 
+<span class="lineNum">    1376 </span><span class="lineCov">          3 :     if (ctx-&gt;prev_set_map == NULL) {</span>
+<span class="lineNum">    1377 </span>            :         /* see if we can merge this increment SQL query with the
+<span class="lineNum">    1378 </span>            :            next one */
+<span class="lineNum">    1379 </span><span class="lineCov">          2 :         ctx-&gt;prev_set_map = map;</span>
+<span class="lineNum">    1380 </span><span class="lineCov">          2 :         ctx-&gt;prev_set_key = i_strdup(key);</span>
+<span class="lineNum">    1381 </span><span class="lineCov">          2 :         ctx-&gt;prev_set_value = i_strdup(value);</span>
+<span class="lineNum">    1382 </span><span class="lineCov">          2 :         return;</span>
+<span class="lineNum">    1383 </span>            :     }
+<span class="lineNum">    1384 </span>            : 
+<span class="lineNum">    1385 </span><span class="lineCov">          1 :     if (!sql_dict_maps_are_mergeable(dict, ctx-&gt;prev_set_map, map,</span>
+<span class="lineNum">    1386 </span><span class="lineCov">          1 :                      ctx-&gt;prev_set_key, key, &amp;values)) {</span>
+<span class="lineNum">    1387 </span><span class="lineNoCov">          0 :         sql_dict_prev_set_flush(ctx);</span>
+<span class="lineNum">    1388 </span><span class="lineNoCov">          0 :         sql_dict_set_real(&amp;ctx-&gt;ctx, key, value);</span>
+<span class="lineNum">    1389 </span>            :     } else {
+<span class="lineNum">    1390 </span>            :         struct dict_sql_build_query build;
+<span class="lineNum">    1391 </span>            :         struct dict_sql_build_query_field *field;
+<span class="lineNum">    1392 </span>            :         struct sql_statement *stmt;
+<span class="lineNum">    1393 </span>            :         const char *error;
+<span class="lineNum">    1394 </span>            : 
+<span class="lineNum">    1395 </span><span class="lineCov">          1 :         i_zero(&amp;build);</span>
+<span class="lineNum">    1396 </span><span class="lineCov">          1 :         build.dict = dict;</span>
+<span class="lineNum">    1397 </span><span class="lineCov">          1 :         t_array_init(&amp;build.fields, 1);</span>
+<span class="lineNum">    1398 </span><span class="lineCov">          1 :         build.extra_values = &amp;values;</span>
+<span class="lineNum">    1399 </span><span class="lineCov">          1 :         build.key1 = key[0];</span>
+<span class="lineNum">    1400 </span>            : 
+<span class="lineNum">    1401 </span><span class="lineCov">          1 :         field = array_append_space(&amp;build.fields);</span>
+<span class="lineNum">    1402 </span><span class="lineCov">          1 :         field-&gt;map = ctx-&gt;prev_set_map;</span>
+<span class="lineNum">    1403 </span><span class="lineCov">          1 :         field-&gt;value = ctx-&gt;prev_set_value;</span>
+<span class="lineNum">    1404 </span><span class="lineCov">          1 :         field = array_append_space(&amp;build.fields);</span>
+<span class="lineNum">    1405 </span><span class="lineCov">          1 :         field-&gt;map = map;</span>
+<span class="lineNum">    1406 </span><span class="lineCov">          1 :         field-&gt;value = value;</span>
+<span class="lineNum">    1407 </span>            : 
+<span class="lineNum">    1408 </span><span class="lineCov">          1 :         if (sql_dict_set_query(ctx, &amp;build, &amp;stmt, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1409 </span><span class="lineNoCov">          0 :             ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1410 </span>            :                 &quot;dict-sql: Failed to set %s: %s&quot;, key, error);
+<span class="lineNum">    1411 </span>            :         } else {
+<span class="lineNum">    1412 </span><span class="lineCov">          1 :             sql_update_stmt(ctx-&gt;sql_ctx, &amp;stmt);</span>
+<span class="lineNum">    1413 </span>            :         }
+<span class="lineNum">    1414 </span><span class="lineCov">          1 :         i_free_and_null(ctx-&gt;prev_set_value);</span>
+<span class="lineNum">    1415 </span><span class="lineCov">          1 :         i_free_and_null(ctx-&gt;prev_set_key);</span>
+<span class="lineNum">    1416 </span><span class="lineCov">          1 :         ctx-&gt;prev_set_map = NULL;</span>
+<span class="lineNum">    1417 </span>            :     }
+<a name="1418"><span class="lineNum">    1418 </span>            : }</a>
+<span class="lineNum">    1419 </span>            : 
+<span class="lineNum">    1420 </span><span class="lineCov">          3 : static void sql_dict_atomic_inc(struct dict_transaction_context *_ctx,</span>
+<span class="lineNum">    1421 </span>            :                 const char *key, long long diff)
+<span class="lineNum">    1422 </span>            : {
+<span class="lineNum">    1423 </span><span class="lineCov">          3 :     struct sql_dict_transaction_context *ctx =</span>
+<span class="lineNum">    1424 </span>            :         (struct sql_dict_transaction_context *)_ctx;
+<span class="lineNum">    1425 </span><span class="lineCov">          3 :     struct sql_dict *dict = (struct sql_dict *)_ctx-&gt;dict;</span>
+<span class="lineNum">    1426 </span>            :     const struct dict_sql_map *map;
+<span class="lineNum">    1427 </span>            :     ARRAY_TYPE(const_string) values;
+<span class="lineNum">    1428 </span>            : 
+<span class="lineNum">    1429 </span><span class="lineCov">          3 :     if (ctx-&gt;error != NULL)</span>
+<span class="lineNum">    1430 </span><span class="lineCov">          2 :         return;</span>
+<span class="lineNum">    1431 </span>            : 
+<span class="lineNum">    1432 </span><span class="lineCov">          3 :     if (ctx-&gt;prev_set_map != NULL)</span>
+<span class="lineNum">    1433 </span><span class="lineNoCov">          0 :         sql_dict_prev_set_flush(ctx);</span>
+<span class="lineNum">    1434 </span>            : 
+<span class="lineNum">    1435 </span><span class="lineCov">          3 :     map = sql_dict_find_map(dict, key, &amp;values);</span>
+<span class="lineNum">    1436 </span><span class="lineCov">          3 :     if (map == NULL) {</span>
+<span class="lineNum">    1437 </span><span class="lineNoCov">          0 :         ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1438 </span>            :             &quot;sql dict atomic inc: Invalid/unmapped key: %s&quot;, key);
+<span class="lineNum">    1439 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1440 </span>            :     }
+<span class="lineNum">    1441 </span>            : 
+<span class="lineNum">    1442 </span><span class="lineCov">          3 :     if (ctx-&gt;prev_inc_map == NULL) {</span>
+<span class="lineNum">    1443 </span>            :         /* see if we can merge this increment SQL query with the
+<span class="lineNum">    1444 </span>            :            next one */
+<span class="lineNum">    1445 </span><span class="lineCov">          2 :         ctx-&gt;prev_inc_map = map;</span>
+<span class="lineNum">    1446 </span><span class="lineCov">          2 :         ctx-&gt;prev_inc_key = i_strdup(key);</span>
+<span class="lineNum">    1447 </span><span class="lineCov">          2 :         ctx-&gt;prev_inc_diff = diff;</span>
+<span class="lineNum">    1448 </span><span class="lineCov">          2 :         return;</span>
+<span class="lineNum">    1449 </span>            :     }
+<span class="lineNum">    1450 </span>            : 
+<span class="lineNum">    1451 </span><span class="lineCov">          1 :     if (!sql_dict_maps_are_mergeable(dict, ctx-&gt;prev_inc_map, map,</span>
+<span class="lineNum">    1452 </span><span class="lineCov">          1 :                      ctx-&gt;prev_inc_key, key, &amp;values)) {</span>
+<span class="lineNum">    1453 </span><span class="lineNoCov">          0 :         sql_dict_prev_inc_flush(ctx);</span>
+<span class="lineNum">    1454 </span><span class="lineNoCov">          0 :         sql_dict_atomic_inc_real(ctx, key, diff);</span>
+<span class="lineNum">    1455 </span>            :     } else {
+<span class="lineNum">    1456 </span>            :         struct dict_sql_build_query build;
+<span class="lineNum">    1457 </span>            :         struct dict_sql_build_query_field *field;
+<span class="lineNum">    1458 </span>            :         ARRAY_TYPE(sql_dict_param) params;
+<span class="lineNum">    1459 </span>            :         struct sql_dict_param *param;
+<span class="lineNum">    1460 </span>            :         const char *query, *error;
+<span class="lineNum">    1461 </span>            : 
+<span class="lineNum">    1462 </span><span class="lineCov">          1 :         i_zero(&amp;build);</span>
+<span class="lineNum">    1463 </span><span class="lineCov">          1 :         build.dict = dict;</span>
+<span class="lineNum">    1464 </span><span class="lineCov">          1 :         t_array_init(&amp;build.fields, 1);</span>
+<span class="lineNum">    1465 </span><span class="lineCov">          1 :         build.extra_values = &amp;values;</span>
+<span class="lineNum">    1466 </span><span class="lineCov">          1 :         build.key1 = key[0];</span>
+<span class="lineNum">    1467 </span>            : 
+<span class="lineNum">    1468 </span><span class="lineCov">          1 :         field = array_append_space(&amp;build.fields);</span>
+<span class="lineNum">    1469 </span><span class="lineCov">          1 :         field-&gt;map = ctx-&gt;prev_inc_map;</span>
+<span class="lineNum">    1470 </span><span class="lineCov">          1 :         field = array_append_space(&amp;build.fields);</span>
+<span class="lineNum">    1471 </span><span class="lineCov">          1 :         field-&gt;map = map;</span>
+<span class="lineNum">    1472 </span>            :         /* field-&gt;value is unused */
+<span class="lineNum">    1473 </span>            : 
+<span class="lineNum">    1474 </span><span class="lineCov">          1 :         t_array_init(&amp;params, 4);</span>
+<span class="lineNum">    1475 </span><span class="lineCov">          1 :         param = array_append_space(&amp;params);</span>
+<span class="lineNum">    1476 </span><span class="lineCov">          1 :         param-&gt;value_type = DICT_SQL_TYPE_INT;</span>
+<span class="lineNum">    1477 </span><span class="lineCov">          1 :         param-&gt;value_int64 = ctx-&gt;prev_inc_diff;</span>
+<span class="lineNum">    1478 </span>            : 
+<span class="lineNum">    1479 </span><span class="lineCov">          1 :         param = array_append_space(&amp;params);</span>
+<span class="lineNum">    1480 </span><span class="lineCov">          1 :         param-&gt;value_type = DICT_SQL_TYPE_INT;</span>
+<span class="lineNum">    1481 </span><span class="lineCov">          1 :         param-&gt;value_int64 = diff;</span>
+<span class="lineNum">    1482 </span>            : 
+<span class="lineNum">    1483 </span><span class="lineCov">          1 :         if (sql_dict_update_query(&amp;build, &amp;query, &amp;params, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1484 </span><span class="lineNoCov">          0 :             ctx-&gt;error = i_strdup_printf(</span>
+<span class="lineNum">    1485 </span>            :                 &quot;dict-sql: Failed to increase %s: %s&quot;, key, error);
+<span class="lineNum">    1486 </span>            :         } else {
+<span class="lineNum">    1487 </span><span class="lineCov">          1 :             struct sql_statement *stmt =</span>
+<span class="lineNum">    1488 </span><span class="lineCov">          1 :                 sql_dict_transaction_stmt_init(ctx, query, &amp;params);</span>
+<span class="lineNum">    1489 </span><span class="lineCov">          1 :             sql_update_stmt_get_rows(ctx-&gt;sql_ctx, &amp;stmt,</span>
+<span class="lineNum">    1490 </span>            :                          sql_dict_next_inc_row(ctx));
+<span class="lineNum">    1491 </span>            :         }
+<span class="lineNum">    1492 </span>            : 
+<span class="lineNum">    1493 </span><span class="lineCov">          1 :         i_free_and_null(ctx-&gt;prev_inc_key);</span>
+<span class="lineNum">    1494 </span><span class="lineCov">          1 :         ctx-&gt;prev_inc_map = NULL;</span>
+<span class="lineNum">    1495 </span>            :     }
+<span class="lineNum">    1496 </span>            : }
+<span class="lineNum">    1497 </span>            : 
+<span class="lineNum">    1498 </span>            : static struct dict sql_dict = {
+<span class="lineNum">    1499 </span>            :     .name = &quot;sql&quot;,
+<span class="lineNum">    1500 </span>            : 
+<span class="lineNum">    1501 </span>            :     {
+<span class="lineNum">    1502 </span>            :         .init = sql_dict_init,
+<span class="lineNum">    1503 </span>            :         .deinit = sql_dict_deinit,
+<span class="lineNum">    1504 </span>            :         .wait = sql_dict_wait,
+<span class="lineNum">    1505 </span>            :         .lookup = sql_dict_lookup,
+<span class="lineNum">    1506 </span>            :         .iterate_init = sql_dict_iterate_init,
+<span class="lineNum">    1507 </span>            :         .iterate = sql_dict_iterate,
+<span class="lineNum">    1508 </span>            :         .iterate_deinit = sql_dict_iterate_deinit,
+<span class="lineNum">    1509 </span>            :         .transaction_init = sql_dict_transaction_init,
+<span class="lineNum">    1510 </span>            :         .transaction_commit = sql_dict_transaction_commit,
+<span class="lineNum">    1511 </span>            :         .transaction_rollback = sql_dict_transaction_rollback,
+<span class="lineNum">    1512 </span>            :         .set = sql_dict_set,
+<span class="lineNum">    1513 </span>            :         .unset = sql_dict_unset,
+<span class="lineNum">    1514 </span>            :         .atomic_inc = sql_dict_atomic_inc,
+<span class="lineNum">    1515 </span>            :         .lookup_async = sql_dict_lookup_async,
+<span class="lineNum">    1516 </span>            :     }
+<span class="lineNum">    1517 </span>            : };
+<span class="lineNum">    1518 </span>            : 
+<a name="1519"><span class="lineNum">    1519 </span>            : static struct dict *dict_sql_drivers;</a>
+<span class="lineNum">    1520 </span>            : 
+<span class="lineNum">    1521 </span><span class="lineCov">          1 : void dict_sql_register(void)</span>
+<span class="lineNum">    1522 </span>            : {
+<span class="lineNum">    1523 </span>            :         const struct sql_db *const *drivers;
+<span class="lineNum">    1524 </span>            :     unsigned int i, count;
+<span class="lineNum">    1525 </span>            : 
+<span class="lineNum">    1526 </span><span class="lineCov">          1 :     dict_sql_db_cache = sql_db_cache_init(DICT_SQL_MAX_UNUSED_CONNECTIONS);</span>
+<span class="lineNum">    1527 </span>            : 
+<span class="lineNum">    1528 </span>            :     /* @UNSAFE */
+<span class="lineNum">    1529 </span><span class="lineCov">          1 :     drivers = array_get(&amp;sql_drivers, &amp;count);</span>
+<span class="lineNum">    1530 </span><span class="lineCov">          1 :     dict_sql_drivers = i_new(struct dict, count + 1);</span>
+<span class="lineNum">    1531 </span>            : 
+<span class="lineNum">    1532 </span><span class="lineCov">          4 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">    1533 </span><span class="lineCov">          3 :         dict_sql_drivers[i] = sql_dict;</span>
+<span class="lineNum">    1534 </span><span class="lineCov">          3 :         dict_sql_drivers[i].name = drivers[i]-&gt;name;</span>
+<span class="lineNum">    1535 </span>            : 
+<span class="lineNum">    1536 </span><span class="lineCov">          3 :         dict_driver_register(&amp;dict_sql_drivers[i]);</span>
+<span class="lineNum">    1537 </span>            :     }
+<a name="1538"><span class="lineNum">    1538 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">    1539 </span>            : 
+<span class="lineNum">    1540 </span><span class="lineCov">          1 : void dict_sql_unregister(void)</span>
+<span class="lineNum">    1541 </span>            : {
+<span class="lineNum">    1542 </span>            :     int i;
+<span class="lineNum">    1543 </span>            : 
+<span class="lineNum">    1544 </span><span class="lineCov">          4 :     for (i = 0; dict_sql_drivers[i].name != NULL; i++)</span>
+<span class="lineNum">    1545 </span><span class="lineCov">          3 :         dict_driver_unregister(&amp;dict_sql_drivers[i]);</span>
+<span class="lineNum">    1546 </span><span class="lineCov">          1 :     i_free(dict_sql_drivers);</span>
+<span class="lineNum">    1547 </span><span class="lineCov">          1 :     sql_db_cache_deinit(&amp;dict_sql_db_cache);</span>
+<span class="lineNum">    1548 </span><span class="lineCov">          1 :     dict_sql_settings_deinit();</span>
+<span class="lineNum">    1549 </span><span class="lineCov">          1 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

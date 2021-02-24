@@ -1,0 +1,605 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/mail.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-storage</a> - mail.c<span style="font-size: 80%;"> (source / <a href="mail.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">260</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">46</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;crc32.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;sha1.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;hostpid.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;mail-cache.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;mail-storage-private.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;message-part-data.h&quot;
+<span class="lineNum">      14 </span>            : 
+<a name="15"><span class="lineNum">      15 </span>            : #include &lt;time.h&gt;</a>
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span><span class="lineNoCov">          0 : struct mail *mail_alloc(struct mailbox_transaction_context *t,</span>
+<span class="lineNum">      18 </span>            :             enum mail_fetch_field wanted_fields,
+<span class="lineNum">      19 </span>            :             struct mailbox_header_lookup_ctx *wanted_headers)
+<span class="lineNum">      20 </span>            : {
+<span class="lineNum">      21 </span>            :     struct mail *mail;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span><span class="lineNoCov">          0 :     i_assert(wanted_headers == NULL || wanted_headers-&gt;box == t-&gt;box);</span>
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">      26 </span><span class="lineNoCov">          0 :         mail = t-&gt;box-&gt;v.mail_alloc(t, wanted_fields, wanted_headers);</span>
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 :         hook_mail_allocated(mail);</span>
+<span class="lineNum">      28 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span><span class="lineNoCov">          0 :     return mail;</span>
+<a name="31"><span class="lineNum">      31 </span>            : }</a>
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 : void mail_free(struct mail **mail)</span>
+<span class="lineNum">      34 </span>            : {
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)*mail;</span>
+<span class="lineNum">      36 </span>            : 
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :     p-&gt;v.free(*mail);</span>
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :     *mail = NULL;</span>
+<a name="39"><span class="lineNum">      39 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 : void mail_set_seq(struct mail *mail, uint32_t seq)</span>
+<span class="lineNum">      42 </span>            : {
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :     p-&gt;v.set_seq(mail, seq, FALSE);</span>
+<a name="46"><span class="lineNum">      46 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 : void mail_set_seq_saving(struct mail *mail, uint32_t seq)</span>
+<span class="lineNum">      49 </span>            : {
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     p-&gt;v.set_seq(mail, seq, TRUE);</span>
+<a name="53"><span class="lineNum">      53 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 : bool mail_set_uid(struct mail *mail, uint32_t uid)</span>
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     return p-&gt;v.set_uid(mail, uid);</span>
+<a name="60"><span class="lineNum">      60 </span>            : }</a>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 : bool mail_prefetch(struct mail *mail)</span>
+<span class="lineNum">      63 </span>            : {
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      65 </span>            :     bool ret;
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.prefetch(mail);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="71"><span class="lineNum">      71 </span>            : }</a>
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 : void mail_add_temp_wanted_fields(struct mail *mail,</span>
+<span class="lineNum">      74 </span>            :                  enum mail_fetch_field fields,
+<span class="lineNum">      75 </span>            :                  struct mailbox_header_lookup_ctx *headers)
+<span class="lineNum">      76 </span>            : {
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     i_assert(headers == NULL || headers-&gt;box == mail-&gt;box);</span>
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     p-&gt;v.add_temp_wanted_fields(mail, fields, headers);</span>
+<a name="82"><span class="lineNum">      82 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 : enum mail_flags mail_get_flags(struct mail *mail)</span>
+<span class="lineNum">      85 </span>            : {
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     return p-&gt;v.get_flags(mail);</span>
+<a name="89"><span class="lineNum">      89 </span>            : }</a>
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 : uint64_t mail_get_modseq(struct mail *mail)</span>
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     return p-&gt;v.get_modseq(mail);</span>
+<a name="96"><span class="lineNum">      96 </span>            : }</a>
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 : uint64_t mail_get_pvt_modseq(struct mail *mail)</span>
+<span class="lineNum">      99 </span>            : {
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     return p-&gt;v.get_pvt_modseq(mail);</span>
+<a name="103"><span class="lineNum">     103 </span>            : }</a>
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 : const char *const *mail_get_keywords(struct mail *mail)</span>
+<span class="lineNum">     106 </span>            : {
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     return p-&gt;v.get_keywords(mail);</span>
+<a name="110"><span class="lineNum">     110 </span>            : }</a>
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 : const ARRAY_TYPE(keyword_indexes) *mail_get_keyword_indexes(struct mail *mail)</span>
+<span class="lineNum">     113 </span>            : {
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     return p-&gt;v.get_keyword_indexes(mail);</span>
+<a name="117"><span class="lineNum">     117 </span>            : }</a>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 : int mail_get_parts(struct mail *mail, struct message_part **parts_r)</span>
+<span class="lineNum">     120 </span>            : {
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     122 </span>            :     int ret;
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_parts(mail, parts_r);</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="128"><span class="lineNum">     128 </span>            : }</a>
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 : int mail_get_date(struct mail *mail, time_t *date_r, int *timezone_r)</span>
+<span class="lineNum">     131 </span>            : {
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     133 </span>            :     int ret;
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_date(mail, date_r, timezone_r);</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="139"><span class="lineNum">     139 </span>            : }</a>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 : int mail_get_received_date(struct mail *mail, time_t *date_r)</span>
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     144 </span>            :     int ret;
+<span class="lineNum">     145 </span>            : 
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_received_date(mail, date_r);</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="150"><span class="lineNum">     150 </span>            : }</a>
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 : int mail_get_save_date(struct mail *mail, time_t *date_r)</span>
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     155 </span>            :     int ret;
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_save_date(mail, date_r);</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="161"><span class="lineNum">     161 </span>            : }</a>
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 : int mail_get_virtual_size(struct mail *mail, uoff_t *size_r)</span>
+<span class="lineNum">     164 </span>            : {
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     166 </span>            :     int ret;
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_virtual_size(mail, size_r);</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="172"><span class="lineNum">     172 </span>            : }</a>
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 : int mail_get_physical_size(struct mail *mail, uoff_t *size_r)</span>
+<span class="lineNum">     175 </span>            : {
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     177 </span>            :     int ret;
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_physical_size(mail, size_r);</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="183"><span class="lineNum">     183 </span>            : }</a>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 : int mail_get_first_header(struct mail *mail, const char *field,</span>
+<span class="lineNum">     186 </span>            :               const char **value_r)
+<span class="lineNum">     187 </span>            : {
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     189 </span>            :     int ret;
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_first_header(mail, field, FALSE, value_r);</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="195"><span class="lineNum">     195 </span>            : }</a>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 : int mail_get_first_header_utf8(struct mail *mail, const char *field,</span>
+<span class="lineNum">     198 </span>            :                    const char **value_r)
+<span class="lineNum">     199 </span>            : {
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     201 </span>            :     int ret;
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_first_header(mail, field, TRUE, value_r);</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="207"><span class="lineNum">     207 </span>            : }</a>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 : int mail_get_headers(struct mail *mail, const char *field,</span>
+<span class="lineNum">     210 </span>            :              const char *const **value_r)
+<span class="lineNum">     211 </span>            : {
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     213 </span>            :     int ret;
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_headers(mail, field, FALSE, value_r);</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="219"><span class="lineNum">     219 </span>            : }</a>
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 : int mail_get_headers_utf8(struct mail *mail, const char *field,</span>
+<span class="lineNum">     222 </span>            :               const char *const **value_r)
+<span class="lineNum">     223 </span>            : {
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     225 </span>            :     int ret;
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_headers(mail, field, TRUE, value_r);</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="231"><span class="lineNum">     231 </span>            : }</a>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 : int mail_get_header_stream(struct mail *mail,</span>
+<span class="lineNum">     234 </span>            :                struct mailbox_header_lookup_ctx *headers,
+<span class="lineNum">     235 </span>            :                struct istream **stream_r)
+<span class="lineNum">     236 </span>            : {
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     238 </span>            :     int ret;
+<span class="lineNum">     239 </span>            : 
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     i_assert(headers-&gt;count &gt; 0);</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     i_assert(headers-&gt;box == mail-&gt;box);</span>
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_header_stream(mail, headers, stream_r);</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="247"><span class="lineNum">     247 </span>            : }</a>
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 : void mail_set_aborted(struct mail *mail)</span>
+<span class="lineNum">     250 </span>            : {
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     mail_storage_set_error(mail-&gt;box-&gt;storage, MAIL_ERROR_LOOKUP_ABORTED,</span>
+<span class="lineNum">     252 </span>            :                    &quot;Mail field not cached&quot;);
+<a name="253"><span class="lineNum">     253 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 : int mail_get_stream(struct mail *mail, struct message_size *hdr_size,</span>
+<span class="lineNum">     256 </span>            :             struct message_size *body_size, struct istream **stream_r)
+<span class="lineNum">     257 </span>            : {
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     return mail_get_stream_because(mail, hdr_size, body_size,</span>
+<span class="lineNum">     259 </span>            :                        &quot;mail stream&quot;, stream_r);
+<a name="260"><span class="lineNum">     260 </span>            : }</a>
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 : int mail_get_stream_because(struct mail *mail, struct message_size *hdr_size,</span>
+<span class="lineNum">     263 </span>            :                 struct message_size *body_size,
+<span class="lineNum">     264 </span>            :                 const char *reason, struct istream **stream_r)
+<span class="lineNum">     265 </span>            : {
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     267 </span>            :     int ret;
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     if (mail-&gt;lookup_abort != MAIL_LOOKUP_ABORT_NEVER) {</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :         mail_set_aborted(mail);</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     272 </span>            :     }
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :         p-&gt;get_stream_reason = reason;</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_stream(mail, TRUE, hdr_size, body_size, stream_r);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         p-&gt;get_stream_reason = &quot;&quot;;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="279"><span class="lineNum">     279 </span>            : }</a>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 : int mail_get_hdr_stream(struct mail *mail, struct message_size *hdr_size,</span>
+<span class="lineNum">     282 </span>            :             struct istream **stream_r)
+<span class="lineNum">     283 </span>            : {
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     return mail_get_hdr_stream_because(mail, hdr_size, &quot;header stream&quot;, stream_r);</span>
+<a name="285"><span class="lineNum">     285 </span>            : }</a>
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 : int mail_get_hdr_stream_because(struct mail *mail,</span>
+<span class="lineNum">     288 </span>            :                 struct message_size *hdr_size,
+<span class="lineNum">     289 </span>            :                 const char *reason, struct istream **stream_r)
+<span class="lineNum">     290 </span>            : {
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     292 </span>            :     int ret;
+<span class="lineNum">     293 </span>            : 
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     if (mail-&gt;lookup_abort != MAIL_LOOKUP_ABORT_NEVER) {</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         mail_set_aborted(mail);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     297 </span>            :     }
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         p-&gt;get_stream_reason = reason;</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_stream(mail, FALSE, hdr_size, NULL, stream_r);</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         p-&gt;get_stream_reason = &quot;&quot;;</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="304"><span class="lineNum">     304 </span>            : }</a>
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 : int mail_get_binary_stream(struct mail *mail, const struct message_part *part,</span>
+<span class="lineNum">     307 </span>            :                bool include_hdr, uoff_t *size_r,
+<span class="lineNum">     308 </span>            :                bool *binary_r, struct istream **stream_r)
+<span class="lineNum">     309 </span>            : {
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     311 </span>            :     int ret;
+<span class="lineNum">     312 </span>            : 
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     if (mail-&gt;lookup_abort != MAIL_LOOKUP_ABORT_NEVER) {</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         mail_set_aborted(mail);</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     316 </span>            :     }
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_binary_stream(mail, part, include_hdr,</span>
+<span class="lineNum">     319 </span>            :                          size_r, NULL, binary_r, stream_r);
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="322"><span class="lineNum">     322 </span>            : }</a>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 : int mail_get_binary_size(struct mail *mail, const struct message_part *part,</span>
+<span class="lineNum">     325 </span>            :              bool include_hdr, uoff_t *size_r,
+<span class="lineNum">     326 </span>            :              unsigned int *lines_r)
+<span class="lineNum">     327 </span>            : {
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     329 </span>            :     bool binary;
+<span class="lineNum">     330 </span>            :     int ret;
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :         ret = p-&gt;v.get_binary_stream(mail, part, include_hdr,</span>
+<span class="lineNum">     334 </span>            :                          size_r, lines_r, &amp;binary, NULL);
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="337"><span class="lineNum">     337 </span>            : }</a>
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 : int mail_get_special(struct mail *mail, enum mail_fetch_field field,</span>
+<span class="lineNum">     340 </span>            :              const char **value_r)
+<span class="lineNum">     341 </span>            : {
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     if (p-&gt;v.get_special(mail, field, value_r) &lt; 0)</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     i_assert(*value_r != NULL);</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="348"><span class="lineNum">     348 </span>            : }</a>
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 : int mail_get_backend_mail(struct mail *mail, struct mail **real_mail_r)</span>
+<span class="lineNum">     351 </span>            : {
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     return p-&gt;v.get_backend_mail(mail, real_mail_r);</span>
+<a name="354"><span class="lineNum">     354 </span>            : }</a>
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 : void mail_update_flags(struct mail *mail, enum modify_type modify_type,</span>
+<span class="lineNum">     357 </span>            :                enum mail_flags flags)
+<span class="lineNum">     358 </span>            : {
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :     p-&gt;v.update_flags(mail, modify_type, flags);</span>
+<a name="362"><span class="lineNum">     362 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 : void mail_update_keywords(struct mail *mail, enum modify_type modify_type,</span>
+<span class="lineNum">     365 </span>            :               struct mail_keywords *keywords)
+<span class="lineNum">     366 </span>            : {
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     p-&gt;v.update_keywords(mail, modify_type, keywords);</span>
+<a name="370"><span class="lineNum">     370 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     371 </span>            : 
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 : void mail_update_modseq(struct mail *mail, uint64_t min_modseq)</span>
+<span class="lineNum">     373 </span>            : {
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     p-&gt;v.update_modseq(mail, min_modseq);</span>
+<a name="377"><span class="lineNum">     377 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 : void mail_update_pvt_modseq(struct mail *mail, uint64_t min_pvt_modseq)</span>
+<span class="lineNum">     380 </span>            : {
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     p-&gt;v.update_pvt_modseq(mail, min_pvt_modseq);</span>
+<a name="384"><span class="lineNum">     384 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     385 </span>            : 
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 : void mail_update_pop3_uidl(struct mail *mail, const char *uidl)</span>
+<span class="lineNum">     387 </span>            : {
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     if (p-&gt;v.update_pop3_uidl != NULL)</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         p-&gt;v.update_pop3_uidl(mail, uidl);</span>
+<a name="392"><span class="lineNum">     392 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 : void mail_expunge(struct mail *mail)</span>
+<span class="lineNum">     395 </span>            : {
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :         p-&gt;v.expunge(mail);</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<a name="401"><span class="lineNum">     401 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     402 </span>            : 
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 : void mail_autoexpunge(struct mail *mail)</span>
+<span class="lineNum">     404 </span>            : {
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     p-&gt;autoexpunged = TRUE;</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     mail_expunge(mail);</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     p-&gt;autoexpunged = FALSE;</span>
+<a name="409"><span class="lineNum">     409 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 : void mail_set_expunged(struct mail *mail)</span>
+<span class="lineNum">     412 </span>            : {
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     mail_storage_set_error(mail-&gt;box-&gt;storage, MAIL_ERROR_EXPUNGED,</span>
+<span class="lineNum">     414 </span>            :                    &quot;Message was expunged&quot;);
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     mail-&gt;expunged = TRUE;</span>
+<a name="416"><span class="lineNum">     416 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 : void mail_precache(struct mail *mail)</span>
+<span class="lineNum">     419 </span>            : {
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :         p-&gt;v.precache(mail);</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<a name="425"><span class="lineNum">     425 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 : void mail_set_cache_corrupted(struct mail *mail,</span>
+<span class="lineNum">     428 </span>            :                   enum mail_fetch_field field,
+<span class="lineNum">     429 </span>            :                   const char *reason)
+<span class="lineNum">     430 </span>            : {
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :     struct mail_private *p = (struct mail_private *)mail;</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     p-&gt;v.set_cache_corrupted(mail, field, reason);</span>
+<a name="433"><span class="lineNum">     433 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 : void mail_generate_guid_128_hash(const char *guid, guid_128_t guid_128_r)</span>
+<span class="lineNum">     436 </span>            : {
+<span class="lineNum">     437 </span>            :     unsigned char sha1_sum[SHA1_RESULTLEN];
+<span class="lineNum">     438 </span>            :     buffer_t buf;
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     if (guid_128_from_string(guid, guid_128_r) &lt; 0) {</span>
+<span class="lineNum">     441 </span>            :         /* not 128bit hex. use a hash of it instead. */
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :         buffer_create_from_data(&amp;buf, guid_128_r, GUID_128_SIZE);</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :         buffer_set_used_size(&amp;buf, 0);</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :         sha1_get_digest(guid, strlen(guid), sha1_sum);</span>
+<span class="lineNum">     445 </span>            : #if SHA1_RESULTLEN &lt; GUID_128_SIZE
+<span class="lineNum">     446 </span>            : #  error not possible
+<span class="lineNum">     447 </span>            : #endif
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :         buffer_append(&amp;buf,</span>
+<span class="lineNum">     449 </span>            :                   sha1_sum + SHA1_RESULTLEN - GUID_128_SIZE,
+<span class="lineNum">     450 </span>            :                   GUID_128_SIZE);
+<span class="lineNum">     451 </span>            :     }
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 : }</span>
+<a name="453"><span class="lineNum">     453 </span>            : </a>
+<span class="lineNum">     454 </span>            : static bool
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 : mail_message_has_attachment(struct message_part *part,</span>
+<span class="lineNum">     456 </span>            :                 const struct message_part_attachment_settings *set)
+<span class="lineNum">     457 </span>            : {
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     for (; part != NULL; part = part-&gt;next) {</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         if (message_part_is_attachment(part, set) ||</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :             mail_message_has_attachment(part-&gt;children, set))</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     462 </span>            :     }
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="465"><span class="lineNum">     465 </span>            : }</a>
+<span class="lineNum">     466 </span>            : 
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 : bool mail_has_attachment_keywords(struct mail *mail)</span>
+<span class="lineNum">     468 </span>            : {
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :     const char *const *kw = mail_get_keywords(mail);</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :     return (str_array_icase_find(kw, MAIL_KEYWORD_HAS_ATTACHMENT) !=</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :         str_array_icase_find(kw, MAIL_KEYWORD_HAS_NO_ATTACHMENT));</span>
+<a name="472"><span class="lineNum">     472 </span>            : }</a>
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 : void mail_set_attachment_keywords(struct mail *mail)</span>
+<span class="lineNum">     475 </span>            : {
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     const struct mail_storage_settings *mail_set =</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         mail_storage_get_settings(mailbox_get_storage(mail-&gt;box));</span>
+<span class="lineNum">     478 </span>            : 
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     const char *const keyword_has_attachment[] = {</span>
+<span class="lineNum">     480 </span>            :         MAIL_KEYWORD_HAS_ATTACHMENT,
+<span class="lineNum">     481 </span>            :         NULL,
+<span class="lineNum">     482 </span>            :     };
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     const char *const keyword_has_no_attachment[] = {</span>
+<span class="lineNum">     484 </span>            :         MAIL_KEYWORD_HAS_NO_ATTACHMENT,
+<span class="lineNum">     485 </span>            :         NULL
+<span class="lineNum">     486 </span>            :     };
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :     struct message_part_attachment_settings set = {</span>
+<span class="lineNum">     488 </span>            :         .content_type_filter =
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             mail_set-&gt;parsed_mail_attachment_content_type_filter,</span>
+<span class="lineNum">     490 </span>            :         .exclude_inlined =
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :             mail_set-&gt;parsed_mail_attachment_exclude_inlined,</span>
+<span class="lineNum">     492 </span>            :     };
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :     struct mail_keywords *kw_has = NULL, *kw_has_not = NULL;</span>
+<span class="lineNum">     494 </span>            : 
+<span class="lineNum">     495 </span>            :     /* walk all parts and see if there is an attachment */
+<span class="lineNum">     496 </span>            :     struct message_part *parts;
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     if (mail_get_parts(mail, &amp;parts) &lt; 0) {</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :         mail_set_critical(mail, &quot;Failed to add attachment keywords: &quot;</span>
+<span class="lineNum">     499 </span>            :                   &quot;mail_get_parts() failed: %s&quot;,
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :                   mail_storage_get_last_internal_error(mail-&gt;box-&gt;storage, NULL));</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :     } else if (mailbox_keywords_create(mail-&gt;box, keyword_has_attachment, &amp;kw_has) &lt; 0 ||</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :            mailbox_keywords_create(mail-&gt;box, keyword_has_no_attachment, &amp;kw_has_not) &lt; 0) {</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         if (mail_set-&gt;mail_debug) {</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :             i_debug(&quot;Failed to add attachment keywords: mailbox_keyword_create(%s) failed: %s&quot;,</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :                 mailbox_get_vname(mail-&gt;box),</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :                 mail_storage_get_last_error(mail-&gt;box-&gt;storage, NULL));</span>
+<span class="lineNum">     508 </span>            :         }
+<span class="lineNum">     509 </span>            :     } else {
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         bool has_attachment = mail_message_has_attachment(parts, &amp;set);</span>
+<span class="lineNum">     511 </span>            : 
+<span class="lineNum">     512 </span>            :         /* make sure only one of the keywords gets set */
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :         mail_update_keywords(mail, MODIFY_REMOVE, has_attachment ? kw_has_not : kw_has);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :         mail_update_keywords(mail, MODIFY_ADD, has_attachment ? kw_has : kw_has_not);</span>
+<span class="lineNum">     515 </span>            :     }
+<span class="lineNum">     516 </span>            : 
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :     if (kw_has != NULL)</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :         mailbox_keywords_unref(&amp;kw_has);</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :     if (kw_has_not != NULL)</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :         mailbox_keywords_unref(&amp;kw_has_not);</span>
+<span class="lineNum">     521 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

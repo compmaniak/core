@@ -1,0 +1,783 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-dcrypt/ostream-encrypt.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-dcrypt</a> - ostream-encrypt.c<span style="font-size: 80%;"> (source / <a href="ostream-encrypt.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">348</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* file struct dcrypt_public_key syntax</a>
+<span class="lineNum">       2 </span>            :  * magic (14 bytes)
+<span class="lineNum">       3 </span>            :  * version (1 bytes)
+<span class="lineNum">       4 </span>            :  * flags (4 bytes)
+<span class="lineNum">       5 </span>            :  * size of header (4 bytes)
+<span class="lineNum">       6 </span>            :  * sha1 of key id (20 bytes)
+<span class="lineNum">       7 </span>            :  * cipher oid
+<span class="lineNum">       8 </span>            :  * mac oid
+<span class="lineNum">       9 </span>            :  * rounds (4 bytes)
+<span class="lineNum">      10 </span>            :  * key data size (4 bytes)
+<span class="lineNum">      11 </span>            :  * key data
+<span class="lineNum">      12 </span>            :  * cipher data
+<span class="lineNum">      13 </span>            :  * mac data (mac specific bytes)
+<span class="lineNum">      14 </span>            :  */
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;randgen.h&quot;
+<span class="lineNum">      19 </span>            : #include &quot;dcrypt-iostream.h&quot;
+<span class="lineNum">      20 </span>            : #include &quot;ostream-encrypt.h&quot;
+<span class="lineNum">      21 </span>            : #include &quot;ostream-private.h&quot;
+<span class="lineNum">      22 </span>            : #include &quot;hash-method.h&quot;
+<span class="lineNum">      23 </span>            : #include &quot;sha2.h&quot;
+<span class="lineNum">      24 </span>            : #include &quot;safe-memset.h&quot;
+<span class="lineNum">      25 </span>            : #include &quot;dcrypt.h&quot;
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : #include &lt;arpa/inet.h&gt;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : #define IO_STREAM_ENCRYPT_SEED_SIZE 32
+<span class="lineNum">      30 </span>            : #define IO_STREAM_ENCRYPT_ROUNDS 2048
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : struct encrypt_ostream {
+<span class="lineNum">      33 </span>            :     struct ostream_private ostream;
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            :     struct dcrypt_context_symmetric *ctx_sym;
+<span class="lineNum">      36 </span>            :     struct dcrypt_context_hmac *ctx_mac;
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :     enum io_stream_encrypt_flags flags;
+<span class="lineNum">      39 </span>            :     struct dcrypt_public_key *pub;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :     unsigned char *key_data;
+<span class="lineNum">      42 </span>            :     size_t key_data_len;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     buffer_t *cipher_oid;
+<span class="lineNum">      45 </span>            :     buffer_t *mac_oid;
+<span class="lineNum">      46 </span>            :     size_t block_size;
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span>            :     bool finalized;
+<span class="lineNum">      49 </span>            :     bool failed;
+<span class="lineNum">      50 </span>            :     bool prefix_written;
+<span class="lineNum">      51 </span>            : };
+<a name="52"><span class="lineNum">      52 </span>            : </a>
+<span class="lineNum">      53 </span>            : static
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 : int o_stream_encrypt_send(struct encrypt_ostream *stream,</span>
+<span class="lineNum">      55 </span>            :               const unsigned char *data, size_t size)
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span>            :     ssize_t ec;
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     ec = o_stream_send(stream-&gt;ostream.parent, data, size);</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     if (ec == (ssize_t)size)</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     else if (ec &lt; 0) {</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         o_stream_copy_error_from_parent(&amp;stream-&gt;ostream);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      65 </span>            :     } else {
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream,</span>
+<span class="lineNum">      67 </span>            :             &quot;ostream-encrypt: Unexpectedly short write to parent stream&quot;);
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         stream-&gt;ostream.ostream.stream_errno = EINVAL;</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      70 </span>            :     }
+<span class="lineNum">      71 </span>            : }
+<a name="72"><span class="lineNum">      72 </span>            : </a>
+<span class="lineNum">      73 </span>            : static
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 : int o_stream_encrypt_send_header_v1(struct encrypt_ostream *stream)</span>
+<span class="lineNum">      75 </span>            : {
+<span class="lineNum">      76 </span>            :     unsigned char c;
+<span class="lineNum">      77 </span>            :     unsigned short s;
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     i_assert(!stream-&gt;prefix_written);</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     stream-&gt;prefix_written = TRUE;</span>
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     buffer_t *values = t_buffer_create(256);</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     buffer_append(values, IOSTREAM_CRYPT_MAGIC, sizeof(IOSTREAM_CRYPT_MAGIC));</span>
+<span class="lineNum">      84 </span>            :     /* version */
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :     c = 1;</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;c, 1);</span>
+<span class="lineNum">      87 </span>            :     /* key data length */
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     s = htons(stream-&gt;key_data_len);</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;s, 2);</span>
+<span class="lineNum">      90 </span>            :     /* then write key data */
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     buffer_append(values, stream-&gt;key_data, stream-&gt;key_data_len);</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     i_free_and_null(stream-&gt;key_data);</span>
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span>            :     /* then send it to stream */
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     return o_stream_encrypt_send(stream, values-&gt;data, values-&gt;used);</span>
+<span class="lineNum">      96 </span>            : }
+<a name="97"><span class="lineNum">      97 </span>            : </a>
+<span class="lineNum">      98 </span>            : static
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 : int o_stream_encrypt_send_header_v2(struct encrypt_ostream *stream)</span>
+<span class="lineNum">     100 </span>            : {
+<span class="lineNum">     101 </span>            :     unsigned char c;
+<span class="lineNum">     102 </span>            :     unsigned int i;
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     i_assert(!stream-&gt;prefix_written);</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :     stream-&gt;prefix_written = TRUE;</span>
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     buffer_t *values = t_buffer_create(256);</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     buffer_append(values, IOSTREAM_CRYPT_MAGIC, sizeof(IOSTREAM_CRYPT_MAGIC));</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     c = 2;</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;c, 1);</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :     i = cpu32_to_be(stream-&gt;flags);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;i, 4);</span>
+<span class="lineNum">     113 </span>            :     /* store total length of header
+<span class="lineNum">     114 </span>            :        9 = version + flags + length
+<span class="lineNum">     115 </span>            :        8 = rounds + key data length
+<span class="lineNum">     116 </span>            :        */
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     i = cpu32_to_be(sizeof(IOSTREAM_CRYPT_MAGIC) + 9 + stream-&gt;cipher_oid-&gt;used + stream-&gt;mac_oid-&gt;used + 8 + stream-&gt;key_data_len);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;i, 4);</span>
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     buffer_append_buf(values, stream-&gt;cipher_oid, 0, (size_t)-1);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     buffer_append_buf(values, stream-&gt;mac_oid, 0, (size_t)-1);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     i = cpu32_to_be(IO_STREAM_ENCRYPT_ROUNDS);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;i, 4);</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     i = cpu32_to_be(stream-&gt;key_data_len);</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     buffer_append(values, &amp;i, 4);</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     buffer_append(values, stream-&gt;key_data, stream-&gt;key_data_len);</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     i_free_and_null(stream-&gt;key_data);</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     return o_stream_encrypt_send(stream, values-&gt;data, values-&gt;used);</span>
+<span class="lineNum">     130 </span>            : }
+<a name="131"><span class="lineNum">     131 </span>            : </a>
+<span class="lineNum">     132 </span>            : static
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 : int o_stream_encrypt_keydata_create_v1(struct encrypt_ostream *stream)</span>
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span>            :     buffer_t *encrypted_key, *ephemeral_key, *secret, *res, buf;
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     const char *error = NULL;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     const struct hash_method *hash = &amp;hash_method_sha256;</span>
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span>            :     /* various temporary buffers */
+<span class="lineNum">     140 </span>            :     unsigned char seed[IO_STREAM_ENCRYPT_SEED_SIZE];
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     unsigned char pkhash[hash-&gt;digest_size];</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :     unsigned char ekhash[hash-&gt;digest_size];</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     unsigned char hres[hash-&gt;digest_size];</span>
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     unsigned char hctx[hash-&gt;context_size];</span>
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span>            :     /* hash the public key first */
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     buffer_create_from_data(&amp;buf, pkhash, sizeof(pkhash));</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     if (!dcrypt_key_id_public_old(stream-&gt;pub, &amp;buf, &amp;error)) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Key hash failed: %s&quot;, error);</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     152 </span>            :     }
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span>            :     /* hash the key base */
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     hash-&gt;init(hctx);</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     hash-&gt;loop(hctx, seed, sizeof(seed));</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     hash-&gt;result(hctx, ekhash);</span>
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     ephemeral_key = t_buffer_create(256);</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     encrypted_key = t_buffer_create(256);</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     secret = t_buffer_create(256);</span>
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     if (!dcrypt_ecdh_derive_secret_peer(stream-&gt;pub, ephemeral_key, secret, &amp;error)) {</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Cannot perform ECDH: %s&quot;, error);</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     166 </span>            :     }
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span>            :     /* hash the secret data */
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     hash-&gt;init(hctx);</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     hash-&gt;loop(hctx, secret-&gt;data, secret-&gt;used);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     hash-&gt;result(hctx, hres);</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     safe_memset(buffer_get_modifiable_data(secret, 0), 0, secret-&gt;used);</span>
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span>            :     /* use it to encrypt the actual encryption key */
+<span class="lineNum">     175 </span>            :     struct dcrypt_context_symmetric *dctx;
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     if (!dcrypt_ctx_sym_create(&quot;aes-256-ctr&quot;, DCRYPT_MODE_ENCRYPT, &amp;dctx, &amp;error)) {</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Key encryption error: %s&quot;, error);</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     179 </span>            :     }
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     random_fill(seed, sizeof(seed));</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     hash-&gt;init(hctx);</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :     hash-&gt;loop(hctx, seed, sizeof(seed));</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     hash-&gt;result(hctx, ekhash);</span>
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     int ec = 0;</span>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span>            :     /* NB! The old code was broken and used this kind of IV - it is not correct, but
+<span class="lineNum">     189 </span>            :        we need to stay compatible with old data */
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_set_iv(dctx, (const unsigned char*)&quot;\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00&quot;, 16);</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_set_key(dctx, hres, sizeof(hres));</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     if (!dcrypt_ctx_sym_init(dctx, &amp;error) ||</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         !dcrypt_ctx_sym_update(dctx, seed, sizeof(seed), encrypted_key, &amp;error) ||</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :         !dcrypt_ctx_sym_final(dctx, encrypted_key, &amp;error)) {</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :         ec = -1;</span>
+<span class="lineNum">     197 </span>            :     }
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_destroy(&amp;dctx);</span>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     if (ec != 0) {</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         safe_memset(seed, 0, sizeof(seed));</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Key encryption error: %s&quot;, error);</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     204 </span>            :     }
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span>            :     /* same as above */
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_set_iv(stream-&gt;ctx_sym, (const unsigned char*)&quot;\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00&quot;, 16);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_set_key(stream-&gt;ctx_sym, seed, sizeof(seed));</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     safe_memset(seed, 0, sizeof(seed));</span>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     if (!dcrypt_ctx_sym_init(stream-&gt;ctx_sym, &amp;error)) {</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Encryption init error: %s&quot;, error);</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     214 </span>            :     }
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     res = buffer_create_dynamic(default_pool, 256);</span>
+<span class="lineNum">     217 </span>            : 
+<span class="lineNum">     218 </span>            :     /* ephemeral key */
+<span class="lineNum">     219 </span>            :     unsigned short s;
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     s = htons(ephemeral_key-&gt;used);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;s, 2);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     buffer_append(res, ephemeral_key-&gt;data, ephemeral_key-&gt;used);</span>
+<span class="lineNum">     223 </span>            :     /* public key hash */
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     s = htons(sizeof(pkhash));</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;s, 2);</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     buffer_append(res, pkhash, sizeof(pkhash));</span>
+<span class="lineNum">     227 </span>            :     /* encrypted key hash */
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     s = htons(sizeof(ekhash));</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;s, 2);</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     buffer_append(res, ekhash, sizeof(ekhash));</span>
+<span class="lineNum">     231 </span>            :     /* encrypted key */
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     s = htons(encrypted_key-&gt;used);</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;s, 2);</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     buffer_append(res, encrypted_key-&gt;data, encrypted_key-&gt;used);</span>
+<span class="lineNum">     235 </span>            : 
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     stream-&gt;key_data_len = res-&gt;used;</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     stream-&gt;key_data = buffer_free_without_data(&amp;res);</span>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     240 </span>            : }
+<a name="241"><span class="lineNum">     241 </span>            : </a>
+<span class="lineNum">     242 </span>            : static
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 : int o_stream_encrypt_key_for_pubkey_v2(struct encrypt_ostream *stream, const char *malg,</span>
+<span class="lineNum">     244 </span>            :     const unsigned char *key, size_t key_len, struct dcrypt_public_key *pubkey, buffer_t *res)
+<span class="lineNum">     245 </span>            : {
+<span class="lineNum">     246 </span>            :     enum dcrypt_key_type ktype;
+<span class="lineNum">     247 </span>            :     const char *error;
+<span class="lineNum">     248 </span>            :     buffer_t *encrypted_key, *ephemeral_key, *temp_key;
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     ephemeral_key = t_buffer_create(256);</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     encrypted_key = t_buffer_create(256);</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :     temp_key = t_buffer_create(48);</span>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     ktype = dcrypt_key_type_public(pubkey);</span>
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     if (ktype == DCRYPT_KEY_RSA) {</span>
+<span class="lineNum">     257 </span>            :         /* encrypt key as R (as we don't need DH with RSA)*/
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         if (!dcrypt_rsa_encrypt(pubkey, key, key_len, encrypted_key, &amp;error)) {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Cannot encrypt key data: %s&quot;, error);</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     261 </span>            :         }
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     } else if (ktype == DCRYPT_KEY_EC) {</span>
+<span class="lineNum">     263 </span>            :         /* R = our ephemeral public key */
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :         buffer_t *secret = t_buffer_create(256);</span>
+<span class="lineNum">     265 </span>            : 
+<span class="lineNum">     266 </span>            :         /* derive ephemeral key and shared secret */
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         if (!dcrypt_ecdh_derive_secret_peer(pubkey, ephemeral_key, secret, &amp;error)) {</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Cannot perform ECDH: %s&quot;, error);</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     270 </span>            :         }
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span>            :         /* use shared secret and ephemeral key to generate encryption key/iv */
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         if (!dcrypt_pbkdf2(secret-&gt;data, secret-&gt;used, ephemeral_key-&gt;data, ephemeral_key-&gt;used,</span>
+<span class="lineNum">     274 </span>            :             malg, IO_STREAM_ENCRYPT_ROUNDS, temp_key, 48, &amp;error)) {
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             safe_memset(buffer_get_modifiable_data(secret, 0), 0, secret-&gt;used);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Cannot perform key encryption: %s&quot;, error);</span>
+<span class="lineNum">     277 </span>            :         }
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         safe_memset(buffer_get_modifiable_data(secret, 0), 0, secret-&gt;used);</span>
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span>            :         /* encrypt key with shared secret */
+<span class="lineNum">     281 </span>            :         struct dcrypt_context_symmetric *dctx;
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         if (!dcrypt_ctx_sym_create(&quot;AES-256-CBC&quot;, DCRYPT_MODE_ENCRYPT, &amp;dctx, &amp;error)) {</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :             safe_memset(buffer_get_modifiable_data(temp_key, 0), 0, temp_key-&gt;used);</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Cannot perform key encryption: %s&quot;, error);</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     286 </span>            :         }
+<span class="lineNum">     287 </span>            : 
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         const unsigned char *ptr = temp_key-&gt;data;</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         i_assert(temp_key-&gt;used == 48);</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         dcrypt_ctx_sym_set_key(dctx, ptr, 32);</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         dcrypt_ctx_sym_set_iv(dctx, ptr+32, 16);</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         safe_memset(buffer_get_modifiable_data(temp_key, 0), 0, temp_key-&gt;used);</span>
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         int ec = 0;</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         if (!dcrypt_ctx_sym_init(dctx, &amp;error) ||</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :             !dcrypt_ctx_sym_update(dctx, key, key_len, encrypted_key, &amp;error) ||</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :             !dcrypt_ctx_sym_final(dctx, encrypted_key, &amp;error)) {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Cannot perform key encryption: %s&quot;, error);</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :             ec = -1;</span>
+<span class="lineNum">     301 </span>            :         }
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :         dcrypt_ctx_sym_destroy(&amp;dctx);</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :         if (ec != 0) return ec;</span>
+<span class="lineNum">     305 </span>            :     } else {
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Unsupported key type&quot;);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     308 </span>            :     }
+<span class="lineNum">     309 </span>            : 
+<span class="lineNum">     310 </span>            :     /* store key type */
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :     char kt = ktype;</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;kt, 1);</span>
+<span class="lineNum">     313 </span>            :     /* store hash of public key as ID */
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     dcrypt_key_id_public(stream-&gt;pub, &quot;sha256&quot;, res, NULL);</span>
+<span class="lineNum">     315 </span>            :     /* store ephemeral key (if present) */
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     unsigned int val = cpu32_to_be(ephemeral_key-&gt;used);</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;val, 4);</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     buffer_append_buf(res, ephemeral_key, 0, (size_t)-1);</span>
+<span class="lineNum">     319 </span>            :     /* store encrypted key */
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     val = cpu32_to_be(encrypted_key-&gt;used);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;val, 4);</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     buffer_append_buf(res, encrypted_key, 0, (size_t)-1);</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     325 </span>            : }
+<a name="326"><span class="lineNum">     326 </span>            : </a>
+<span class="lineNum">     327 </span>            : static
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 : int o_stream_encrypt_keydata_create_v2(struct encrypt_ostream *stream, const char *malg)</span>
+<span class="lineNum">     329 </span>            : {
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     const struct hash_method *hash = hash_method_lookup(malg);</span>
+<span class="lineNum">     331 </span>            :     const char *error;
+<span class="lineNum">     332 </span>            :     size_t tagsize;
+<span class="lineNum">     333 </span>            :     const unsigned char *ptr;
+<span class="lineNum">     334 </span>            :     size_t kl;
+<span class="lineNum">     335 </span>            :     unsigned int val;
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span>            :     buffer_t *keydata, *res;
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     if (hash == NULL) {</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream,</span>
+<span class="lineNum">     341 </span>            :             &quot;Encryption init error: Hash algorithm '%s' not supported&quot;, malg);
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     343 </span>            :     }
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span>            :     /* key data length for internal use */
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     if ((stream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_HMAC) == IO_STREAM_ENC_INTEGRITY_HMAC) {</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         tagsize = IOSTREAM_TAG_SIZE; </span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     } else if ((stream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_AEAD) == IO_STREAM_ENC_INTEGRITY_AEAD) {</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :         tagsize = IOSTREAM_TAG_SIZE;</span>
+<span class="lineNum">     350 </span>            :     } else {
+<span class="lineNum">     351 </span>            :         /* do not include MAC */
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :         tagsize = 0;</span>
+<span class="lineNum">     353 </span>            :     }
+<span class="lineNum">     354 </span>            : 
+<span class="lineNum">     355 </span>            :     /* generate keydata length of random data for key/iv/mac */
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     kl = dcrypt_ctx_sym_get_key_length(stream-&gt;ctx_sym) + dcrypt_ctx_sym_get_iv_length(stream-&gt;ctx_sym) + tagsize;</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     keydata = t_buffer_create(kl);</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :     random_fill(buffer_append_space_unsafe(keydata, kl), kl);</span>
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     buffer_set_used_size(keydata, kl);</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     ptr = keydata-&gt;data;</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     res = buffer_create_dynamic(default_pool, 256);</span>
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span>            :     /* store number of public key(s) */
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     buffer_append(res, &quot;\1&quot;, 1); /* one key for now */</span>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span>            :     /* we can do multiple keys at this point, but do it only once now */
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :     if (o_stream_encrypt_key_for_pubkey_v2(stream, malg, ptr, kl, stream-&gt;pub, res) != 0) {</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         buffer_free(&amp;res);</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     371 </span>            :     }
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span>            :     /* create hash of the key data */
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     unsigned char hctx[hash-&gt;context_size];</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     unsigned char hres[hash-&gt;digest_size];</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     hash-&gt;init(hctx);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :     hash-&gt;loop(hctx, ptr, kl);</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :     hash-&gt;result(hctx, hres);</span>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     for(int i = 1; i &lt; 2049; i++) {</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         uint32_t i_msb = cpu32_to_be(i);</span>
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         hash-&gt;init(hctx);</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         hash-&gt;loop(hctx, hres, sizeof(hres));</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :         hash-&gt;loop(hctx, &amp;i_msb, sizeof(i_msb));</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         hash-&gt;result(hctx, hres);</span>
+<span class="lineNum">     387 </span>            :     }
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span>            :     /* store key data hash */
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     val = cpu32_to_be(sizeof(hres));</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :     buffer_append(res, &amp;val, 4);</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :     buffer_append(res, hres, sizeof(hres));</span>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span>            :     /* pick up key data that goes into stream */
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     stream-&gt;key_data_len = res-&gt;used;</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     stream-&gt;key_data = buffer_free_without_data(&amp;res);</span>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span>            :     /* prime contexts */
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_set_key(stream-&gt;ctx_sym, ptr, dcrypt_ctx_sym_get_key_length(stream-&gt;ctx_sym));</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     ptr += dcrypt_ctx_sym_get_key_length(stream-&gt;ctx_sym);</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     dcrypt_ctx_sym_set_iv(stream-&gt;ctx_sym, ptr, dcrypt_ctx_sym_get_iv_length(stream-&gt;ctx_sym));</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     ptr += dcrypt_ctx_sym_get_iv_length(stream-&gt;ctx_sym);</span>
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     if ((stream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_HMAC) == IO_STREAM_ENC_INTEGRITY_HMAC) {</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :         dcrypt_ctx_hmac_set_key(stream-&gt;ctx_mac, ptr, tagsize);</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         dcrypt_ctx_hmac_init(stream-&gt;ctx_mac, &amp;error);</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     } else if ((stream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_AEAD) == IO_STREAM_ENC_INTEGRITY_AEAD) {</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         dcrypt_ctx_sym_set_aad(stream-&gt;ctx_sym, ptr, tagsize);</span>
+<span class="lineNum">     409 </span>            :     }
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span>            :     /* clear out private key data */
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     safe_memset(buffer_get_modifiable_data(keydata, 0), 0, keydata-&gt;used);</span>
+<span class="lineNum">     413 </span>            : 
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     if (!dcrypt_ctx_sym_init(stream-&gt;ctx_sym, &amp;error)) {</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;ostream.iostream, &quot;Encryption init error: %s&quot;, error);</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     417 </span>            :     }
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     419 </span>            : }
+<a name="420"><span class="lineNum">     420 </span>            : </a>
+<span class="lineNum">     421 </span>            : static
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 : ssize_t o_stream_encrypt_sendv(struct ostream_private *stream,</span>
+<span class="lineNum">     423 </span>            :                const struct const_iovec *iov, unsigned int iov_count)
+<span class="lineNum">     424 </span>            : {
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = (struct encrypt_ostream *)stream;</span>
+<span class="lineNum">     426 </span>            :     const char *error;
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     ssize_t ec,total = 0;</span>
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span>            :     /* not if finalized */
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :     i_assert(!estream-&gt;finalized);</span>
+<span class="lineNum">     431 </span>            : 
+<span class="lineNum">     432 </span>            :     /* write prefix */
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     if (!estream-&gt;prefix_written) {</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :             if ((estream-&gt;flags &amp; IO_STREAM_ENC_VERSION_1) == IO_STREAM_ENC_VERSION_1)</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :                 ec = o_stream_encrypt_send_header_v1(estream);</span>
+<span class="lineNum">     437 </span>            :             else
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :                 ec = o_stream_encrypt_send_header_v2(estream);</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :         if (ec &lt; 0) {</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     442 </span>            :         }
+<span class="lineNum">     443 </span>            :     }
+<span class="lineNum">     444 </span>            : 
+<span class="lineNum">     445 </span>            :     /* buffer for encrypted data */
+<span class="lineNum">     446 </span>            :     unsigned char ciphertext[IO_BLOCK_SIZE];
+<span class="lineNum">     447 </span>            :     buffer_t buf;
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :     buffer_create_from_data(&amp;buf, ciphertext, sizeof(ciphertext));</span>
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span>            :     /* encrypt &amp; send all blocks of data at max ciphertext buffer's length */
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     for(unsigned int i = 0; i &lt; iov_count; i++) {</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :         size_t bl, off = 0, len = iov[i].iov_len;</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         const unsigned char *ptr = iov[i].iov_base;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :         while(len &gt; 0) {</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :             buffer_set_used_size(&amp;buf, 0);</span>
+<span class="lineNum">     456 </span>            :             /* update can emite twice the size of input */
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :             bl = I_MIN(sizeof(ciphertext)/2, len);</span>
+<span class="lineNum">     458 </span>            : 
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :             if (!dcrypt_ctx_sym_update(estream-&gt;ctx_sym, ptr + off, bl, &amp;buf, &amp;error)) {</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :                 io_stream_set_error(&amp;stream-&gt;iostream, &quot;Encryption failure: %s&quot;, error);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     462 </span>            :             }
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :             if ((estream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_HMAC) == IO_STREAM_ENC_INTEGRITY_HMAC) {</span>
+<span class="lineNum">     464 </span>            :                 /* update mac */
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :                 if (!dcrypt_ctx_hmac_update(estream-&gt;ctx_mac, buf.data, buf.used, &amp;error)) {</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :                     io_stream_set_error(&amp;stream-&gt;iostream, &quot;MAC failure: %s&quot;, error);</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     468 </span>            :                 }
+<span class="lineNum">     469 </span>            :             }
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span>            :             /* hopefully upstream can accommodate */
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :             if (o_stream_encrypt_send(estream, buf.data, buf.used) &lt; 0) {</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     474 </span>            :             }
+<span class="lineNum">     475 </span>            : 
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :             len -= bl;</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :             off += bl;</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :             total += bl;</span>
+<span class="lineNum">     479 </span>            :         }
+<span class="lineNum">     480 </span>            :     }
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     stream-&gt;ostream.offset += total;</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     return total;</span>
+<span class="lineNum">     484 </span>            : }
+<a name="485"><span class="lineNum">     485 </span>            : </a>
+<span class="lineNum">     486 </span>            : static
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 : int o_stream_encrypt_finalize(struct ostream_private *stream)</span>
+<span class="lineNum">     488 </span>            : {
+<span class="lineNum">     489 </span>            :     const char *error;
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = (struct encrypt_ostream *)stream;</span>
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     if (estream-&gt;finalized) {</span>
+<span class="lineNum">     493 </span>            :         /* we've already flushed the encrypted output. */
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     495 </span>            :     }
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     estream-&gt;finalized = TRUE;</span>
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span>            :     /* if nothing was written, we are done */
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     if (!estream-&gt;prefix_written) return 0;</span>
+<span class="lineNum">     500 </span>            : 
+<span class="lineNum">     501 </span>            :     /* acquire last block */
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :     buffer_t *buf = t_buffer_create(dcrypt_ctx_sym_get_block_size(estream-&gt;ctx_sym));</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     if (!dcrypt_ctx_sym_final(estream-&gt;ctx_sym, buf, &amp;error)) {</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Encryption failure: %s&quot;, error);</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     506 </span>            :     }
+<span class="lineNum">     507 </span>            :     /* sometimes final does not emit anything */
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     if (buf-&gt;used &gt; 0) {</span>
+<span class="lineNum">     509 </span>            :         /* update mac */
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         if (((estream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_HMAC) == IO_STREAM_ENC_INTEGRITY_HMAC)) {</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :             if (!dcrypt_ctx_hmac_update(estream-&gt;ctx_mac, buf-&gt;data, buf-&gt;used, &amp;error)) {</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :                 io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;MAC failure: %s&quot;, error);</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     514 </span>            :             }
+<span class="lineNum">     515 </span>            :         }
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         if (o_stream_encrypt_send(estream, buf-&gt;data, buf-&gt;used) &lt; 0) {</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     518 </span>            :         }
+<span class="lineNum">     519 </span>            :     }
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span>            :     /* write last mac bytes */
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :     buffer_set_used_size(buf, 0);</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :     if ((estream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_HMAC) == IO_STREAM_ENC_INTEGRITY_HMAC) {</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         if (!dcrypt_ctx_hmac_final(estream-&gt;ctx_mac, buf, &amp;error)) {</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;MAC failure: %s&quot;, error);</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     527 </span>            :         }
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :     } else if ((estream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_AEAD) == IO_STREAM_ENC_INTEGRITY_AEAD) {</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         dcrypt_ctx_sym_get_tag(estream-&gt;ctx_sym, buf);</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :         i_assert(buf-&gt;used &gt; 0);</span>
+<span class="lineNum">     531 </span>            :     }
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :     if (buf-&gt;used &gt; 0 &amp;&amp; o_stream_encrypt_send(estream, buf-&gt;data, buf-&gt;used) &lt; 0) {</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     534 </span>            :     }
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     537 </span>            : }
+<a name="538"><span class="lineNum">     538 </span>            : </a>
+<span class="lineNum">     539 </span>            : static
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 : int o_stream_encrypt_flush(struct ostream_private *stream)</span>
+<span class="lineNum">     541 </span>            : {
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = (struct encrypt_ostream *)stream;</span>
+<span class="lineNum">     543 </span>            : 
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :     if (stream-&gt;finished &amp;&amp; estream-&gt;ctx_sym != NULL &amp;&amp;</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :         !estream-&gt;finalized) {</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         if (o_stream_encrypt_finalize(&amp;estream-&gt;ostream) &lt; 0)</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     548 </span>            :     }
+<span class="lineNum">     549 </span>            : 
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :     return o_stream_flush_parent(stream);</span>
+<span class="lineNum">     551 </span>            : }
+<a name="552"><span class="lineNum">     552 </span>            : </a>
+<span class="lineNum">     553 </span>            : static
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 : void o_stream_encrypt_close(struct iostream_private *stream,</span>
+<span class="lineNum">     555 </span>            :                 bool close_parent)
+<span class="lineNum">     556 </span>            : {
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = (struct encrypt_ostream *)stream;</span>
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     i_assert(estream-&gt;finalized || estream-&gt;ctx_sym == NULL ||</span>
+<span class="lineNum">     560 </span>            :          estream-&gt;ostream.ostream.stream_errno != 0);
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :     if (close_parent) {</span>
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :         o_stream_close(estream-&gt;ostream.parent);</span>
+<span class="lineNum">     563 </span>            :     }
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 : }</span>
+<a name="565"><span class="lineNum">     565 </span>            : </a>
+<span class="lineNum">     566 </span>            : static
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 : void o_stream_encrypt_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">     568 </span>            : {
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = (struct encrypt_ostream *)stream;</span>
+<span class="lineNum">     570 </span>            :     /* release resources */
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     if (estream-&gt;ctx_sym != NULL) dcrypt_ctx_sym_destroy(&amp;estream-&gt;ctx_sym);</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :     if (estream-&gt;ctx_mac != NULL) dcrypt_ctx_hmac_destroy(&amp;estream-&gt;ctx_mac);</span>
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     if (estream-&gt;key_data != NULL) i_free(estream-&gt;key_data);</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :     if (estream-&gt;cipher_oid != NULL) buffer_free(&amp;estream-&gt;cipher_oid);</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     if (estream-&gt;mac_oid != NULL) buffer_free(&amp;estream-&gt;mac_oid);</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :     if (estream-&gt;pub != NULL) dcrypt_key_unref_public(&amp;estream-&gt;pub);</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;estream-&gt;ostream.parent);</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 : }</span>
+<a name="579"><span class="lineNum">     579 </span>            : </a>
+<span class="lineNum">     580 </span>            : static
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 : int o_stream_encrypt_init(struct encrypt_ostream *estream, const char *algorithm)</span>
+<span class="lineNum">     582 </span>            : {
+<span class="lineNum">     583 </span>            :     const char *error;
+<span class="lineNum">     584 </span>            :     char *calg, *malg;
+<span class="lineNum">     585 </span>            : 
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :     if ((estream-&gt;flags &amp; IO_STREAM_ENC_VERSION_1) == IO_STREAM_ENC_VERSION_1) {</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         if (!dcrypt_ctx_sym_create(&quot;AES-256-CTR&quot;, DCRYPT_MODE_ENCRYPT, &amp;estream-&gt;ctx_sym, &amp;error)) {</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Cannot create ostream-encrypt: %s&quot;, error);</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     590 </span>            :         }
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         estream-&gt;flags |= IO_STREAM_ENC_INTEGRITY_NONE; /* disable MAC */</span>
+<span class="lineNum">     592 </span>            :         /* then do keying */
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :         return o_stream_encrypt_keydata_create_v1(estream);</span>
+<span class="lineNum">     594 </span>            :     } else {
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :         calg = t_strdup_noconst(algorithm);</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         malg = strrchr(calg, '-');</span>
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :         if (malg == NULL) {</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Invalid algorithm (must be cipher-mac)&quot;);</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     601 </span>            :         }
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         (*malg++) = '\0';</span>
+<span class="lineNum">     603 </span>            : 
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :         if (!dcrypt_ctx_sym_create(calg, DCRYPT_MODE_ENCRYPT, &amp;estream-&gt;ctx_sym, &amp;error)) {</span>
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Cannot create ostream-encrypt: %s&quot;, error);</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     607 </span>            :         }
+<span class="lineNum">     608 </span>            : 
+<span class="lineNum">     609 </span>            :         /* create cipher and mac context, take note of OIDs */
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :         estream-&gt;cipher_oid = buffer_create_dynamic(default_pool, 12);</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :         estream-&gt;block_size = dcrypt_ctx_sym_get_block_size(estream-&gt;ctx_sym);</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :         if (!dcrypt_name2oid(calg, estream-&gt;cipher_oid, &amp;error)) {</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Cannot create ostream-encrypt: %s&quot;, error);</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     615 </span>            :         }
+<span class="lineNum">     616 </span>            : 
+<span class="lineNum">     617 </span>            :         /* mac context is optional */
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :         if ((estream-&gt;flags &amp; IO_STREAM_ENC_INTEGRITY_HMAC) == IO_STREAM_ENC_INTEGRITY_HMAC) {</span>
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :             if (!dcrypt_ctx_hmac_create(malg, &amp;estream-&gt;ctx_mac, &amp;error)) {</span>
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :                 io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Cannot create ostream-encrypt: %s&quot;, error);</span>
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     622 </span>            :             }
+<span class="lineNum">     623 </span>            :         }
+<span class="lineNum">     624 </span>            : 
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :         estream-&gt;mac_oid = buffer_create_dynamic(default_pool, 12);</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :         if (!dcrypt_name2oid(malg, estream-&gt;mac_oid, &amp;error)) {</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Cannot create ostream-encrypt: %s&quot;, error);</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     629 </span>            :         }
+<span class="lineNum">     630 </span>            : 
+<span class="lineNum">     631 </span>            :         /* MAC algorithm is used for PBKDF2 and keydata hashing */
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :         return o_stream_encrypt_keydata_create_v2(estream, malg);</span>
+<span class="lineNum">     633 </span>            :     }
+<span class="lineNum">     634 </span>            : }
+<span class="lineNum">     635 </span>            : 
+<a name="636"><span class="lineNum">     636 </span>            : static</a>
+<span class="lineNum">     637 </span>            : struct encrypt_ostream *
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 : o_stream_create_encrypt_common(enum io_stream_encrypt_flags flags)</span>
+<span class="lineNum">     639 </span>            : {
+<span class="lineNum">     640 </span>            :     struct encrypt_ostream *estream;
+<span class="lineNum">     641 </span>            : 
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :     estream = i_new(struct encrypt_ostream, 1);</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :     estream-&gt;ostream.sendv = o_stream_encrypt_sendv;</span>
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :     estream-&gt;ostream.flush = o_stream_encrypt_flush;</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :     estream-&gt;ostream.iostream.close = o_stream_encrypt_close;</span>
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :     estream-&gt;ostream.iostream.destroy = o_stream_encrypt_destroy;</span>
+<span class="lineNum">     647 </span>            : 
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     estream-&gt;flags = flags;</span>
+<span class="lineNum">     649 </span>            : 
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :     return estream;</span>
+<span class="lineNum">     651 </span>            : }
+<a name="652"><span class="lineNum">     652 </span>            : </a>
+<span class="lineNum">     653 </span>            : struct ostream *
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 : o_stream_create_encrypt(struct ostream *output, const char *algorithm,</span>
+<span class="lineNum">     655 </span>            :     struct dcrypt_public_key *box_pub, enum io_stream_encrypt_flags flags)
+<span class="lineNum">     656 </span>            : {
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = o_stream_create_encrypt_common(flags);</span>
+<span class="lineNum">     658 </span>            :     int ec;
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     dcrypt_key_ref_public(box_pub);</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :     estream-&gt;pub = box_pub;</span>
+<span class="lineNum">     662 </span>            : 
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :         ec = o_stream_encrypt_init(estream, algorithm);</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     666 </span>            : 
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     struct ostream *os = o_stream_create(&amp;estream-&gt;ostream, output,</span>
+<span class="lineNum">     668 </span>            :                    o_stream_get_fd(output));
+<span class="lineNum">     669 </span>            : 
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :     if (ec != 0) {</span>
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :         os-&gt;stream_errno = EINVAL;</span>
+<span class="lineNum">     672 </span>            :     }
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :     return os;</span>
+<span class="lineNum">     675 </span>            : }
+<a name="676"><span class="lineNum">     676 </span>            : </a>
+<span class="lineNum">     677 </span>            : struct ostream *
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 : o_stream_create_sym_encrypt(struct ostream *output, struct dcrypt_context_symmetric *ctx)</span>
+<span class="lineNum">     679 </span>            : {
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :     struct encrypt_ostream *estream = o_stream_create_encrypt_common(IO_STREAM_ENC_INTEGRITY_NONE);</span>
+<span class="lineNum">     681 </span>            :     const char *error;
+<span class="lineNum">     682 </span>            :     int ec;
+<span class="lineNum">     683 </span>            : 
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :     estream-&gt;prefix_written = TRUE;</span>
+<span class="lineNum">     685 </span>            : 
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :     if (!dcrypt_ctx_sym_init(estream-&gt;ctx_sym, &amp;error)) ec = -1;</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :     else ec = 0;</span>
+<span class="lineNum">     688 </span>            : 
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :     estream-&gt;ctx_sym = ctx;</span>
+<span class="lineNum">     690 </span>            : 
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     struct ostream *os = o_stream_create(&amp;estream-&gt;ostream, output,</span>
+<span class="lineNum">     692 </span>            :          o_stream_get_fd(output));
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :     if (ec != 0) {</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;estream-&gt;ostream.iostream, &quot;Could not initialize stream: %s&quot;, error);</span>
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :         os-&gt;stream_errno = EINVAL;</span>
+<span class="lineNum">     696 </span>            :     }
+<span class="lineNum">     697 </span>            : 
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :     return os;</span>
+<span class="lineNum">     699 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,886 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/mbox/istream-raw-mbox.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/mbox</a> - istream-raw-mbox.c<span style="font-size: 80%;"> (source / <a href="istream-raw-mbox.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">425</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">23</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream-raw-mbox.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mbox-from.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : struct raw_mbox_istream {
+<span class="lineNum">      10 </span>            :     struct istream_private istream;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            :     time_t received_time, next_received_time;
+<span class="lineNum">      13 </span>            :     char *sender, *next_sender;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            :     uoff_t from_offset, hdr_offset, body_offset, mail_size;
+<span class="lineNum">      16 </span>            :     uoff_t input_peak_offset;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            :     bool locked:1;
+<span class="lineNum">      19 </span>            :     bool seeked:1;
+<span class="lineNum">      20 </span>            :     bool crlf_ending:1;
+<span class="lineNum">      21 </span>            :     bool corrupted:1;
+<span class="lineNum">      22 </span>            :     bool mail_size_forced:1;
+<span class="lineNum">      23 </span>            :     bool eof:1;
+<span class="lineNum">      24 </span>            :     bool header_missing_eoh:1;
+<a name="25"><span class="lineNum">      25 </span>            : };</a>
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 : static void i_stream_raw_mbox_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">      28 </span>            : {
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream = (struct raw_mbox_istream *)stream;</span>
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :     i_free(rstream-&gt;sender);</span>
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :     i_free(rstream-&gt;next_sender);</span>
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     i_stream_seek(rstream-&gt;istream.parent,</span>
+<span class="lineNum">      35 </span>            :               rstream-&gt;istream.istream.v_offset);
+<a name="36"><span class="lineNum">      36 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 : static int mbox_read_from_line(struct raw_mbox_istream *rstream)</span>
+<span class="lineNum">      39 </span>            : {
+<span class="lineNum">      40 </span>            :     const unsigned char *buf, *p;
+<span class="lineNum">      41 </span>            :     char *sender;
+<span class="lineNum">      42 </span>            :     time_t received_time;
+<span class="lineNum">      43 </span>            :     size_t pos, line_pos;
+<span class="lineNum">      44 </span>            :     ssize_t ret;
+<span class="lineNum">      45 </span>            :     unsigned int skip;
+<span class="lineNum">      46 </span>            :     int tz;
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     buf = i_stream_get_data(rstream-&gt;istream.parent, &amp;pos);</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :     i_assert(pos &gt; 0);</span>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :     /* from_offset points to &quot;\nFrom &quot;, so unless we're at the beginning
+<span class="lineNum">      52 </span>            :        of the file, skip the initial \n */
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :     if (rstream-&gt;from_offset == 0)</span>
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :         skip = 0;</span>
+<span class="lineNum">      55 </span>            :     else {
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :         skip = 1;</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :         if (*buf == '\r')</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :             skip++;</span>
+<span class="lineNum">      59 </span>            :     }
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     while ((p = memchr(buf+skip, '\n', pos-skip)) == NULL) {</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :         ret = i_stream_read_memarea(rstream-&gt;istream.parent);</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         buf = i_stream_get_data(rstream-&gt;istream.parent, &amp;pos);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :             if (ret == -2) {</span>
+<span class="lineNum">      66 </span>            :                 /* From_-line is too long, but we should be
+<span class="lineNum">      67 </span>            :                    able to parse what we have so far. */
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">      69 </span>            :             }
+<span class="lineNum">      70 </span>            :             /* EOF shouldn't happen */
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :             rstream-&gt;istream.istream.eof =</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :                 rstream-&gt;istream.parent-&gt;eof;</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :             rstream-&gt;istream.istream.stream_errno =</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :                 rstream-&gt;istream.parent-&gt;stream_errno;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">      76 </span>            :         }
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         i_assert(pos &gt; 0);</span>
+<span class="lineNum">      78 </span>            :     }
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     line_pos = p == NULL ? 0 : (size_t)(p - buf);</span>
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span>            :     /* beginning of mbox */
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     if (memcmp(buf+skip, &quot;From &quot;, 5) != 0 ||</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         mbox_from_parse((buf+skip)+5, (pos-skip)-5,</span>
+<span class="lineNum">      84 </span>            :                 &amp;received_time, &amp;tz, &amp;sender) &lt; 0) {
+<span class="lineNum">      85 </span>            :         /* broken From - should happen only at beginning of
+<span class="lineNum">      86 </span>            :            file if this isn't a mbox.. */
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;rstream-&gt;istream.iostream,</span>
+<span class="lineNum">      88 </span>            :             &quot;mbox file doesn't begin with 'From ' line&quot;);
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         rstream-&gt;istream.istream.stream_errno = EINVAL;</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      91 </span>            :     }
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     if (rstream-&gt;istream.istream.v_offset == rstream-&gt;from_offset) {</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         rstream-&gt;received_time = received_time;</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         i_free(rstream-&gt;sender);</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :         rstream-&gt;sender = sender;</span>
+<span class="lineNum">      97 </span>            :     } else {
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         rstream-&gt;next_received_time = received_time;</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         i_free(rstream-&gt;next_sender);</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         rstream-&gt;next_sender = sender;</span>
+<span class="lineNum">     101 </span>            :     }
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span>            :     /* skip over From-line */
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     if (line_pos == 0) {</span>
+<span class="lineNum">     105 </span>            :         /* line was too long. skip the input until we find LF. */
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         rstream-&gt;istream.istream.v_offset += pos;</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         i_stream_skip(rstream-&gt;istream.parent, pos);</span>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         while ((ret = i_stream_read_memarea(rstream-&gt;istream.parent)) &gt; 0) {</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :             p = memchr(buf, '\n', pos);</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :             if (p != NULL)</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :             rstream-&gt;istream.istream.v_offset += pos;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :             i_stream_skip(rstream-&gt;istream.parent, pos);</span>
+<span class="lineNum">     115 </span>            :         }
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :             i_assert(ret == -1);</span>
+<span class="lineNum">     118 </span>            :             /* EOF shouldn't happen */
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :             rstream-&gt;istream.istream.eof =</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :                 rstream-&gt;istream.parent-&gt;eof;</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :             rstream-&gt;istream.istream.stream_errno =</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :                 rstream-&gt;istream.parent-&gt;stream_errno;</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     124 </span>            :         }
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         line_pos = (size_t)(p - buf);</span>
+<span class="lineNum">     126 </span>            :     }
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.istream.v_offset += line_pos+1;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     i_stream_skip(rstream-&gt;istream.parent, line_pos+1);</span>
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     rstream-&gt;hdr_offset = rstream-&gt;istream.istream.v_offset;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="132"><span class="lineNum">     132 </span>            : }</a>
+<span class="lineNum">     133 </span>            : 
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 : static void handle_end_of_mail(struct raw_mbox_istream *rstream, size_t pos)</span>
+<span class="lineNum">     135 </span>            : {
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     rstream-&gt;mail_size = rstream-&gt;istream.istream.v_offset + pos -</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         rstream-&gt;hdr_offset;</span>
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     if (rstream-&gt;hdr_offset + rstream-&gt;mail_size &lt; rstream-&gt;body_offset) {</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         uoff_t new_body_offset =</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :             rstream-&gt;hdr_offset + rstream-&gt;mail_size;</span>
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         if (rstream-&gt;body_offset != (uoff_t)-1) {</span>
+<span class="lineNum">     144 </span>            :             /* Header didn't have ending \n */
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :             rstream-&gt;header_missing_eoh = TRUE;</span>
+<span class="lineNum">     146 </span>            :         } else {
+<span class="lineNum">     147 </span>            :             /* &quot;headers\n\nFrom ..&quot;, the second \n belongs to next
+<span class="lineNum">     148 </span>            :                message which we didn't know at the time yet. */
+<span class="lineNum">     149 </span>            :         }
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span>            :         /* The +2 check is for CR+LF linefeeds */
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         i_assert(rstream-&gt;body_offset == (uoff_t)-1 ||</span>
+<span class="lineNum">     153 </span>            :              rstream-&gt;body_offset == new_body_offset + 1 ||
+<span class="lineNum">     154 </span>            :              rstream-&gt;body_offset == new_body_offset + 2);
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         rstream-&gt;body_offset = new_body_offset;</span>
+<span class="lineNum">     156 </span>            :     }
+<a name="157"><span class="lineNum">     157 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 : static ssize_t i_stream_raw_mbox_read(struct istream_private *stream)</span>
+<span class="lineNum">     160 </span>            : {
+<span class="lineNum">     161 </span>            :     static const char *mbox_from = &quot;\nFrom &quot;;
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream = (struct raw_mbox_istream *)stream;</span>
+<span class="lineNum">     163 </span>            :     const unsigned char *buf;
+<span class="lineNum">     164 </span>            :     const char *fromp;
+<span class="lineNum">     165 </span>            :     char *sender;
+<span class="lineNum">     166 </span>            :     time_t received_time;
+<span class="lineNum">     167 </span>            :     size_t i, pos, new_pos, from_start_pos, from_after_pos;
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     ssize_t ret = 0;</span>
+<span class="lineNum">     169 </span>            :     int eoh_char, tz;
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     bool crlf_ending = FALSE;</span>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     i_assert(stream-&gt;istream.v_offset &gt;= rstream-&gt;from_offset);</span>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     if (stream-&gt;istream.eof)</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     if (rstream-&gt;corrupted) {</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         rstream-&gt;istream.istream.stream_errno = EINVAL;</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     180 </span>            :     }
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     i_stream_seek(stream-&gt;parent, stream-&gt;istream.v_offset);</span>
+<span class="lineNum">     183 </span>            : 
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     stream-&gt;pos -= stream-&gt;skip;</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :     stream-&gt;skip = 0;</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     stream-&gt;buffer = NULL;</span>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span>            :     do {
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         buf = i_stream_get_data(stream-&gt;parent, &amp;pos);</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         if (pos &gt; 1 &amp;&amp; stream-&gt;istream.v_offset + pos &gt;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :             rstream-&gt;input_peak_offset) {</span>
+<span class="lineNum">     192 </span>            :             /* fake our read count. needed because if in the end
+<span class="lineNum">     193 </span>            :                we have only one character in buffer and we skip it
+<span class="lineNum">     194 </span>            :                (as potential CR), we want to get back to this
+<span class="lineNum">     195 </span>            :                i_stream_raw_mbox_read() to read more data. */
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :             ret = pos;</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     198 </span>            :         }
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :         ret = i_stream_read_memarea(stream-&gt;parent);</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     } while (ret &gt; 0);</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :     stream-&gt;istream.stream_errno = stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :         if (ret == -2) {</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :             if (stream-&gt;skip == stream-&gt;pos) {</span>
+<span class="lineNum">     206 </span>            :                 /* From_-line is longer than our input buffer.
+<span class="lineNum">     207 </span>            :                    finish the check without seeing the LF. */
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :             } else if (stream-&gt;istream.v_offset + pos ==</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :                    rstream-&gt;input_peak_offset) {</span>
+<span class="lineNum">     210 </span>            :                 /* we've read everything our parent stream
+<span class="lineNum">     211 </span>            :                    has to offer. */
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :                 stream-&gt;buffer = buf;</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :                 return -2;</span>
+<span class="lineNum">     214 </span>            :             }
+<span class="lineNum">     215 </span>            :             /* parent stream is full, but we haven't returned
+<span class="lineNum">     216 </span>            :                all its bytes to our caller yet. */
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         } else if (stream-&gt;istream.v_offset != 0 || pos == 0) {</span>
+<span class="lineNum">     218 </span>            :             /* we've read the whole file, final byte should be
+<span class="lineNum">     219 </span>            :                the \n trailer */
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :             if (pos &gt; 0 &amp;&amp; buf[pos-1] == '\n') {</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :                 pos--;</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :                 if (pos &gt; 0 &amp;&amp; buf[pos-1] == '\r') {</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :                     crlf_ending = TRUE;</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :                     pos--;</span>
+<span class="lineNum">     225 </span>            :                 }
+<span class="lineNum">     226 </span>            :             }
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :             i_assert(pos &gt;= stream-&gt;pos);</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :             ret = pos == stream-&gt;pos ? -1 :</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :                 (ssize_t)(pos - stream-&gt;pos);</span>
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :             stream-&gt;buffer = buf;</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :             stream-&gt;pos = pos;</span>
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :             if (stream-&gt;istream.v_offset == rstream-&gt;from_offset) {</span>
+<span class="lineNum">     236 </span>            :                 /* haven't seen From-line yet, so this mbox
+<span class="lineNum">     237 </span>            :                    stream is now at EOF */
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :                 rstream-&gt;eof = TRUE;</span>
+<span class="lineNum">     239 </span>            :             }
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :             stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :             rstream-&gt;crlf_ending = crlf_ending;</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :             handle_end_of_mail(rstream, pos);</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :             return ret &lt; 0 ? i_stream_raw_mbox_read(stream) : ret;</span>
+<span class="lineNum">     244 </span>            :         }
+<span class="lineNum">     245 </span>            :     }
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :     if (stream-&gt;istream.v_offset == rstream-&gt;from_offset) {</span>
+<span class="lineNum">     248 </span>            :         /* beginning of message, we haven't yet read our From-line */
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         if (pos == 2 &amp;&amp; ret &gt; 0) {</span>
+<span class="lineNum">     250 </span>            :             /* we're at the end of file with CR+LF linefeeds?
+<span class="lineNum">     251 </span>            :                need more data to verify it. */
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             rstream-&gt;input_peak_offset =</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :                 stream-&gt;istream.v_offset + pos;</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :             return i_stream_raw_mbox_read(stream);</span>
+<span class="lineNum">     255 </span>            :         }
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         if (mbox_read_from_line(rstream) &lt; 0) {</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;stream-&gt;iostream,</span>
+<span class="lineNum">     258 </span>            :                 &quot;Next message unexpectedly corrupted in mbox file &quot;
+<span class="lineNum">     259 </span>            :                 &quot;%s at %&quot;PRIuUOFF_T,
+<span class="lineNum">     260 </span>            :                 i_stream_get_name(&amp;stream-&gt;istream),
+<span class="lineNum">     261 </span>            :                 stream-&gt;istream.v_offset);
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :             if (stream-&gt;istream.v_offset != 0)</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :                 i_error(&quot;%s&quot;, stream-&gt;iostream.error);</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :             stream-&gt;pos = 0;</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :             rstream-&gt;eof = TRUE;</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :             rstream-&gt;corrupted = TRUE;</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     268 </span>            :         }
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span>            :         /* got it. we don't want to return it however,
+<span class="lineNum">     271 </span>            :            so start again from headers */
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         buf = i_stream_get_data(stream-&gt;parent, &amp;pos);</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         if (pos == 0)</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :             return i_stream_raw_mbox_read(stream);</span>
+<span class="lineNum">     275 </span>            :     }
+<span class="lineNum">     276 </span>            : 
+<span class="lineNum">     277 </span>            :     /* See if we have From-line here - note that it works right only
+<span class="lineNum">     278 </span>            :        because all characters are different in mbox_from. */
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         fromp = mbox_from; from_start_pos = from_after_pos = (size_t)-1;</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     eoh_char = rstream-&gt;body_offset == (uoff_t)-1 ? '\n' : -1;</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     for (i = stream-&gt;pos; i &lt; pos; i++) {</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         if (buf[i] == eoh_char &amp;&amp;</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :             ((i &gt; 0 &amp;&amp; buf[i-1] == '\n') ||</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :                      (i &gt; 1 &amp;&amp; buf[i-1] == '\r' &amp;&amp; buf[i-2] == '\n') ||</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :              stream-&gt;istream.v_offset + i == rstream-&gt;hdr_offset)) {</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :             rstream-&gt;body_offset = stream-&gt;istream.v_offset + i + 1;</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :             eoh_char = -1;</span>
+<span class="lineNum">     288 </span>            :         }
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         if ((char)buf[i] == *fromp) {</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :             if (*++fromp == '\0') {</span>
+<span class="lineNum">     291 </span>            :                 /* potential From-line, see if we have the
+<span class="lineNum">     292 </span>            :                    rest of the line buffered. */
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :                 i++;</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :                 if (i &gt;= 7 &amp;&amp; buf[i-7] == '\r') {</span>
+<span class="lineNum">     295 </span>            :                     /* CR also belongs to it. */
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :                     crlf_ending = TRUE;</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :                     from_start_pos = i - 7;</span>
+<span class="lineNum">     298 </span>            :                 } else {
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :                     crlf_ending = FALSE;</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :                     from_start_pos = i - 6;</span>
+<span class="lineNum">     301 </span>            :                 }
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :                 if (rstream-&gt;mail_size == (uoff_t)-1 ||</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :                     rstream-&gt;hdr_offset + rstream-&gt;mail_size ==</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :                     stream-&gt;istream.v_offset + from_start_pos) {</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :                     from_after_pos = i;</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :                     if (ret == -2) {</span>
+<span class="lineNum">     308 </span>            :                         /* even if we don't have the
+<span class="lineNum">     309 </span>            :                            whole line, we need to
+<span class="lineNum">     310 </span>            :                            finish this check now. */
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :                         goto mbox_verify;</span>
+<span class="lineNum">     312 </span>            :                     }
+<span class="lineNum">     313 </span>            :                 }
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :                 fromp = mbox_from;</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :             } else if (from_after_pos != (size_t)-1) {</span>
+<span class="lineNum">     316 </span>            :                 /* we have the whole From-line here now.
+<span class="lineNum">     317 </span>            :                    See if it's a valid one. */
+<span class="lineNum">     318 </span>            :             mbox_verify:
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :                 if (mbox_from_parse(buf + from_after_pos,</span>
+<span class="lineNum">     320 </span>            :                             pos - from_after_pos,
+<span class="lineNum">     321 </span>            :                             &amp;received_time, &amp;tz,
+<span class="lineNum">     322 </span>            :                             &amp;sender) == 0) {
+<span class="lineNum">     323 </span>            :                     /* yep, we stop here. */
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :                     rstream-&gt;next_received_time =</span>
+<span class="lineNum">     325 </span>            :                         received_time;
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :                     i_free(rstream-&gt;next_sender);</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :                     rstream-&gt;next_sender = sender;</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :                     stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :                     rstream-&gt;crlf_ending = crlf_ending;</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :                     handle_end_of_mail(rstream,</span>
+<span class="lineNum">     332 </span>            :                                from_start_pos);
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     334 </span>            :                 }
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :                 from_after_pos = (size_t)-1;</span>
+<span class="lineNum">     336 </span>            :             }
+<span class="lineNum">     337 </span>            :         } else {
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :             fromp = mbox_from;</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :             if ((char)buf[i] == *fromp)</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :                 fromp++;</span>
+<span class="lineNum">     341 </span>            :         }
+<span class="lineNum">     342 </span>            :     }
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span>            :     /* we want to go at least one byte further next time */
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :     rstream-&gt;input_peak_offset = stream-&gt;istream.v_offset + i;</span>
+<span class="lineNum">     346 </span>            : 
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     if (from_after_pos != (size_t)-1) {</span>
+<span class="lineNum">     348 </span>            :         /* we're waiting for the \n at the end of From-line */
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :         new_pos = from_start_pos;</span>
+<span class="lineNum">     350 </span>            :     } else {
+<span class="lineNum">     351 </span>            :         /* leave out the beginnings of potential From-line + CR */
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :         new_pos = i - (fromp - mbox_from);</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         if (new_pos &gt; 0)</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :             new_pos--;</span>
+<span class="lineNum">     355 </span>            :     }
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     if (stream-&gt;istream.v_offset -</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :         rstream-&gt;hdr_offset + new_pos &gt; rstream-&gt;mail_size) {</span>
+<span class="lineNum">     359 </span>            :         /* istream_raw_mbox_set_next_offset() used invalid
+<span class="lineNum">     360 </span>            :            cached next_offset? */
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;stream-&gt;iostream,</span>
+<span class="lineNum">     362 </span>            :             &quot;Next message unexpectedly lost from mbox file &quot;
+<span class="lineNum">     363 </span>            :             &quot;%s at %&quot;PRIuUOFF_T&quot; (%s)&quot;,
+<span class="lineNum">     364 </span>            :             i_stream_get_name(&amp;stream-&gt;istream),
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :             rstream-&gt;hdr_offset + rstream-&gt;mail_size,</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :             rstream-&gt;mail_size_forced ? &quot;cached&quot; : &quot;noncached&quot;);</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :         i_error(&quot;%s&quot;, stream-&gt;iostream.error);</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         rstream-&gt;eof = TRUE;</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         rstream-&gt;corrupted = TRUE;</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         rstream-&gt;istream.istream.stream_errno = EINVAL;</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         stream-&gt;pos = 0;</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     373 </span>            :     }
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     stream-&gt;buffer = buf;</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     if (new_pos == stream-&gt;pos) {</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         if (stream-&gt;istream.eof || ret &gt; 0)</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :             return i_stream_raw_mbox_read(stream);</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :         i_assert(new_pos &gt; 0);</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         ret = -2;</span>
+<span class="lineNum">     381 </span>            :     } else {
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :         i_assert(new_pos &gt; stream-&gt;pos);</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         ret = new_pos - stream-&gt;pos;</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         stream-&gt;pos = new_pos;</span>
+<span class="lineNum">     385 </span>            :     }
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="387"><span class="lineNum">     387 </span>            : }</a>
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 : static void i_stream_raw_mbox_seek(struct istream_private *stream,</span>
+<span class="lineNum">     390 </span>            :                    uoff_t v_offset, bool mark ATTR_UNUSED)
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream = (struct raw_mbox_istream *)stream;</span>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     stream-&gt;istream.v_offset = v_offset;</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     stream-&gt;skip = stream-&gt;pos = 0;</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     stream-&gt;buffer = NULL;</span>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         rstream-&gt;input_peak_offset = 0;</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :     rstream-&gt;eof = FALSE;</span>
+<a name="400"><span class="lineNum">     400 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 : static void i_stream_raw_mbox_sync(struct istream_private *stream)</span>
+<span class="lineNum">     403 </span>            : {
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream = (struct raw_mbox_istream *)stream;</span>
+<span class="lineNum">     405 </span>            : 
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     i_stream_sync(stream-&gt;parent);</span>
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.skip = 0;</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.pos = 0;</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     rstream-&gt;input_peak_offset = 0;</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 : }</span>
+<a name="412"><span class="lineNum">     412 </span>            : </a>
+<span class="lineNum">     413 </span>            : static int
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 : i_stream_raw_mbox_stat(struct istream_private *stream, bool exact)</span>
+<span class="lineNum">     415 </span>            : {
+<span class="lineNum">     416 </span>            :     const struct stat *st;
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream = (struct raw_mbox_istream *)stream;</span>
+<span class="lineNum">     418 </span>            : 
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     if (i_stream_stat(stream-&gt;parent, exact, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     422 </span>            :     }
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     stream-&gt;statbuf = *st;</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     stream-&gt;statbuf.st_size =</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :         !exact &amp;&amp; rstream-&gt;seeked &amp;&amp; rstream-&gt;mail_size != (uoff_t)-1 ?</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :         (off_t)rstream-&gt;mail_size : -1;</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="429"><span class="lineNum">     429 </span>            : }</a>
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 : struct istream *i_stream_create_raw_mbox(struct istream *input)</span>
+<span class="lineNum">     432 </span>            : {
+<span class="lineNum">     433 </span>            :     struct raw_mbox_istream *rstream;
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     i_assert(input-&gt;v_offset == 0);</span>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :     rstream = i_new(struct raw_mbox_istream, 1);</span>
+<span class="lineNum">     438 </span>            : 
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :     rstream-&gt;body_offset = (uoff_t)-1;</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     rstream-&gt;mail_size = (uoff_t)-1;</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     rstream-&gt;received_time = (time_t)-1;</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     rstream-&gt;next_received_time = (time_t)-1;</span>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.iostream.destroy = i_stream_raw_mbox_destroy;</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.max_buffer_size = input-&gt;real_stream-&gt;max_buffer_size;</span>
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.read = i_stream_raw_mbox_read;</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.seek = i_stream_raw_mbox_seek;</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.sync = i_stream_raw_mbox_sync;</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.stat = i_stream_raw_mbox_stat;</span>
+<span class="lineNum">     450 </span>            : 
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.istream.readable_fd = input-&gt;readable_fd;</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.istream.blocking = input-&gt;blocking;</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.istream.seekable = input-&gt;seekable;</span>
+<span class="lineNum">     454 </span>            : 
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :     return i_stream_create(&amp;rstream-&gt;istream, input, -1, 0);</span>
+<a name="456"><span class="lineNum">     456 </span>            : }</a>
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 : static int istream_raw_mbox_is_valid_from(struct raw_mbox_istream *rstream)</span>
+<span class="lineNum">     459 </span>            : {
+<span class="lineNum">     460 </span>            :     const unsigned char *data;
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     size_t size = 0;</span>
+<span class="lineNum">     462 </span>            :     time_t received_time;
+<span class="lineNum">     463 </span>            :     char *sender;
+<span class="lineNum">     464 </span>            :     int tz;
+<span class="lineNum">     465 </span>            : 
+<span class="lineNum">     466 </span>            :     /* minimal: &quot;From x Thu Nov 29 22:33:52 2001&quot; = 31 chars */
+<span class="lineNum">     467 </span>            :     do {
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         data = i_stream_get_data(rstream-&gt;istream.parent, &amp;size);</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         if (size &gt;= 31)</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     } while (i_stream_read_memarea(rstream-&gt;istream.parent) &gt; 0);</span>
+<span class="lineNum">     472 </span>            : 
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :     if ((size == 1 &amp;&amp; data[0] == '\n') ||</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         (size == 2 &amp;&amp; data[0] == '\r' &amp;&amp; data[1] == '\n')) {</span>
+<span class="lineNum">     475 </span>            :         /* EOF */
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     477 </span>            :     }
+<span class="lineNum">     478 </span>            : 
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     if (size &gt; 31 &amp;&amp; memcmp(data, &quot;\nFrom &quot;, 6) == 0) {</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :         data += 6;</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         size -= 6;</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     } else if (size &gt; 32 &amp;&amp; memcmp(data, &quot;\r\nFrom &quot;, 7) == 0) {</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         data += 7;</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :         size -= 7;</span>
+<span class="lineNum">     485 </span>            :     } else {
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     487 </span>            :     }
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :     while (memchr(data, '\n', size) == NULL) {</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :         if (i_stream_read_bytes(rstream-&gt;istream.parent,</span>
+<span class="lineNum">     491 </span>            :                     &amp;data, &amp;size, size+1) &lt; 0)
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     493 </span>            :     }
+<span class="lineNum">     494 </span>            : 
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :     if (mbox_from_parse(data, size, &amp;received_time, &amp;tz, &amp;sender) &lt; 0)</span>
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :     rstream-&gt;next_received_time = received_time;</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     i_free(rstream-&gt;next_sender);</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :     rstream-&gt;next_sender = sender;</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="502"><span class="lineNum">     502 </span>            : }</a>
+<span class="lineNum">     503 </span>            : 
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 : uoff_t istream_raw_mbox_get_start_offset(struct istream *stream)</span>
+<span class="lineNum">     505 </span>            : {
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     507 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     510 </span>            : 
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     return rstream-&gt;from_offset;</span>
+<a name="512"><span class="lineNum">     512 </span>            : }</a>
+<span class="lineNum">     513 </span>            : 
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 : int istream_raw_mbox_get_header_offset(struct istream *stream,</span>
+<span class="lineNum">     515 </span>            :                        uoff_t *hdr_offset_r)
+<span class="lineNum">     516 </span>            : {
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     518 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     519 </span>            : 
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     521 </span>            : 
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :     if (rstream-&gt;hdr_offset == rstream-&gt;from_offset)</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :         (void)i_stream_read(stream);</span>
+<span class="lineNum">     524 </span>            : 
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     if (rstream-&gt;corrupted) {</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :         i_error(&quot;Unexpectedly lost From-line from mbox file %s at &quot;</span>
+<span class="lineNum">     527 </span>            :             &quot;%&quot;PRIuUOFF_T, i_stream_get_name(stream),
+<span class="lineNum">     528 </span>            :             rstream-&gt;from_offset);
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     530 </span>            :     }
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :     if (stream-&gt;stream_errno != 0)</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     533 </span>            : 
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :     *hdr_offset_r = rstream-&gt;hdr_offset;</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="536"><span class="lineNum">     536 </span>            : }</a>
+<span class="lineNum">     537 </span>            : 
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 : int istream_raw_mbox_get_body_offset(struct istream *stream,</span>
+<span class="lineNum">     539 </span>            :                      uoff_t *body_offset_r)
+<span class="lineNum">     540 </span>            : {
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     542 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     543 </span>            :     uoff_t offset;
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     546 </span>            : 
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :     if (rstream-&gt;body_offset != (uoff_t)-1) {</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :         *body_offset_r = rstream-&gt;body_offset;</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     550 </span>            :     }
+<span class="lineNum">     551 </span>            : 
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :     offset = stream-&gt;v_offset;</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :     i_stream_seek(stream, rstream-&gt;hdr_offset);</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :     while (rstream-&gt;body_offset == (uoff_t)-1) {</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :         i_stream_skip(stream, i_stream_get_data_size(stream));</span>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :         if (i_stream_read(stream) &lt; 0) {</span>
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :             if (rstream-&gt;corrupted) {</span>
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :                 i_error(&quot;Unexpectedly lost From-line from mbox file &quot;</span>
+<span class="lineNum">     560 </span>            :                     &quot;%s at %&quot;PRIuUOFF_T,
+<span class="lineNum">     561 </span>            :                     i_stream_get_name(stream),
+<span class="lineNum">     562 </span>            :                     rstream-&gt;from_offset);
+<span class="lineNum">     563 </span>            :             } else {
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :                 i_assert(rstream-&gt;body_offset != (uoff_t)-1);</span>
+<span class="lineNum">     565 </span>            :             }
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     567 </span>            :         }
+<span class="lineNum">     568 </span>            :     }
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :     i_stream_seek(stream, offset);</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     *body_offset_r = rstream-&gt;body_offset;</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="573"><span class="lineNum">     573 </span>            : }</a>
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 : int istream_raw_mbox_get_body_size(struct istream *stream,</span>
+<span class="lineNum">     576 </span>            :                    uoff_t expected_body_size,
+<span class="lineNum">     577 </span>            :                    uoff_t *body_size_r)
+<span class="lineNum">     578 </span>            : {
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     580 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     581 </span>            :     const unsigned char *data;
+<span class="lineNum">     582 </span>            :     size_t size;
+<span class="lineNum">     583 </span>            :     uoff_t old_offset, body_offset, body_size, next_body_offset;
+<span class="lineNum">     584 </span>            : 
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;hdr_offset != (uoff_t)-1);</span>
+<span class="lineNum">     587 </span>            : 
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     if (istream_raw_mbox_get_body_offset(stream, &amp;body_offset) &lt; 0)</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :     body_size = rstream-&gt;mail_size == (uoff_t)-1 ? (uoff_t)-1 :</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         rstream-&gt;mail_size - (rstream-&gt;body_offset -</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :                       rstream-&gt;hdr_offset);</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :     old_offset = stream-&gt;v_offset;</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :     if (expected_body_size != (uoff_t)-1) {</span>
+<span class="lineNum">     595 </span>            :         /* if we already have the existing body size, use it as long as
+<span class="lineNum">     596 </span>            :            it's &gt;= expected body_size. otherwise the previous parsing
+<span class="lineNum">     597 </span>            :            may have stopped at a From_-line that belongs to the body. */
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :         if (body_size != (uoff_t)-1 &amp;&amp; body_size &gt;= expected_body_size) {</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :             *body_size_r = body_size;</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     601 </span>            :         }
+<span class="lineNum">     602 </span>            : 
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         next_body_offset = rstream-&gt;body_offset + expected_body_size;</span>
+<span class="lineNum">     604 </span>            :         /* If header_missing_eoh is set, the message body begins with
+<span class="lineNum">     605 </span>            :            a From_-line and the body_offset is pointing to the line
+<span class="lineNum">     606 </span>            :            *before* the first line of the body, i.e. the empty line
+<span class="lineNum">     607 </span>            :            separating the headers from the body. If that is the case,
+<span class="lineNum">     608 </span>            :            we'll have to skip over the empty line to get the correct
+<span class="lineNum">     609 </span>            :            next_body_offset. */
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :         if (rstream-&gt;header_missing_eoh) {</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :             i_assert(body_size == 0);</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :             next_body_offset += rstream-&gt;crlf_ending ? 2 : 1;</span>
+<span class="lineNum">     613 </span>            :         }
+<span class="lineNum">     614 </span>            : 
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :         i_stream_seek(rstream-&gt;istream.parent, next_body_offset);</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :         if (istream_raw_mbox_is_valid_from(rstream) &gt; 0) {</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :             rstream-&gt;mail_size =</span>
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :                 next_body_offset - rstream-&gt;hdr_offset;</span>
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :             i_stream_seek(stream, old_offset);</span>
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :             *body_size_r = expected_body_size;</span>
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     622 </span>            :         }
+<span class="lineNum">     623 </span>            :         /* invalid expected_body_size */
+<span class="lineNum">     624 </span>            :     }
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :     if (body_size != (uoff_t)-1) {</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :         *body_size_r = body_size;</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     628 </span>            :     }
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span>            :     /* have to read through the message body */
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :     while (i_stream_read_more(stream, &amp;data, &amp;size) &gt; 0)</span>
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :         i_stream_skip(stream, size);</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :     i_stream_seek(stream, old_offset);</span>
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :     if (stream-&gt;stream_errno != 0)</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     636 </span>            : 
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;mail_size != (uoff_t)-1);</span>
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :     *body_size_r = rstream-&gt;mail_size -</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :         (rstream-&gt;body_offset - rstream-&gt;hdr_offset);</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="641"><span class="lineNum">     641 </span>            : }</a>
+<span class="lineNum">     642 </span>            : 
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 : time_t istream_raw_mbox_get_received_time(struct istream *stream)</span>
+<span class="lineNum">     644 </span>            : {
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     646 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     647 </span>            : 
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     649 </span>            : 
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :     if (rstream-&gt;received_time == (time_t)-1)</span>
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :         (void)i_stream_read(stream);</span>
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :     return rstream-&gt;received_time;</span>
+<a name="653"><span class="lineNum">     653 </span>            : }</a>
+<span class="lineNum">     654 </span>            : 
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 : const char *istream_raw_mbox_get_sender(struct istream *stream)</span>
+<span class="lineNum">     656 </span>            : {
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     658 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     661 </span>            : 
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :     if (rstream-&gt;sender == NULL)</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :         (void)i_stream_read(stream);</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :     return rstream-&gt;sender == NULL ? &quot;&quot; : rstream-&gt;sender;</span>
+<a name="665"><span class="lineNum">     665 </span>            : }</a>
+<span class="lineNum">     666 </span>            : 
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 : bool istream_raw_mbox_has_crlf_ending(struct istream *stream)</span>
+<span class="lineNum">     668 </span>            : {
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     670 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     671 </span>            : 
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;seeked);</span>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :     return rstream-&gt;crlf_ending;</span>
+<a name="675"><span class="lineNum">     675 </span>            : }</a>
+<span class="lineNum">     676 </span>            : 
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 : int istream_raw_mbox_next(struct istream *stream, uoff_t expected_body_size)</span>
+<span class="lineNum">     678 </span>            : {
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     680 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     681 </span>            :     uoff_t body_size;
+<span class="lineNum">     682 </span>            : 
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :     if (istream_raw_mbox_get_body_size(stream, expected_body_size,</span>
+<span class="lineNum">     684 </span>            :                        &amp;body_size) &lt; 0)
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :     rstream-&gt;mail_size = (uoff_t)-1;</span>
+<span class="lineNum">     687 </span>            : 
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :     rstream-&gt;received_time = rstream-&gt;next_received_time;</span>
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :     rstream-&gt;next_received_time = (time_t)-1;</span>
+<span class="lineNum">     690 </span>            : 
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     i_free(rstream-&gt;sender);</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :     rstream-&gt;sender = rstream-&gt;next_sender;</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :     rstream-&gt;next_sender = NULL;</span>
+<span class="lineNum">     694 </span>            : 
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :     rstream-&gt;from_offset = rstream-&gt;body_offset + body_size;</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :     rstream-&gt;hdr_offset = rstream-&gt;from_offset;</span>
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :     rstream-&gt;body_offset = (uoff_t)-1;</span>
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :     rstream-&gt;header_missing_eoh = FALSE;</span>
+<span class="lineNum">     699 </span>            : 
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :     if (stream-&gt;v_offset != rstream-&gt;from_offset)</span>
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :         i_stream_seek_mark(stream, rstream-&gt;from_offset);</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :     i_stream_seek_mark(rstream-&gt;istream.parent, rstream-&gt;from_offset);</span>
+<span class="lineNum">     703 </span>            : 
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :     rstream-&gt;eof = FALSE;</span>
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.istream.eof = FALSE;</span>
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="707"><span class="lineNum">     707 </span>            : }</a>
+<span class="lineNum">     708 </span>            : 
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 : int istream_raw_mbox_seek(struct istream *stream, uoff_t offset)</span>
+<span class="lineNum">     710 </span>            : {
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     712 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     713 </span>            :     bool check;
+<span class="lineNum">     714 </span>            : 
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;locked);</span>
+<span class="lineNum">     716 </span>            : 
+<span class="lineNum">     717 </span>            :     /* reset any (corruption) errors */
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     stream-&gt;stream_errno = 0;</span>
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     i_free_and_null(stream-&gt;real_stream-&gt;iostream.error);</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :     rstream-&gt;corrupted = FALSE;</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :     rstream-&gt;eof = FALSE;</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :     rstream-&gt;istream.istream.eof = FALSE;</span>
+<span class="lineNum">     723 </span>            : 
+<span class="lineNum">     724 </span>            :     /* if seeked is FALSE, we unlocked in the middle. don't try to use
+<span class="lineNum">     725 </span>            :        any cached state then. */
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :     if (rstream-&gt;mail_size != (uoff_t)-1 &amp;&amp; rstream-&gt;seeked &amp;&amp;</span>
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :         rstream-&gt;hdr_offset + rstream-&gt;mail_size == offset)</span>
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :         return istream_raw_mbox_next(stream, (uoff_t)-1);</span>
+<span class="lineNum">     729 </span>            : 
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :     if (offset == rstream-&gt;from_offset &amp;&amp; rstream-&gt;seeked) {</span>
+<span class="lineNum">     731 </span>            :         /* back to beginning of current message */
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :         offset = rstream-&gt;hdr_offset;</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :         check = offset == 0;</span>
+<span class="lineNum">     734 </span>            :     } else {
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :         rstream-&gt;body_offset = (uoff_t)-1;</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         rstream-&gt;mail_size = (uoff_t)-1;</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :         rstream-&gt;received_time = (time_t)-1;</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :         rstream-&gt;next_received_time = (time_t)-1;</span>
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :         rstream-&gt;header_missing_eoh = FALSE;</span>
+<span class="lineNum">     740 </span>            : 
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :         i_free(rstream-&gt;sender);</span>
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :         rstream-&gt;sender = NULL;</span>
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :         i_free(rstream-&gt;next_sender);</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :         rstream-&gt;next_sender = NULL;</span>
+<span class="lineNum">     745 </span>            : 
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :                 rstream-&gt;from_offset = offset;</span>
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 :         rstream-&gt;hdr_offset = offset;</span>
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :         check = TRUE;</span>
+<span class="lineNum">     749 </span>            :     }
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :     rstream-&gt;seeked = TRUE;</span>
+<span class="lineNum">     751 </span>            : 
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :     i_stream_seek_mark(stream, offset);</span>
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :     i_stream_seek_mark(rstream-&gt;istream.parent, offset);</span>
+<span class="lineNum">     754 </span>            : 
+<span class="lineNum">     755 </span><span class="lineNoCov">          0 :     if (check)</span>
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :         (void)i_stream_read(stream);</span>
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :     return rstream-&gt;corrupted ? -1 : 0;</span>
+<a name="758"><span class="lineNum">     758 </span>            : }</a>
+<span class="lineNum">     759 </span>            : 
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 : void istream_raw_mbox_set_next_offset(struct istream *stream, uoff_t offset)</span>
+<span class="lineNum">     761 </span>            : {
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     763 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     764 </span>            : 
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :     i_assert(rstream-&gt;hdr_offset != (uoff_t)-1);</span>
+<span class="lineNum">     766 </span>            : 
+<span class="lineNum">     767 </span><span class="lineNoCov">          0 :     rstream-&gt;mail_size_forced = TRUE;</span>
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 :     rstream-&gt;mail_size = offset - rstream-&gt;hdr_offset;</span>
+<a name="769"><span class="lineNum">     769 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     770 </span>            : 
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 : bool istream_raw_mbox_is_eof(struct istream *stream)</span>
+<span class="lineNum">     772 </span>            : {
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     774 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     775 </span>            : 
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :     return rstream-&gt;eof;</span>
+<a name="777"><span class="lineNum">     777 </span>            : }</a>
+<span class="lineNum">     778 </span>            : 
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 : bool istream_raw_mbox_is_corrupted(struct istream *stream)</span>
+<span class="lineNum">     780 </span>            : {
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     782 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     783 </span>            : 
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :     return rstream-&gt;corrupted;</span>
+<a name="785"><span class="lineNum">     785 </span>            : }</a>
+<span class="lineNum">     786 </span>            : 
+<span class="lineNum">     787 </span><span class="lineNoCov">          0 : void istream_raw_mbox_set_locked(struct istream *stream)</span>
+<span class="lineNum">     788 </span>            : {
+<span class="lineNum">     789 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     790 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     791 </span>            : 
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :     rstream-&gt;locked = TRUE;</span>
+<a name="793"><span class="lineNum">     793 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     794 </span>            : 
+<span class="lineNum">     795 </span><span class="lineNoCov">          0 : void istream_raw_mbox_set_unlocked(struct istream *stream)</span>
+<span class="lineNum">     796 </span>            : {
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 :     struct raw_mbox_istream *rstream =</span>
+<span class="lineNum">     798 </span>            :         (struct raw_mbox_istream *)stream-&gt;real_stream;
+<span class="lineNum">     799 </span>            : 
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :     rstream-&gt;locked = FALSE;</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :     rstream-&gt;seeked = FALSE;</span>
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

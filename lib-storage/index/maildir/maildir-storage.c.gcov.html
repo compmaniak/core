@@ -1,0 +1,817 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/maildir/maildir-storage.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/maildir</a> - maildir-storage.c<span style="font-size: 80%;"> (source / <a href="maildir-storage.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">132</td>
+            <td class="headerCovTableEntry">331</td>
+            <td class="headerCovTableEntryLo">39.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntryLo">61.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;mkdir-parents.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;unlink-old-files.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mailbox-uidvalidity.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;mailbox-list-private.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;maildir-storage.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;maildir-uidlist.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;maildir-keywords.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;maildir-sync.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : #define MAILDIR_LIST_CONTEXT(obj) \
+<span class="lineNum">      19 </span>            :     MODULE_CONTEXT(obj, maildir_mailbox_list_module)
+<span class="lineNum">      20 </span>            : #define MAILDIR_SUBFOLDER_FILENAME &quot;maildirfolder&quot;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : struct maildir_mailbox_list_context {
+<span class="lineNum">      23 </span>            :     union mailbox_list_module_context module_ctx;
+<span class="lineNum">      24 </span>            :     const struct maildir_settings *set;
+<span class="lineNum">      25 </span>            : };
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : extern struct mail_storage maildir_storage;
+<span class="lineNum">      28 </span>            : extern struct mailbox maildir_mailbox;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : static MODULE_CONTEXT_DEFINE_INIT(maildir_mailbox_list_module,
+<span class="lineNum">      31 </span>            :                   &amp;mailbox_list_module_register);
+<span class="lineNum">      32 </span>            : static const char *maildir_subdirs[] = { &quot;cur&quot;, &quot;new&quot;, &quot;tmp&quot; };
+<span class="lineNum">      33 </span>            : 
+<a name="34"><span class="lineNum">      34 </span>            : static void maildir_mailbox_close(struct mailbox *box);</a>
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span><span class="lineCov">          1 : static struct mail_storage *maildir_storage_alloc(void)</span>
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span>            :     struct maildir_storage *storage;
+<span class="lineNum">      39 </span>            :     pool_t pool;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineCov">          1 :     pool = pool_alloconly_create(&quot;maildir storage&quot;, 512+256);</span>
+<span class="lineNum">      42 </span><span class="lineCov">          1 :     storage = p_new(pool, struct maildir_storage, 1);</span>
+<span class="lineNum">      43 </span><span class="lineCov">          1 :     storage-&gt;storage = maildir_storage;</span>
+<span class="lineNum">      44 </span><span class="lineCov">          1 :     storage-&gt;storage.pool = pool;</span>
+<span class="lineNum">      45 </span><span class="lineCov">          1 :     return &amp;storage-&gt;storage;</span>
+<span class="lineNum">      46 </span>            : }
+<a name="47"><span class="lineNum">      47 </span>            : </a>
+<span class="lineNum">      48 </span>            : static int
+<span class="lineNum">      49 </span><span class="lineCov">          1 : maildir_storage_create(struct mail_storage *_storage, struct mail_namespace *ns,</span>
+<span class="lineNum">      50 </span>            :                const char **error_r ATTR_UNUSED)
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span><span class="lineCov">          1 :     struct maildir_storage *storage = MAILDIR_STORAGE(_storage);</span>
+<span class="lineNum">      53 </span><span class="lineCov">          1 :     struct mailbox_list *list = ns-&gt;list;</span>
+<span class="lineNum">      54 </span>            :     const char *dir;
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineCov">          1 :     storage-&gt;set = mail_namespace_get_driver_settings(ns, _storage);</span>
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineCov">          1 :     storage-&gt;temp_prefix = p_strdup(_storage-&gt;pool,</span>
+<span class="lineNum">      59 </span>            :                     mailbox_list_get_temp_prefix(list));
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineCov">          1 :     if (list-&gt;set.control_dir == NULL &amp;&amp; list-&gt;set.inbox_path == NULL &amp;&amp;</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :         (ns-&gt;flags &amp; NAMESPACE_FLAG_INBOX_ANY) != 0) {</span>
+<span class="lineNum">      63 </span>            :         /* put the temp files into tmp/ directory preferably */
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         storage-&gt;temp_prefix = p_strconcat(_storage-&gt;pool, &quot;tmp/&quot;,</span>
+<span class="lineNum">      65 </span>            :                            storage-&gt;temp_prefix, NULL);
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         dir = mailbox_list_get_root_forced(list, MAILBOX_LIST_PATH_TYPE_DIR);</span>
+<span class="lineNum">      67 </span>            :     } else {
+<span class="lineNum">      68 </span>            :         /* control dir should also be writable */
+<span class="lineNum">      69 </span><span class="lineCov">          1 :         dir = mailbox_list_get_root_forced(list, MAILBOX_LIST_PATH_TYPE_CONTROL);</span>
+<span class="lineNum">      70 </span>            :     }
+<span class="lineNum">      71 </span><span class="lineCov">          1 :     _storage-&gt;temp_path_prefix = p_strconcat(_storage-&gt;pool, dir, &quot;/&quot;,</span>
+<span class="lineNum">      72 </span>            :                          storage-&gt;temp_prefix, NULL);
+<span class="lineNum">      73 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="74"><span class="lineNum">      74 </span>            : }</a>
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineCov">          1 : static void maildir_storage_get_list_settings(const struct mail_namespace *ns,</span>
+<span class="lineNum">      77 </span>            :                           struct mailbox_list_settings *set)
+<span class="lineNum">      78 </span>            : {
+<span class="lineNum">      79 </span><span class="lineCov">          1 :     if (set-&gt;layout == NULL)</span>
+<span class="lineNum">      80 </span><span class="lineCov">          1 :         set-&gt;layout = MAILBOX_LIST_NAME_MAILDIRPLUSPLUS;</span>
+<span class="lineNum">      81 </span><span class="lineCov">          1 :     if (set-&gt;subscription_fname == NULL)</span>
+<span class="lineNum">      82 </span><span class="lineCov">          1 :         set-&gt;subscription_fname = MAILDIR_SUBSCRIPTION_FILE_NAME;</span>
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineCov">          2 :     if (set-&gt;inbox_path == NULL &amp;&amp; *set-&gt;maildir_name == '\0' &amp;&amp;</span>
+<span class="lineNum">      85 </span><span class="lineCov">          1 :         (strcmp(set-&gt;layout, MAILBOX_LIST_NAME_MAILDIRPLUSPLUS) == 0 ||</span>
+<span class="lineNum">      86 </span><span class="lineCov">          1 :          strcmp(set-&gt;layout, MAILBOX_LIST_NAME_FS) == 0) &amp;&amp;</span>
+<span class="lineNum">      87 </span><span class="lineCov">          1 :         (ns-&gt;flags &amp; NAMESPACE_FLAG_INBOX_ANY) != 0) {</span>
+<span class="lineNum">      88 </span>            :         /* Maildir++ INBOX is the Maildir base itself */
+<span class="lineNum">      89 </span><span class="lineCov">          1 :         set-&gt;inbox_path = set-&gt;root_dir;</span>
+<span class="lineNum">      90 </span>            :     }
+<span class="lineNum">      91 </span><span class="lineCov">          1 : }</span>
+<a name="92"><span class="lineNum">      92 </span>            : </a>
+<span class="lineNum">      93 </span>            : static const char *
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 : maildir_storage_find_root_dir(const struct mail_namespace *ns)</span>
+<span class="lineNum">      95 </span>            : {
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     bool debug = ns-&gt;mail_set-&gt;mail_debug;</span>
+<span class="lineNum">      97 </span>            :     const char *home, *path;
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span>            :     /* we'll need to figure out the maildir location ourself.
+<span class="lineNum">     100 </span>            :        It's ~/Maildir unless we are chrooted. */
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     if (ns-&gt;owner != NULL &amp;&amp;</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         mail_user_get_home(ns-&gt;owner, &amp;home) &gt; 0) {</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         path = t_strconcat(home, &quot;/Maildir&quot;, NULL);</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         if (access(path, R_OK|W_OK|X_OK) == 0) {</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :             if (debug)</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :                 i_debug(&quot;maildir: root exists (%s)&quot;, path);</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :             return path;</span>
+<span class="lineNum">     108 </span>            :         } 
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         if (debug)</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :             i_debug(&quot;maildir: access(%s, rwx): failed: %m&quot;, path);</span>
+<span class="lineNum">     111 </span>            :     } else {
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         if (debug)</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :             i_debug(&quot;maildir: Home directory not set&quot;);</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         if (access(&quot;/cur&quot;, R_OK|W_OK|X_OK) == 0) {</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             if (debug)</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :                 i_debug(&quot;maildir: /cur exists, assuming chroot&quot;);</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :             return &quot;/&quot;;</span>
+<span class="lineNum">     118 </span>            :         }
+<span class="lineNum">     119 </span>            :     }
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<a name="121"><span class="lineNum">     121 </span>            : }</a>
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 : static bool maildir_storage_autodetect(const struct mail_namespace *ns,</span>
+<span class="lineNum">     124 </span>            :                        struct mailbox_list_settings *set)
+<span class="lineNum">     125 </span>            : {
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     bool debug = ns-&gt;mail_set-&gt;mail_debug;</span>
+<span class="lineNum">     127 </span>            :     struct stat st;
+<span class="lineNum">     128 </span>            :     const char *path, *root_dir;
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     if (set-&gt;root_dir != NULL)</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         root_dir = set-&gt;root_dir;</span>
+<span class="lineNum">     132 </span>            :     else {
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         root_dir = maildir_storage_find_root_dir(ns);</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         if (root_dir == NULL) {</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :             if (debug)</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :                 i_debug(&quot;maildir: couldn't find root dir&quot;);</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     138 </span>            :         }
+<span class="lineNum">     139 </span>            :     }
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     path = t_strconcat(root_dir, &quot;/cur&quot;, NULL);</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :     if (stat(path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         if (debug)</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :             i_debug(&quot;maildir autodetect: stat(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     146 </span>            :     }
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     if (!S_ISDIR(st.st_mode)) {</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :         if (debug)</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :             i_debug(&quot;maildir autodetect: %s not a directory&quot;, path);</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     152 </span>            :     }
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     set-&gt;root_dir = root_dir;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     maildir_storage_get_list_settings(ns, set);</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     157 </span>            : }
+<a name="158"><span class="lineNum">     158 </span>            : </a>
+<span class="lineNum">     159 </span>            : static int
+<span class="lineNum">     160 </span><span class="lineCov">          3 : mkdir_verify(struct mailbox *box, const char *dir, bool verify)</span>
+<span class="lineNum">     161 </span>            : {
+<span class="lineNum">     162 </span>            :     const struct mailbox_permissions *perm;
+<span class="lineNum">     163 </span>            :     struct stat st;
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineCov">          3 :     if (verify) {</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :         if (stat(dir, &amp;st) == 0)</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         if (errno != ENOENT) {</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :             mailbox_set_critical(box, &quot;stat(%s) failed: %m&quot;, dir);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     172 </span>            :         }
+<span class="lineNum">     173 </span>            :     }
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">          3 :     perm = mailbox_get_permissions(box);</span>
+<span class="lineNum">     176 </span><span class="lineCov">          3 :     if (mkdir_parents_chgrp(dir, perm-&gt;dir_create_mode,</span>
+<span class="lineNum">     177 </span>            :                 perm-&gt;file_create_gid,
+<span class="lineNum">     178 </span>            :                 perm-&gt;file_create_gid_origin) == 0)
+<span class="lineNum">     179 </span><span class="lineCov">          3 :         return 0;</span>
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     if (errno == EEXIST) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :         if (verify)</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_EXISTS,</span>
+<span class="lineNum">     185 </span>            :                        &quot;Mailbox already exists&quot;);
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     } else if (errno == ENOENT) {</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTFOUND,</span>
+<span class="lineNum">     188 </span>            :             &quot;Mailbox was deleted while it was being created&quot;);
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     } else if (errno == EACCES) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         if (box-&gt;list-&gt;ns-&gt;type == MAIL_NAMESPACE_TYPE_SHARED) {</span>
+<span class="lineNum">     191 </span>            :             /* shared namespace, don't log permission errors */
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :             mail_storage_set_error(box-&gt;storage, MAIL_ERROR_PERM,</span>
+<span class="lineNum">     193 </span>            :                            MAIL_ERRSTR_NO_PERMISSION);
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     195 </span>            :         }
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box, &quot;%s&quot;,</span>
+<span class="lineNum">     197 </span>            :             mail_error_create_eacces_msg(&quot;mkdir&quot;, dir));
+<span class="lineNum">     198 </span>            :     } else {
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box, &quot;mkdir(%s) failed: %m&quot;, dir);</span>
+<span class="lineNum">     200 </span>            :     }
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :     return -1;</span>
+<a name="202"><span class="lineNum">     202 </span>            : }</a>
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineCov">         12 : static int maildir_check_tmp(struct mail_storage *storage, const char *dir)</span>
+<span class="lineNum">     205 </span>            : {
+<span class="lineNum">     206 </span><span class="lineCov">         12 :     unsigned int interval = storage-&gt;set-&gt;mail_temp_scan_interval;</span>
+<span class="lineNum">     207 </span>            :     const char *path;
+<span class="lineNum">     208 </span>            :     struct stat st;
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span>            :     /* if tmp/ directory exists, we need to clean it up once in a while */
+<span class="lineNum">     211 </span><span class="lineCov">         12 :     path = t_strconcat(dir, &quot;/tmp&quot;, NULL);</span>
+<span class="lineNum">     212 </span><span class="lineCov">         12 :     if (stat(path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     213 </span><span class="lineCov">          1 :         if (errno == ENOENT || errno == ENAMETOOLONG)</span>
+<span class="lineNum">     214 </span><span class="lineCov">          1 :             return 0;</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         if (errno == EACCES) {</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :             mail_storage_set_critical(storage, &quot;%s&quot;,</span>
+<span class="lineNum">     217 </span>            :                 mail_error_eacces_msg(&quot;stat&quot;, path));
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     219 </span>            :         }
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         mail_storage_set_critical(storage, &quot;stat(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     222 </span>            :     }
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineCov">         11 :     if (interval == 0) {</span>
+<span class="lineNum">     225 </span>            :         /* disabled */
+<span class="lineNum">     226 </span><span class="lineCov">         11 :     } else if (st.st_atime &gt; st.st_ctime + MAILDIR_TMP_DELETE_SECS) {</span>
+<span class="lineNum">     227 </span>            :         /* the directory should be empty. we won't do anything
+<span class="lineNum">     228 </span>            :            until ctime changes. */
+<span class="lineNum">     229 </span><span class="lineCov">         11 :     } else if (st.st_atime &lt; ioloop_time - (time_t)interval) {</span>
+<span class="lineNum">     230 </span>            :         /* time to scan */
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :         (void)unlink_old_files(path, &quot;&quot;,</span>
+<span class="lineNum">     232 </span>            :                        ioloop_time - MAILDIR_TMP_DELETE_SECS);
+<span class="lineNum">     233 </span>            :     }
+<span class="lineNum">     234 </span><span class="lineCov">         11 :     return 1;</span>
+<span class="lineNum">     235 </span>            : }
+<a name="236"><span class="lineNum">     236 </span>            : </a>
+<span class="lineNum">     237 </span>            : /* create or fix maildir, ignore if it already exists */
+<span class="lineNum">     238 </span><span class="lineCov">          1 : static int create_maildir_subdirs(struct mailbox *box, bool verify)</span>
+<span class="lineNum">     239 </span>            : {
+<span class="lineNum">     240 </span>            :     const char *path, *box_path;
+<span class="lineNum">     241 </span>            :     unsigned int i;
+<span class="lineNum">     242 </span>            :     enum mail_error error;
+<span class="lineNum">     243 </span><span class="lineCov">          1 :     int ret = 0;</span>
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineCov">          1 :     if (mailbox_get_path_to(box, MAILBOX_LIST_PATH_TYPE_MAILBOX,</span>
+<span class="lineNum">     246 </span>            :                 &amp;box_path) &lt; 0)
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineCov">          4 :     for (i = 0; i &lt; N_ELEMENTS(maildir_subdirs); i++) {</span>
+<span class="lineNum">     250 </span><span class="lineCov">          3 :         path = t_strconcat(box_path, &quot;/&quot;, maildir_subdirs[i], NULL);</span>
+<span class="lineNum">     251 </span><span class="lineCov">          3 :         if (mkdir_verify(box, path, verify) &lt; 0) {</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             error = mailbox_get_last_mail_error(box);</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :             if (error != MAIL_ERROR_EXISTS)</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     255 </span>            :             /* try to create all of the directories in case one
+<span class="lineNum">     256 </span>            :                of them doesn't exist */
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     258 </span>            :         }
+<span class="lineNum">     259 </span>            :     }
+<span class="lineNum">     260 </span><span class="lineCov">          1 :     return ret;</span>
+<a name="261"><span class="lineNum">     261 </span>            : }</a>
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 : static void maildir_lock_touch_timeout(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">     264 </span>            : {
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     (void)maildir_uidlist_lock_touch(mbox-&gt;uidlist);</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 : }</span>
+<a name="267"><span class="lineNum">     267 </span>            : </a>
+<span class="lineNum">     268 </span>            : static struct mailbox *
+<span class="lineNum">     269 </span><span class="lineCov">         13 : maildir_mailbox_alloc(struct mail_storage *storage, struct mailbox_list *list,</span>
+<span class="lineNum">     270 </span>            :               const char *vname, enum mailbox_flags flags)
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span>            :     struct maildir_mailbox *mbox;
+<span class="lineNum">     273 </span>            :     pool_t pool;
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineCov">         13 :     pool = pool_alloconly_create(&quot;maildir mailbox&quot;, 1024*3);</span>
+<span class="lineNum">     276 </span><span class="lineCov">         13 :     mbox = p_new(pool, struct maildir_mailbox, 1);</span>
+<span class="lineNum">     277 </span><span class="lineCov">         13 :     mbox-&gt;box = maildir_mailbox;</span>
+<span class="lineNum">     278 </span><span class="lineCov">         13 :     mbox-&gt;box.pool = pool;</span>
+<span class="lineNum">     279 </span><span class="lineCov">         13 :     mbox-&gt;box.storage = storage;</span>
+<span class="lineNum">     280 </span><span class="lineCov">         13 :     mbox-&gt;box.list = list;</span>
+<span class="lineNum">     281 </span><span class="lineCov">         13 :     mbox-&gt;box.mail_vfuncs = &amp;maildir_mail_vfuncs;</span>
+<span class="lineNum">     282 </span><span class="lineCov">         13 :     mbox-&gt;maildir_list_index_ext_id = (uint32_t)-1;</span>
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineCov">         13 :     index_storage_mailbox_alloc(&amp;mbox-&gt;box, vname, flags, MAIL_INDEX_PREFIX);</span>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineCov">         13 :     mbox-&gt;storage = MAILDIR_STORAGE(storage);</span>
+<span class="lineNum">     287 </span><span class="lineCov">         13 :     return &amp;mbox-&gt;box;</span>
+<a name="288"><span class="lineNum">     288 </span>            : }</a>
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineCov">         11 : static int maildir_mailbox_open_existing(struct mailbox *box)</span>
+<span class="lineNum">     291 </span>            : {
+<span class="lineNum">     292 </span><span class="lineCov">         11 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     293 </span>            : 
+<span class="lineNum">     294 </span><span class="lineCov">         11 :     mbox-&gt;uidlist = maildir_uidlist_init(mbox);</span>
+<span class="lineNum">     295 </span><span class="lineCov">         11 :     mbox-&gt;keywords = maildir_keywords_init(mbox);</span>
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span><span class="lineCov">         11 :     if ((box-&gt;flags &amp; MAILBOX_FLAG_KEEP_LOCKED) != 0) {</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :         if (maildir_uidlist_lock(mbox-&gt;uidlist) &lt;= 0) {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :             maildir_mailbox_close(box);</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     301 </span>            :         }
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :         mbox-&gt;keep_lock_to = timeout_add(MAILDIR_LOCK_TOUCH_SECS * 1000,</span>
+<span class="lineNum">     303 </span>            :                          maildir_lock_touch_timeout,
+<span class="lineNum">     304 </span>            :                          mbox);
+<span class="lineNum">     305 </span>            :     }
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineCov">         11 :     if (index_storage_mailbox_open(box, FALSE) &lt; 0) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         maildir_mailbox_close(box);</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     310 </span>            :     }
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineCov">         11 :     mbox-&gt;maildir_ext_id =</span>
+<span class="lineNum">     313 </span><span class="lineCov">         11 :         mail_index_ext_register(mbox-&gt;box.index, &quot;maildir&quot;,</span>
+<span class="lineNum">     314 </span>            :                     sizeof(mbox-&gt;maildir_hdr), 0, 0);
+<span class="lineNum">     315 </span><span class="lineCov">         11 :     return 0;</span>
+<a name="316"><span class="lineNum">     316 </span>            : }</a>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 : static bool maildir_storage_is_readonly(struct mailbox *box)</span>
+<span class="lineNum">     319 </span>            : {
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     if (index_storage_is_readonly(box))</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     if (maildir_is_backend_readonly(mbox)) {</span>
+<span class="lineNum">     326 </span>            :         /* return read-only only if there are no private flags
+<span class="lineNum">     327 </span>            :            (that are stored in index files) */
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         if (mailbox_get_private_flags_mask(box) == 0)</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     330 </span>            :     }
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     332 </span>            : }
+<a name="333"><span class="lineNum">     333 </span>            : </a>
+<span class="lineNum">     334 </span>            : static int
+<span class="lineNum">     335 </span><span class="lineCov">          3 : maildir_mailbox_exists(struct mailbox *box, bool auto_boxes ATTR_UNUSED,</span>
+<span class="lineNum">     336 </span>            :                enum mailbox_existence *existence_r)
+<span class="lineNum">     337 </span>            : {
+<span class="lineNum">     338 </span><span class="lineCov">          3 :     return index_storage_mailbox_exists_full(box, &quot;cur&quot;, existence_r);</span>
+<a name="339"><span class="lineNum">     339 </span>            : }</a>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineCov">         12 : static int maildir_mailbox_open(struct mailbox *box)</span>
+<span class="lineNum">     342 </span>            : {
+<span class="lineNum">     343 </span><span class="lineCov">         12 :     const char *box_path = mailbox_get_path(box);</span>
+<span class="lineNum">     344 </span>            :     const char *root_dir;
+<span class="lineNum">     345 </span>            :     struct stat st;
+<span class="lineNum">     346 </span>            :     int ret;
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span>            :     /* begin by checking if tmp/ directory exists and if it should be
+<span class="lineNum">     349 </span>            :        cleaned up. */
+<span class="lineNum">     350 </span><span class="lineCov">         12 :     ret = maildir_check_tmp(box-&gt;storage, box_path);</span>
+<span class="lineNum">     351 </span><span class="lineCov">         12 :     if (ret &gt; 0) {</span>
+<span class="lineNum">     352 </span>            :         /* exists */
+<span class="lineNum">     353 </span><span class="lineCov">         11 :         return maildir_mailbox_open_existing(box);</span>
+<span class="lineNum">     354 </span>            :     }
+<span class="lineNum">     355 </span><span class="lineCov">          1 :     if (ret &lt; 0)</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span>            :     /* tmp/ directory doesn't exist. does the maildir? autocreate missing
+<span class="lineNum">     359 </span>            :        dirs only with Maildir++ and imapdir layouts. */
+<span class="lineNum">     360 </span><span class="lineCov">          1 :     if (strcmp(box-&gt;list-&gt;name, MAILBOX_LIST_NAME_MAILDIRPLUSPLUS) != 0 &amp;&amp;</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         strcmp(box-&gt;list-&gt;name, MAILBOX_LIST_NAME_IMAPDIR) != 0) {</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTFOUND,</span>
+<span class="lineNum">     363 </span>            :             T_MAIL_ERR_MAILBOX_NOT_FOUND(box-&gt;vname));
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     365 </span>            :     }
+<span class="lineNum">     366 </span><span class="lineCov">          1 :     root_dir = mailbox_list_get_root_forced(box-&gt;list,</span>
+<span class="lineNum">     367 </span>            :                         MAILBOX_LIST_PATH_TYPE_MAILBOX);
+<span class="lineNum">     368 </span><span class="lineCov">          1 :     if (strcmp(box_path, root_dir) == 0 &amp;&amp; !box-&gt;inbox_any) {</span>
+<span class="lineNum">     369 </span>            :         /* root directory for some namespace. */
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         errno = ENOENT;</span>
+<span class="lineNum">     371 </span><span class="lineCov">          1 :     } else if (stat(box_path, &amp;st) == 0) {</span>
+<span class="lineNum">     372 </span>            :         /* yes, we'll need to create the missing dirs */
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :         if (create_maildir_subdirs(box, TRUE) &lt; 0)</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :         return maildir_mailbox_open_existing(box);</span>
+<span class="lineNum">     377 </span>            :     }
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineCov">          1 :     if (errno == ENOENT || errno == ENAMETOOLONG) {</span>
+<span class="lineNum">     380 </span><span class="lineCov">          1 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTFOUND,</span>
+<span class="lineNum">     381 </span>            :             T_MAIL_ERR_MAILBOX_NOT_FOUND(box-&gt;vname));
+<span class="lineNum">     382 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     383 </span>            :     } else {
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box, &quot;stat(%s) failed: %m&quot;, box_path);</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     386 </span>            :     }
+<a name="387"><span class="lineNum">     387 </span>            : }</a>
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 : static int maildir_create_shared(struct mailbox *box)</span>
+<span class="lineNum">     390 </span>            : {
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :     const struct mailbox_permissions *perm = mailbox_get_permissions(box);</span>
+<span class="lineNum">     392 </span>            :     const char *path;
+<span class="lineNum">     393 </span>            :     mode_t old_mask;
+<span class="lineNum">     394 </span>            :     int fd, ret;
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     ret = mailbox_get_path_to(box, MAILBOX_LIST_PATH_TYPE_MAILBOX,</span>
+<span class="lineNum">     397 </span>            :                   &amp;path);
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     if (ret &lt; 0)</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     i_assert(ret &gt; 0);</span>
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     old_mask = umask(0);</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :     path = t_strconcat(path, &quot;/dovecot-shared&quot;, NULL);</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     fd = open(path, O_WRONLY | O_CREAT, perm-&gt;file_create_mode);</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     umask(old_mask);</span>
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     if (fd == -1) {</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box, &quot;open(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     410 </span>            :     }
+<span class="lineNum">     411 </span>            : 
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     if (fchown(fd, (uid_t)-1, perm-&gt;file_create_gid) &lt; 0) {</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :         if (errno == EPERM) {</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :             mailbox_set_critical(box, &quot;%s&quot;,</span>
+<span class="lineNum">     415 </span>            :                 eperm_error_get_chgrp(&quot;fchown&quot;, path,
+<span class="lineNum">     416 </span>            :                     perm-&gt;file_create_gid,
+<span class="lineNum">     417 </span>            :                     perm-&gt;file_create_gid_origin));
+<span class="lineNum">     418 </span>            :         } else {
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :             mailbox_set_critical(box,</span>
+<span class="lineNum">     420 </span>            :                 &quot;fchown(%s) failed: %m&quot;, path);
+<span class="lineNum">     421 </span>            :         }
+<span class="lineNum">     422 </span>            :     }
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :     i_close_fd(&amp;fd);</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     425 </span>            : }
+<a name="426"><span class="lineNum">     426 </span>            : </a>
+<span class="lineNum">     427 </span>            : static int
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 : maildir_mailbox_update(struct mailbox *box, const struct mailbox_update *update)</span>
+<span class="lineNum">     429 </span>            : {
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     431 </span>            :     struct maildir_uidlist *uidlist;
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     bool locked = FALSE;</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     if (!box-&gt;opened) {</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :         if (mailbox_open(box) &lt; 0)</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     438 </span>            :     }
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :     uidlist = mbox-&gt;uidlist;</span>
+<span class="lineNum">     440 </span>            : 
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     if (update-&gt;uid_validity != 0 || update-&gt;min_next_uid != 0 ||</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :         !guid_128_is_empty(update-&gt;mailbox_guid)) {</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :         if (maildir_uidlist_lock(uidlist) &lt;= 0)</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :         locked = TRUE;</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         if (!guid_128_is_empty(update-&gt;mailbox_guid))</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :             maildir_uidlist_set_mailbox_guid(uidlist, update-&gt;mailbox_guid);</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         if (update-&gt;uid_validity != 0)</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :             maildir_uidlist_set_uid_validity(uidlist, update-&gt;uid_validity);</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :         if (update-&gt;min_next_uid != 0) {</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :             maildir_uidlist_set_next_uid(uidlist, update-&gt;min_next_uid,</span>
+<span class="lineNum">     453 </span>            :                              FALSE);
+<span class="lineNum">     454 </span>            :         }
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         ret = maildir_uidlist_update(uidlist);</span>
+<span class="lineNum">     456 </span>            :     }
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :     if (ret == 0)</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         ret = index_storage_mailbox_update(box, update);</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :     if (locked)</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :         maildir_uidlist_unlock(uidlist);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="462"><span class="lineNum">     462 </span>            : }</a>
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span><span class="lineCov">          1 : static int maildir_create_maildirfolder_file(struct mailbox *box)</span>
+<span class="lineNum">     465 </span>            : {
+<span class="lineNum">     466 </span>            :     const struct mailbox_permissions *perm;
+<span class="lineNum">     467 </span>            :     const char *path;
+<span class="lineNum">     468 </span>            :     mode_t old_mask;
+<span class="lineNum">     469 </span>            :     int fd;
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span>            :     /* Maildir++ spec wants that maildirfolder named file is created for
+<span class="lineNum">     472 </span>            :        all subfolders. Do this only with Maildir++ layout. */
+<span class="lineNum">     473 </span><span class="lineCov">          1 :     if (strcmp(box-&gt;list-&gt;name, MAILBOX_LIST_NAME_MAILDIRPLUSPLUS) != 0)</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     475 </span><span class="lineCov">          1 :     perm = mailbox_get_permissions(box);</span>
+<span class="lineNum">     476 </span>            : 
+<span class="lineNum">     477 </span><span class="lineCov">          1 :     path = t_strconcat(mailbox_get_path(box),</span>
+<span class="lineNum">     478 </span>            :                &quot;/&quot;MAILDIR_SUBFOLDER_FILENAME, NULL);
+<span class="lineNum">     479 </span><span class="lineCov">          1 :     old_mask = umask(0);</span>
+<span class="lineNum">     480 </span><span class="lineCov">          1 :     fd = open(path, O_CREAT | O_WRONLY, perm-&gt;file_create_mode);</span>
+<span class="lineNum">     481 </span><span class="lineCov">          1 :     umask(old_mask);</span>
+<span class="lineNum">     482 </span><span class="lineCov">          1 :     if (fd != -1) {</span>
+<span class="lineNum">     483 </span>            :         /* ok */
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     } else if (errno == ENOENT) {</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTFOUND,</span>
+<span class="lineNum">     486 </span>            :             &quot;Mailbox was deleted while it was being created&quot;);
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     488 </span>            :     } else {
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box, &quot;open(%s, O_CREAT) failed: %m&quot;, path);</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     491 </span>            :     }
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineCov">          1 :     if (perm-&gt;file_create_gid != (gid_t)-1) {</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :         if (fchown(fd, (uid_t)-1, perm-&gt;file_create_gid) == 0) {</span>
+<span class="lineNum">     495 </span>            :             /* ok */
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :         } else if (errno == EPERM) {</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :             mailbox_set_critical(box, &quot;%s&quot;,</span>
+<span class="lineNum">     498 </span>            :                 eperm_error_get_chgrp(&quot;fchown&quot;, path,
+<span class="lineNum">     499 </span>            :                               perm-&gt;file_create_gid,
+<span class="lineNum">     500 </span>            :                               perm-&gt;file_create_gid_origin));
+<span class="lineNum">     501 </span>            :         } else {
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :             mailbox_set_critical(box, &quot;fchown(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     503 </span>            :         }
+<span class="lineNum">     504 </span>            :     }
+<span class="lineNum">     505 </span><span class="lineCov">          1 :     i_close_fd(&amp;fd);</span>
+<span class="lineNum">     506 </span><span class="lineCov">          1 :     return 0;</span>
+<span class="lineNum">     507 </span>            : }
+<a name="508"><span class="lineNum">     508 </span>            : </a>
+<span class="lineNum">     509 </span>            : static int
+<span class="lineNum">     510 </span><span class="lineCov">          1 : maildir_mailbox_create(struct mailbox *box, const struct mailbox_update *update,</span>
+<span class="lineNum">     511 </span>            :                bool directory)
+<span class="lineNum">     512 </span>            : {
+<span class="lineNum">     513 </span>            :     const char *root_dir, *shared_path;
+<span class="lineNum">     514 </span>            :     struct stat st;
+<span class="lineNum">     515 </span>            :     int ret;
+<span class="lineNum">     516 </span>            : 
+<span class="lineNum">     517 </span><span class="lineCov">          1 :     if ((ret = index_storage_mailbox_create(box, directory)) &lt;= 0)</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     519 </span><span class="lineCov">          1 :     ret = 0;</span>
+<span class="lineNum">     520 </span>            :     /* the maildir is created now. finish the creation as best as we can */
+<span class="lineNum">     521 </span><span class="lineCov">          1 :     if (create_maildir_subdirs(box, FALSE) &lt; 0)</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     523 </span><span class="lineCov">          1 :     if (maildir_create_maildirfolder_file(box) &lt; 0)</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     525 </span>            :     /* if dovecot-shared exists in the root dir, copy it to newly
+<span class="lineNum">     526 </span>            :        created mailboxes */
+<span class="lineNum">     527 </span><span class="lineCov">          1 :     root_dir = mailbox_list_get_root_forced(box-&gt;list,</span>
+<span class="lineNum">     528 </span>            :                         MAILBOX_LIST_PATH_TYPE_MAILBOX);
+<span class="lineNum">     529 </span><span class="lineCov">          1 :     shared_path = t_strconcat(root_dir, &quot;/dovecot-shared&quot;, NULL);</span>
+<span class="lineNum">     530 </span><span class="lineCov">          1 :     if (stat(shared_path, &amp;st) == 0) {</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :         if (maildir_create_shared(box) &lt; 0)</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     533 </span>            :     }
+<span class="lineNum">     534 </span><span class="lineCov">          1 :     if (update != NULL) {</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :         if (maildir_mailbox_update(box, update) &lt; 0)</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     537 </span>            :     }
+<span class="lineNum">     538 </span><span class="lineCov">          1 :     return ret;</span>
+<span class="lineNum">     539 </span>            : }
+<a name="540"><span class="lineNum">     540 </span>            : </a>
+<span class="lineNum">     541 </span>            : static int
+<span class="lineNum">     542 </span><span class="lineCov">         30 : maildir_mailbox_get_metadata(struct mailbox *box,</span>
+<span class="lineNum">     543 </span>            :                  enum mailbox_metadata_items items,
+<span class="lineNum">     544 </span>            :                  struct mailbox_metadata *metadata_r)
+<span class="lineNum">     545 </span>            : {
+<span class="lineNum">     546 </span><span class="lineCov">         30 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     547 </span>            : 
+<span class="lineNum">     548 </span><span class="lineCov">         30 :     if (index_mailbox_get_metadata(box, items, metadata_r) &lt; 0)</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineCov">         30 :     if ((items &amp; MAILBOX_METADATA_GUID) != 0) {</span>
+<span class="lineNum">     552 </span><span class="lineCov">         30 :         if (maildir_uidlist_get_mailbox_guid(mbox-&gt;uidlist,</span>
+<span class="lineNum">     553 </span><span class="lineCov">         30 :                              metadata_r-&gt;guid) &lt; 0)</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     555 </span>            :     }
+<span class="lineNum">     556 </span><span class="lineCov">         30 :     return 0;</span>
+<a name="557"><span class="lineNum">     557 </span>            : }</a>
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineCov">         11 : static void maildir_mailbox_close(struct mailbox *box)</span>
+<span class="lineNum">     560 </span>            : {
+<span class="lineNum">     561 </span><span class="lineCov">         11 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     562 </span>            : 
+<span class="lineNum">     563 </span><span class="lineCov">         11 :     if (mbox-&gt;keep_lock_to != NULL) {</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :         maildir_uidlist_unlock(mbox-&gt;uidlist);</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;mbox-&gt;keep_lock_to);</span>
+<span class="lineNum">     566 </span>            :     }
+<span class="lineNum">     567 </span>            : 
+<span class="lineNum">     568 </span><span class="lineCov">         11 :     if (mbox-&gt;flags_view != NULL)</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;mbox-&gt;flags_view);</span>
+<span class="lineNum">     570 </span><span class="lineCov">         11 :     if (mbox-&gt;keywords != NULL)</span>
+<span class="lineNum">     571 </span><span class="lineCov">         11 :         maildir_keywords_deinit(&amp;mbox-&gt;keywords);</span>
+<span class="lineNum">     572 </span><span class="lineCov">         11 :     maildir_uidlist_deinit(&amp;mbox-&gt;uidlist);</span>
+<span class="lineNum">     573 </span><span class="lineCov">         11 :     index_storage_mailbox_close(box);</span>
+<a name="574"><span class="lineNum">     574 </span><span class="lineCov">         11 : }</span></a>
+<span class="lineNum">     575 </span>            : 
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 : static void maildir_notify_changes(struct mailbox *box)</span>
+<span class="lineNum">     577 </span>            : {
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     const char *box_path = mailbox_get_path(box);</span>
+<span class="lineNum">     580 </span>            : 
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :     if (box-&gt;notify_callback == NULL)</span>
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :         mailbox_watch_remove_all(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     583 </span>            :     else {
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :         mailbox_watch_add(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     585 </span>            :             t_strconcat(box_path, &quot;/new&quot;, NULL));
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :         mailbox_watch_add(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     587 </span>            :             t_strconcat(box_path, &quot;/cur&quot;, NULL));
+<span class="lineNum">     588 </span>            :     }
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 : }</span>
+<a name="590"><span class="lineNum">     590 </span>            : </a>
+<span class="lineNum">     591 </span>            : static bool
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 : maildir_is_internal_name(struct mailbox_list *list ATTR_UNUSED,</span>
+<span class="lineNum">     593 </span>            :              const char *name)
+<span class="lineNum">     594 </span>            : {
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :     return strcmp(name, &quot;cur&quot;) == 0 ||</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         strcmp(name, &quot;new&quot;) == 0 ||</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :         strcmp(name, &quot;tmp&quot;) == 0;</span>
+<a name="598"><span class="lineNum">     598 </span>            : }</a>
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span><span class="lineCov">          1 : static void maildir_storage_add_list(struct mail_storage *storage,</span>
+<span class="lineNum">     601 </span>            :                      struct mailbox_list *list)
+<span class="lineNum">     602 </span>            : {
+<span class="lineNum">     603 </span>            :     struct maildir_mailbox_list_context *mlist;
+<span class="lineNum">     604 </span>            : 
+<span class="lineNum">     605 </span><span class="lineCov">          1 :     mlist = p_new(list-&gt;pool, struct maildir_mailbox_list_context, 1);</span>
+<span class="lineNum">     606 </span><span class="lineCov">          1 :     mlist-&gt;module_ctx.super = list-&gt;v;</span>
+<span class="lineNum">     607 </span><span class="lineCov">          1 :     mlist-&gt;set = mail_namespace_get_driver_settings(list-&gt;ns, storage);</span>
+<span class="lineNum">     608 </span>            : 
+<span class="lineNum">     609 </span><span class="lineCov">          1 :     list-&gt;v.is_internal_name = maildir_is_internal_name;</span>
+<span class="lineNum">     610 </span><span class="lineCov">          1 :     MODULE_CONTEXT_SET(list, maildir_mailbox_list_module, mlist);</span>
+<a name="611"><span class="lineNum">     611 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     612 </span>            : 
+<span class="lineNum">     613 </span><span class="lineCov">          1 : uint32_t maildir_get_uidvalidity_next(struct mailbox_list *list)</span>
+<span class="lineNum">     614 </span>            : {
+<span class="lineNum">     615 </span>            :     const char *path;
+<span class="lineNum">     616 </span>            : 
+<span class="lineNum">     617 </span><span class="lineCov">          1 :     path = mailbox_list_get_root_forced(list, MAILBOX_LIST_PATH_TYPE_CONTROL);</span>
+<span class="lineNum">     618 </span><span class="lineCov">          1 :     path = t_strconcat(path, &quot;/&quot;MAILDIR_UIDVALIDITY_FNAME, NULL);</span>
+<span class="lineNum">     619 </span><span class="lineCov">          1 :     return mailbox_uidvalidity_next(list, path);</span>
+<a name="620"><span class="lineNum">     620 </span>            : }</a>
+<span class="lineNum">     621 </span>            : 
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 : static enum mail_flags maildir_get_private_flags_mask(struct mailbox *box)</span>
+<span class="lineNum">     623 </span>            : {
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">     625 </span>            :     const char *path, *path2;
+<span class="lineNum">     626 </span>            :     struct stat st;
+<span class="lineNum">     627 </span>            : 
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :     if (mbox-&gt;private_flags_mask_set)</span>
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :         return mbox-&gt;_private_flags_mask;</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :     mbox-&gt;private_flags_mask_set = TRUE;</span>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :     path = mailbox_list_get_root_forced(box-&gt;list, MAILBOX_LIST_PATH_TYPE_MAILBOX);</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :     if (box-&gt;list-&gt;set.index_pvt_dir != NULL) {</span>
+<span class="lineNum">     634 </span>            :         /* private index directory is set. we'll definitely have
+<span class="lineNum">     635 </span>            :            private flags. */
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :         mbox-&gt;_private_flags_mask = MAIL_SEEN;</span>
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :     } else if (!mailbox_list_get_root_path(box-&gt;list,</span>
+<span class="lineNum">     638 </span>            :                            MAILBOX_LIST_PATH_TYPE_INDEX,
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :                            &amp;path2) ||</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :            strcmp(path, path2) == 0) {</span>
+<span class="lineNum">     641 </span>            :         /* no separate index directory. we can't have private flags,
+<span class="lineNum">     642 </span>            :            so don't even bother checking if dovecot-shared exists */
+<span class="lineNum">     643 </span>            :     } else {
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :         path = t_strconcat(mailbox_get_path(box),</span>
+<span class="lineNum">     645 </span>            :                    &quot;/dovecot-shared&quot;, NULL);
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :         if (stat(path, &amp;st) == 0)</span>
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :             mbox-&gt;_private_flags_mask = MAIL_SEEN;</span>
+<span class="lineNum">     648 </span>            :     }
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :     return mbox-&gt;_private_flags_mask;</span>
+<a name="650"><span class="lineNum">     650 </span>            : }</a>
+<span class="lineNum">     651 </span>            : 
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 : bool maildir_is_backend_readonly(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">     653 </span>            : {
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :     if (!mbox-&gt;backend_readonly_set) {</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         const char *box_path = mailbox_get_path(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     656 </span>            : 
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :         mbox-&gt;backend_readonly_set = TRUE;</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :         if (access(t_strconcat(box_path, &quot;/cur&quot;, NULL), W_OK) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :             errno == EACCES)</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :             mbox-&gt;backend_readonly = TRUE;</span>
+<span class="lineNum">     661 </span>            :     }
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :     return mbox-&gt;backend_readonly;</span>
+<span class="lineNum">     663 </span>            : }
+<span class="lineNum">     664 </span>            : 
+<span class="lineNum">     665 </span>            : struct mail_storage maildir_storage = {
+<span class="lineNum">     666 </span>            :     .name = MAILDIR_STORAGE_NAME,
+<span class="lineNum">     667 </span>            :     .class_flags = MAIL_STORAGE_CLASS_FLAG_FILE_PER_MSG |
+<span class="lineNum">     668 </span>            :         MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_GUIDS |
+<span class="lineNum">     669 </span>            :         MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_SAVE_GUIDS |
+<span class="lineNum">     670 </span>            :         MAIL_STORAGE_CLASS_FLAG_BINARY_DATA,
+<span class="lineNum">     671 </span>            : 
+<span class="lineNum">     672 </span>            :     .v = {
+<span class="lineNum">     673 </span>            :                 maildir_get_setting_parser_info,
+<span class="lineNum">     674 </span>            :         maildir_storage_alloc,
+<span class="lineNum">     675 </span>            :         maildir_storage_create,
+<span class="lineNum">     676 </span>            :         index_storage_destroy,
+<span class="lineNum">     677 </span>            :         maildir_storage_add_list,
+<span class="lineNum">     678 </span>            :         maildir_storage_get_list_settings,
+<span class="lineNum">     679 </span>            :         maildir_storage_autodetect,
+<span class="lineNum">     680 </span>            :         maildir_mailbox_alloc,
+<span class="lineNum">     681 </span>            :         NULL,
+<span class="lineNum">     682 </span>            :         NULL,
+<span class="lineNum">     683 </span>            :     }
+<span class="lineNum">     684 </span>            : };
+<span class="lineNum">     685 </span>            : 
+<span class="lineNum">     686 </span>            : struct mailbox maildir_mailbox = {
+<span class="lineNum">     687 </span>            :     .v = {
+<span class="lineNum">     688 </span>            :         maildir_storage_is_readonly,
+<span class="lineNum">     689 </span>            :         index_storage_mailbox_enable,
+<span class="lineNum">     690 </span>            :         maildir_mailbox_exists,
+<span class="lineNum">     691 </span>            :         maildir_mailbox_open,
+<span class="lineNum">     692 </span>            :         maildir_mailbox_close,
+<span class="lineNum">     693 </span>            :         index_storage_mailbox_free,
+<span class="lineNum">     694 </span>            :         maildir_mailbox_create,
+<span class="lineNum">     695 </span>            :         maildir_mailbox_update,
+<span class="lineNum">     696 </span>            :         index_storage_mailbox_delete,
+<span class="lineNum">     697 </span>            :         index_storage_mailbox_rename,
+<span class="lineNum">     698 </span>            :         index_storage_get_status,
+<span class="lineNum">     699 </span>            :         maildir_mailbox_get_metadata,
+<span class="lineNum">     700 </span>            :         index_storage_set_subscribed,
+<span class="lineNum">     701 </span>            :         index_storage_attribute_set,
+<span class="lineNum">     702 </span>            :         index_storage_attribute_get,
+<span class="lineNum">     703 </span>            :         index_storage_attribute_iter_init,
+<span class="lineNum">     704 </span>            :         index_storage_attribute_iter_next,
+<span class="lineNum">     705 </span>            :         index_storage_attribute_iter_deinit,
+<span class="lineNum">     706 </span>            :         maildir_list_index_has_changed,
+<span class="lineNum">     707 </span>            :         maildir_list_index_update_sync,
+<span class="lineNum">     708 </span>            :         maildir_storage_sync_init,
+<span class="lineNum">     709 </span>            :         index_mailbox_sync_next,
+<span class="lineNum">     710 </span>            :         index_mailbox_sync_deinit,
+<span class="lineNum">     711 </span>            :         NULL,
+<span class="lineNum">     712 </span>            :         maildir_notify_changes,
+<span class="lineNum">     713 </span>            :         index_transaction_begin,
+<span class="lineNum">     714 </span>            :         index_transaction_commit,
+<span class="lineNum">     715 </span>            :         index_transaction_rollback,
+<span class="lineNum">     716 </span>            :         maildir_get_private_flags_mask,
+<span class="lineNum">     717 </span>            :         index_mail_alloc,
+<span class="lineNum">     718 </span>            :         index_storage_search_init,
+<span class="lineNum">     719 </span>            :         index_storage_search_deinit,
+<span class="lineNum">     720 </span>            :         index_storage_search_next_nonblock,
+<span class="lineNum">     721 </span>            :         index_storage_search_next_update_seq,
+<span class="lineNum">     722 </span>            :         maildir_save_alloc,
+<span class="lineNum">     723 </span>            :         maildir_save_begin,
+<span class="lineNum">     724 </span>            :         maildir_save_continue,
+<span class="lineNum">     725 </span>            :         maildir_save_finish,
+<span class="lineNum">     726 </span>            :         maildir_save_cancel,
+<span class="lineNum">     727 </span>            :         maildir_copy,
+<span class="lineNum">     728 </span>            :         maildir_transaction_save_commit_pre,
+<span class="lineNum">     729 </span>            :         maildir_transaction_save_commit_post,
+<span class="lineNum">     730 </span>            :         maildir_transaction_save_rollback,
+<span class="lineNum">     731 </span>            :         index_storage_is_inconsistent
+<span class="lineNum">     732 </span>            :     }
+<span class="lineNum">     733 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,1007 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/file-dotlock.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - file-dotlock.c<span style="font-size: 80%;"> (source / <a href="file-dotlock.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">161</td>
+            <td class="headerCovTableEntry">437</td>
+            <td class="headerCovTableEntryLo">36.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntryLo">57.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;hostpid.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;file-lock.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;safe-mkstemp.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;nfs-workarounds.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;file-dotlock.h&quot;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">      16 </span>            : #include &lt;signal.h&gt;
+<span class="lineNum">      17 </span>            : #include &lt;time.h&gt;
+<span class="lineNum">      18 </span>            : #include &lt;utime.h&gt;
+<span class="lineNum">      19 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : #define DEFAULT_LOCK_SUFFIX &quot;.lock&quot;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : /* 0.1 .. 0.2msec */
+<span class="lineNum">      24 </span>            : #define LOCK_RANDOM_USLEEP_TIME (100000 + (unsigned int)i_rand() % 100000)
+<span class="lineNum">      25 </span>            : /* Maximum 3 second wait between dotlock checks */
+<span class="lineNum">      26 </span>            : #define LOCK_MAX_WAIT_USECS (1000000 * 3)
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : /* If the dotlock is newer than this, don't verify that the PID it contains
+<span class="lineNum">      29 </span>            :    is valid (since it most likely is). */
+<span class="lineNum">      30 </span>            : #define STALE_PID_CHECK_SECS 2
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : /* Maximum difference between current time and create file's ctime before
+<span class="lineNum">      33 </span>            :    logging a warning. Should be less than a second in normal operation. */
+<span class="lineNum">      34 </span>            : #define MAX_TIME_DIFF 30
+<span class="lineNum">      35 </span>            : /* NFS may return a cached mtime in stat(). A later non-cached stat() may
+<span class="lineNum">      36 </span>            :    return a slightly different mtime. Allow the difference to be this much
+<span class="lineNum">      37 </span>            :    and still consider it to be the same mtime. */
+<span class="lineNum">      38 </span>            : #define FILE_DOTLOCK_MAX_STAT_MTIME_DIFF 1
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            : struct dotlock {
+<span class="lineNum">      41 </span>            :     struct dotlock_settings settings;
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            :     dev_t dev;
+<span class="lineNum">      44 </span>            :     ino_t ino;
+<span class="lineNum">      45 </span>            :     time_t mtime;
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            :     char *path;
+<span class="lineNum">      48 </span>            :     char *lock_path;
+<span class="lineNum">      49 </span>            :     int fd;
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :     time_t lock_time;
+<span class="lineNum">      52 </span>            : };
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            : struct file_change_info {
+<span class="lineNum">      55 </span>            :     dev_t dev;
+<span class="lineNum">      56 </span>            :     ino_t ino;
+<span class="lineNum">      57 </span>            :     off_t size;
+<span class="lineNum">      58 </span>            :     time_t ctime, mtime;
+<span class="lineNum">      59 </span>            : };
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            : struct lock_info {
+<span class="lineNum">      62 </span>            :     const struct dotlock_settings *set;
+<span class="lineNum">      63 </span>            :     const char *path, *lock_path, *temp_path;
+<span class="lineNum">      64 </span>            :     int fd;
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span>            :     struct file_change_info lock_info;
+<span class="lineNum">      67 </span>            :     struct file_change_info file_info;
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span>            :     time_t last_pid_check;
+<span class="lineNum">      70 </span>            :     time_t last_change;
+<span class="lineNum">      71 </span>            :     unsigned int wait_usecs;
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span>            :     bool have_pid:1;
+<span class="lineNum">      74 </span>            :     bool pid_read:1;
+<span class="lineNum">      75 </span>            :     bool use_io_notify:1;
+<span class="lineNum">      76 </span>            :     bool lock_stated:1;
+<span class="lineNum">      77 </span>            : };
+<a name="78"><span class="lineNum">      78 </span>            : </a>
+<span class="lineNum">      79 </span>            : static struct dotlock *
+<span class="lineNum">      80 </span><span class="lineCov">         10 : file_dotlock_alloc(const struct dotlock_settings *settings, const char *path)</span>
+<span class="lineNum">      81 </span>            : {
+<span class="lineNum">      82 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineCov">         10 :     dotlock = i_new(struct dotlock, 1);</span>
+<span class="lineNum">      85 </span><span class="lineCov">         10 :     dotlock-&gt;settings = *settings;</span>
+<span class="lineNum">      86 </span><span class="lineCov">         10 :     if (dotlock-&gt;settings.lock_suffix == NULL)</span>
+<span class="lineNum">      87 </span><span class="lineCov">          6 :         dotlock-&gt;settings.lock_suffix = DEFAULT_LOCK_SUFFIX;</span>
+<span class="lineNum">      88 </span><span class="lineCov">         10 :     dotlock-&gt;path = i_strdup(path);</span>
+<span class="lineNum">      89 </span><span class="lineCov">         10 :     dotlock-&gt;fd = -1;</span>
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineCov">         10 :     return dotlock;</span>
+<a name="92"><span class="lineNum">      92 </span>            : }</a>
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 : static pid_t read_local_pid(const char *lock_path)</span>
+<span class="lineNum">      95 </span>            : {
+<span class="lineNum">      96 </span>            :     char buf[512], *host;
+<span class="lineNum">      97 </span>            :     int fd;
+<span class="lineNum">      98 </span>            :     ssize_t ret;
+<span class="lineNum">      99 </span>            :     pid_t pid;
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     fd = open(lock_path, O_RDONLY);</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     if (fd == -1)</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         return -1; /* ignore the actual error */</span>
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span>            :     /* read line */
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     ret = read(fd, buf, sizeof(buf)-1);</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     i_close_fd(&amp;fd);</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0)</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span>            :     /* fix the string */
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     if (buf[ret-1] == '\n')</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :         ret--;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     buf[ret] = '\0';</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span>            :     /* it should contain pid:host */
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     host = strchr(buf, ':');</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     if (host == NULL)</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     *host++ = '\0';</span>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span>            :     /* host must be ours */
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     if (strcmp(host, my_hostname) != 0)</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     if (str_to_pid(buf, &amp;pid) &lt; 0)</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (pid &lt;= 0)</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     return pid;</span>
+<span class="lineNum">     131 </span>            : }
+<a name="132"><span class="lineNum">     132 </span>            : </a>
+<span class="lineNum">     133 </span>            : static bool
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 : update_change_info(const struct stat *st, struct file_change_info *change,</span>
+<span class="lineNum">     135 </span>            :            time_t *last_change_r, time_t now, bool check_ctime)
+<span class="lineNum">     136 </span>            : {
+<span class="lineNum">     137 </span>            :     /* ctime is checked only if we're not doing NFS attribute cache
+<span class="lineNum">     138 </span>            :        flushes. it changes them. */
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     if (change-&gt;ino != st-&gt;st_ino || !CMP_DEV_T(change-&gt;dev, st-&gt;st_dev) ||</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         (change-&gt;ctime != st-&gt;st_ctime &amp;&amp; check_ctime) ||</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         change-&gt;mtime != st-&gt;st_mtime || change-&gt;size != st-&gt;st_size) {</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         time_t change_time = now;</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         if (change-&gt;ctime == 0) {</span>
+<span class="lineNum">     145 </span>            :             /* First check, set last_change to file's change time.
+<span class="lineNum">     146 </span>            :                Use mtime instead if it's higher, but only if it's
+<span class="lineNum">     147 </span>            :                not higher than current time, because the mtime
+<span class="lineNum">     148 </span>            :                can also be used for keeping metadata. */
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :             change_time = st-&gt;st_mtime &lt;= now &amp;&amp;</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :                 (st-&gt;st_mtime &gt; st-&gt;st_ctime || !check_ctime) ?</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :                 st-&gt;st_mtime : st-&gt;st_ctime;</span>
+<span class="lineNum">     152 </span>            :         }
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         if (*last_change_r &lt; change_time)</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :             *last_change_r = change_time;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         change-&gt;ino = st-&gt;st_ino;</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         change-&gt;dev = st-&gt;st_dev;</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         change-&gt;ctime = st-&gt;st_ctime;</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         change-&gt;mtime = st-&gt;st_mtime;</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :         change-&gt;size = st-&gt;st_size;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     161 </span>            :     }
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="163"><span class="lineNum">     163 </span>            : }</a>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineCov">         10 : static int update_lock_info(time_t now, struct lock_info *lock_info,</span>
+<span class="lineNum">     166 </span>            :                 bool *changed_r)
+<span class="lineNum">     167 </span>            : {
+<span class="lineNum">     168 </span>            :     struct stat st;
+<span class="lineNum">     169 </span>            : 
+<span class="lineNum">     170 </span>            :     /* don't waste time flushing attribute cache the first time we're here.
+<span class="lineNum">     171 </span>            :        if it's stale we'll get back here soon. */
+<span class="lineNum">     172 </span><span class="lineCov">         10 :     if (lock_info-&gt;set-&gt;nfs_flush &amp;&amp; lock_info-&gt;lock_stated) {</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         nfs_flush_file_handle_cache(lock_info-&gt;lock_path);</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         nfs_flush_attr_cache_unlocked(lock_info-&gt;lock_path);</span>
+<span class="lineNum">     175 </span>            :     }
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">         10 :     lock_info-&gt;lock_stated = TRUE;</span>
+<span class="lineNum">     178 </span><span class="lineCov">         10 :     if (nfs_safe_lstat(lock_info-&gt;lock_path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     179 </span><span class="lineCov">         10 :         if (errno != ENOENT) {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :             i_error(&quot;lstat(%s) failed: %m&quot;, lock_info-&gt;lock_path);</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     182 </span>            :         }
+<span class="lineNum">     183 </span><span class="lineCov">         10 :         return 1;</span>
+<span class="lineNum">     184 </span>            :     }
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     *changed_r = update_change_info(&amp;st, &amp;lock_info-&gt;lock_info,</span>
+<span class="lineNum">     187 </span>            :                     &amp;lock_info-&gt;last_change, now,
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :                     !lock_info-&gt;set-&gt;nfs_flush);</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="190"><span class="lineNum">     190 </span>            : }</a>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 : static int dotlock_override(struct lock_info *lock_info)</span>
+<span class="lineNum">     193 </span>            : {
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     if (i_unlink_if_exists(lock_info-&gt;lock_path) &lt; 0)</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span>            :     /* make sure we sleep for a while after overriding the lock file.
+<span class="lineNum">     198 </span>            :        otherwise another process might try to override it at the same time
+<span class="lineNum">     199 </span>            :        and unlink our newly created dotlock. */
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     if (lock_info-&gt;use_io_notify)</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         usleep(LOCK_RANDOM_USLEEP_TIME);</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="203"><span class="lineNum">     203 </span>            : }</a>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span><span class="lineCov">         10 : static int check_lock(time_t now, struct lock_info *lock_info)</span>
+<span class="lineNum">     206 </span>            : {
+<span class="lineNum">     207 </span><span class="lineCov">         10 :     time_t stale_timeout = lock_info-&gt;set-&gt;stale_timeout;</span>
+<span class="lineNum">     208 </span><span class="lineCov">         10 :     pid_t pid = -1;</span>
+<span class="lineNum">     209 </span>            :     bool changed;
+<span class="lineNum">     210 </span>            :     int ret;
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineCov">         10 :     if ((ret = update_lock_info(now, lock_info, &amp;changed)) != 0)</span>
+<span class="lineNum">     213 </span><span class="lineCov">         10 :         return ret;</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     if (changed || !lock_info-&gt;pid_read) {</span>
+<span class="lineNum">     215 </span>            :         /* either our first check or someone else got the lock file.
+<span class="lineNum">     216 </span>            :            if the dotlock was created only a couple of seconds ago,
+<span class="lineNum">     217 </span>            :            don't bother to read its PID. */
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         if (lock_info-&gt;lock_info.mtime &gt;= now - STALE_PID_CHECK_SECS)</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :             lock_info-&gt;pid_read = FALSE;</span>
+<span class="lineNum">     220 </span>            :         else {
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :             pid = read_local_pid(lock_info-&gt;lock_path);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             lock_info-&gt;pid_read = TRUE;</span>
+<span class="lineNum">     223 </span>            :         }
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :         lock_info-&gt;have_pid = pid != -1;</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     } else if (!lock_info-&gt;have_pid) {</span>
+<span class="lineNum">     226 </span>            :         /* no pid checking */
+<span class="lineNum">     227 </span>            :     } else {
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         if (lock_info-&gt;last_pid_check == now) {</span>
+<span class="lineNum">     229 </span>            :             /* we just checked the pid */
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     231 </span>            :         }
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span>            :         /* re-read the pid. even if all times and inodes are the same,
+<span class="lineNum">     234 </span>            :            the PID in the file might have changed if lock files were
+<span class="lineNum">     235 </span>            :            rapidly being recreated. */
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         pid = read_local_pid(lock_info-&gt;lock_path);</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         lock_info-&gt;have_pid = pid != -1;</span>
+<span class="lineNum">     238 </span>            :     }
+<span class="lineNum">     239 </span>            : 
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     if (lock_info-&gt;have_pid) {</span>
+<span class="lineNum">     241 </span>            :         /* we've local PID. Check if it exists. */
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         if (kill(pid, 0) == 0 || errno != ESRCH) {</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :             if (pid != getpid()) {</span>
+<span class="lineNum">     244 </span>            :                 /* process exists, don't override */
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     246 </span>            :             }
+<span class="lineNum">     247 </span>            :             /* it's us. either we're locking it again, or it's a
+<span class="lineNum">     248 </span>            :                stale lock file with same pid than us. either way,
+<span class="lineNum">     249 </span>            :                recreate it.. */
+<span class="lineNum">     250 </span>            :         }
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span>            :         /* doesn't exist - now check again if the dotlock was just
+<span class="lineNum">     253 </span>            :            deleted or replaced */
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         if ((ret = update_lock_info(now, lock_info, &amp;changed)) != 0)</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         if (!changed) {</span>
+<span class="lineNum">     258 </span>            :             /* still there, go ahead and override it */
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :             return dotlock_override(lock_info);</span>
+<span class="lineNum">     260 </span>            :         }
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     262 </span>            :     }
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     if (stale_timeout == 0) {</span>
+<span class="lineNum">     265 </span>            :         /* no change checking */
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     267 </span>            :     }
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     if (now &gt; lock_info-&gt;last_change + stale_timeout) {</span>
+<span class="lineNum">     270 </span>            :         struct stat st;
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span>            :         /* possibly stale lock file. check also the timestamp of the
+<span class="lineNum">     273 </span>            :            file we're protecting. */
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :         if (lock_info-&gt;set-&gt;nfs_flush) {</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             nfs_flush_file_handle_cache(lock_info-&gt;path);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :             nfs_flush_attr_cache_maybe_locked(lock_info-&gt;path);</span>
+<span class="lineNum">     277 </span>            :         }
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         if (nfs_safe_stat(lock_info-&gt;path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :             if (errno == ENOENT) {</span>
+<span class="lineNum">     280 </span>            :                 /* file doesn't exist. treat it as if
+<span class="lineNum">     281 </span>            :                    it hasn't changed */
+<span class="lineNum">     282 </span>            :             } else {
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :                 i_error(&quot;stat(%s) failed: %m&quot;, lock_info-&gt;path);</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     285 </span>            :             }
+<span class="lineNum">     286 </span>            :         } else {
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :             (void)update_change_info(&amp;st, &amp;lock_info-&gt;file_info,</span>
+<span class="lineNum">     288 </span>            :                          &amp;lock_info-&gt;last_change, now,
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :                          !lock_info-&gt;set-&gt;nfs_flush);</span>
+<span class="lineNum">     290 </span>            :         }
+<span class="lineNum">     291 </span>            :     }
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     if (now &gt; lock_info-&gt;last_change + stale_timeout) {</span>
+<span class="lineNum">     294 </span>            :         /* no changes for a while, assume stale lock */
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         return dotlock_override(lock_info);</span>
+<span class="lineNum">     296 </span>            :     }
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="299"><span class="lineNum">     299 </span>            : }</a>
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineCov">          1 : static int file_write_pid(int fd, const char *path, bool nfs_flush)</span>
+<span class="lineNum">     302 </span>            : {
+<span class="lineNum">     303 </span>            :     const char *str;
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span>            :     /* write our pid and host, if possible */
+<span class="lineNum">     306 </span><span class="lineCov">          1 :     str = t_strdup_printf(&quot;%s:%s&quot;, my_pid, my_hostname);</span>
+<span class="lineNum">     307 </span><span class="lineCov">          1 :     if (write_full(fd, str, strlen(str)) &lt; 0 ||</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         (nfs_flush &amp;&amp; fdatasync(fd) &lt; 0)) {</span>
+<span class="lineNum">     309 </span>            :         /* failed, leave it empty then */
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         if (ftruncate(fd, 0) &lt; 0) {</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :             i_error(&quot;ftruncate(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     313 </span>            :         }
+<span class="lineNum">     314 </span>            :     }
+<span class="lineNum">     315 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="316"><span class="lineNum">     316 </span>            : }</a>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span><span class="lineCov">          7 : static int try_create_lock_hardlink(struct lock_info *lock_info, bool write_pid,</span>
+<span class="lineNum">     319 </span>            :                     string_t *tmp_path, time_t now)
+<span class="lineNum">     320 </span>            : {
+<span class="lineNum">     321 </span><span class="lineCov">          7 :     const char *temp_prefix = lock_info-&gt;set-&gt;temp_prefix;</span>
+<span class="lineNum">     322 </span>            :     const char *p;
+<span class="lineNum">     323 </span>            :     mode_t old_mask;
+<span class="lineNum">     324 </span>            :     struct stat st;
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineCov">          7 :     if (lock_info-&gt;temp_path == NULL) {</span>
+<span class="lineNum">     327 </span>            :         /* we'll need our temp file first. */
+<span class="lineNum">     328 </span><span class="lineCov">          7 :         i_assert(lock_info-&gt;fd == -1);</span>
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineCov">          7 :         p = strrchr(lock_info-&gt;lock_path, '/');</span>
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineCov">          7 :         str_truncate(tmp_path, 0);</span>
+<span class="lineNum">     333 </span><span class="lineCov">          7 :         if (temp_prefix != NULL) {</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :             if (*temp_prefix != '/' &amp;&amp; p != NULL) {</span>
+<span class="lineNum">     335 </span>            :                 /* add directory */
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :                 str_append_n(tmp_path, lock_info-&gt;lock_path,</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :                          p - lock_info-&gt;lock_path);</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :                 str_append_c(tmp_path, '/');</span>
+<span class="lineNum">     339 </span>            :             }
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :             str_append(tmp_path, temp_prefix);</span>
+<span class="lineNum">     341 </span>            :         } else {
+<span class="lineNum">     342 </span><span class="lineCov">          7 :             if (p != NULL) {</span>
+<span class="lineNum">     343 </span>            :                 /* add directory */
+<span class="lineNum">     344 </span><span class="lineCov">          7 :                 str_append_n(tmp_path, lock_info-&gt;lock_path,</span>
+<span class="lineNum">     345 </span><span class="lineCov">          7 :                          p - lock_info-&gt;lock_path);</span>
+<span class="lineNum">     346 </span><span class="lineCov">          7 :                 str_append_c(tmp_path, '/');</span>
+<span class="lineNum">     347 </span>            :             }
+<span class="lineNum">     348 </span><span class="lineCov">          7 :             str_printfa(tmp_path, &quot;.temp.%s.%s.&quot;,</span>
+<span class="lineNum">     349 </span>            :                     my_hostname, my_pid);
+<span class="lineNum">     350 </span>            :         }
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span><span class="lineCov">          7 :         old_mask = umask(0666);</span>
+<span class="lineNum">     353 </span><span class="lineCov">          7 :         lock_info-&gt;fd = safe_mkstemp(tmp_path, 0666 ^ old_mask,</span>
+<span class="lineNum">     354 </span>            :                          (uid_t)-1, (gid_t)-1);
+<span class="lineNum">     355 </span><span class="lineCov">          7 :         umask(old_mask);</span>
+<span class="lineNum">     356 </span><span class="lineCov">          7 :         if (lock_info-&gt;fd == -1)</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineCov">          7 :         if (write_pid) {</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :             if (file_write_pid(lock_info-&gt;fd,</span>
+<span class="lineNum">     361 </span>            :                        str_c(tmp_path),
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :                        lock_info-&gt;set-&gt;nfs_flush) &lt; 0) {</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :                 i_close_fd(&amp;lock_info-&gt;fd);</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     365 </span>            :             }
+<span class="lineNum">     366 </span>            :         }
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span><span class="lineCov">          7 :                 lock_info-&gt;temp_path = str_c(tmp_path);</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     } else if (fstat(lock_info-&gt;fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         i_error(&quot;fstat(%s) failed: %m&quot;, lock_info-&gt;temp_path);</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     } else if (st.st_ctime &lt; now) {</span>
+<span class="lineNum">     373 </span>            :         /* we've been waiting for a while.
+<span class="lineNum">     374 </span>            :            refresh the file's timestamp. */
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :         if (utime(lock_info-&gt;temp_path, NULL) &lt; 0)</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             i_error(&quot;utime(%s) failed: %m&quot;, lock_info-&gt;temp_path);</span>
+<span class="lineNum">     377 </span>            :     }
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineCov">          7 :     if (nfs_safe_link(lock_info-&gt;temp_path,</span>
+<span class="lineNum">     380 </span>            :               lock_info-&gt;lock_path, TRUE) &lt; 0) {
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         if (errno == EEXIST)</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     383 </span>            : 
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         if (errno != EACCES) {</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :             i_error(&quot;link(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">     386 </span>            :                 lock_info-&gt;temp_path, lock_info-&gt;lock_path);
+<span class="lineNum">     387 </span>            :         }
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     389 </span>            :     }
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineCov">          7 :     if (i_unlink(lock_info-&gt;temp_path) &lt; 0) {</span>
+<span class="lineNum">     392 </span>            :         /* non-fatal, continue */
+<span class="lineNum">     393 </span>            :     }
+<span class="lineNum">     394 </span><span class="lineCov">          7 :     lock_info-&gt;temp_path = NULL;</span>
+<span class="lineNum">     395 </span><span class="lineCov">          7 :     return 1;</span>
+<a name="396"><span class="lineNum">     396 </span>            : }</a>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineCov">          3 : static int try_create_lock_excl(struct lock_info *lock_info, bool write_pid)</span>
+<span class="lineNum">     399 </span>            : {
+<span class="lineNum">     400 </span>            :     int fd;
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span><span class="lineCov">          3 :     fd = open(lock_info-&gt;lock_path, O_RDWR | O_EXCL | O_CREAT, 0666);</span>
+<span class="lineNum">     403 </span><span class="lineCov">          3 :     if (fd == -1) {</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :         if (errno == EEXIST)</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         if (errno != ENOENT &amp;&amp; errno != EACCES)</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :             i_error(&quot;open(%s) failed: %m&quot;, lock_info-&gt;lock_path);</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     410 </span>            :     }
+<span class="lineNum">     411 </span>            : 
+<span class="lineNum">     412 </span><span class="lineCov">          3 :     if (write_pid) {</span>
+<span class="lineNum">     413 </span><span class="lineCov">          1 :         if (file_write_pid(fd, lock_info-&gt;lock_path,</span>
+<span class="lineNum">     414 </span><span class="lineCov">          1 :                    lock_info-&gt;set-&gt;nfs_flush) &lt; 0) {</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :             i_close_fd(&amp;fd);</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     417 </span>            :         }
+<span class="lineNum">     418 </span>            :     }
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span><span class="lineCov">          3 :     lock_info-&gt;fd = fd;</span>
+<span class="lineNum">     421 </span><span class="lineCov">          3 :     return 1;</span>
+<a name="422"><span class="lineNum">     422 </span>            : }</a>
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 : static void dotlock_wait_end(struct ioloop *ioloop)</span>
+<span class="lineNum">     425 </span>            : {
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :     io_loop_stop(ioloop);</span>
+<a name="427"><span class="lineNum">     427 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 : static void dotlock_wait(struct lock_info *lock_info)</span>
+<span class="lineNum">     430 </span>            : {
+<span class="lineNum">     431 </span>            :     struct ioloop *ioloop;
+<span class="lineNum">     432 </span>            :     struct io *io;
+<span class="lineNum">     433 </span>            :     struct timeout *to;
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     if (!lock_info-&gt;use_io_notify) {</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :         usleep(lock_info-&gt;wait_usecs);</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     438 </span>            :     }
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     ioloop = io_loop_create();</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     switch (io_add_notify(lock_info-&gt;lock_path, dotlock_wait_end,</span>
+<span class="lineNum">     442 </span>            :                   ioloop, &amp;io)) {
+<span class="lineNum">     443 </span>            :     case IO_NOTIFY_ADDED:
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     445 </span>            :     case IO_NOTIFY_NOTFOUND:
+<span class="lineNum">     446 </span>            :         /* the lock file doesn't exist anymore, don't sleep */
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         io_loop_destroy(&amp;ioloop);</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     449 </span>            :     case IO_NOTIFY_NOSUPPORT:
+<span class="lineNum">     450 </span>            :         /* listening for files not supported */
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :         io_loop_destroy(&amp;ioloop);</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :         lock_info-&gt;use_io_notify = FALSE;</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         usleep(LOCK_RANDOM_USLEEP_TIME);</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     455 </span>            :     }
+<span class="lineNum">     456 </span>            :     /* timeout after a random time even when using notify, since it
+<span class="lineNum">     457 </span>            :        doesn't work reliably with e.g. NFS. */
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     to = timeout_add(lock_info-&gt;wait_usecs/1000,</span>
+<span class="lineNum">     459 </span>            :              dotlock_wait_end, ioloop);
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :     io_loop_run(ioloop);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     io_remove(&amp;io);</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;to);</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     io_loop_destroy(&amp;ioloop);</span>
+<span class="lineNum">     464 </span>            : }
+<a name="465"><span class="lineNum">     465 </span>            : </a>
+<span class="lineNum">     466 </span>            : static int
+<span class="lineNum">     467 </span><span class="lineCov">         10 : dotlock_create(struct dotlock *dotlock, enum dotlock_create_flags flags,</span>
+<span class="lineNum">     468 </span>            :            bool write_pid, const char **lock_path_r)
+<span class="lineNum">     469 </span>            : {
+<span class="lineNum">     470 </span><span class="lineCov">         10 :     const struct dotlock_settings *set = &amp;dotlock-&gt;settings;</span>
+<span class="lineNum">     471 </span>            :     const char *lock_path;
+<span class="lineNum">     472 </span>            :     struct lock_info lock_info;
+<span class="lineNum">     473 </span>            :     struct stat st;
+<span class="lineNum">     474 </span>            :     unsigned int stale_notify_threshold;
+<span class="lineNum">     475 </span>            :     unsigned int change_secs, wait_left;
+<span class="lineNum">     476 </span>            :     time_t now, max_wait_time, last_notify;
+<span class="lineNum">     477 </span><span class="lineCov">         10 :     time_t prev_last_change = 0, prev_wait_update = 0;</span>
+<span class="lineNum">     478 </span>            :     string_t *tmp_path;
+<span class="lineNum">     479 </span>            :     int ret;
+<span class="lineNum">     480 </span>            :     bool do_wait;
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineCov">         10 :     now = time(NULL);</span>
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span><span class="lineCov">         10 :     lock_path = *lock_path_r =</span>
+<span class="lineNum">     485 </span><span class="lineCov">         10 :         t_strconcat(dotlock-&gt;path, set-&gt;lock_suffix, NULL);</span>
+<span class="lineNum">     486 </span><span class="lineCov">         10 :     stale_notify_threshold = set-&gt;stale_timeout / 2;</span>
+<span class="lineNum">     487 </span><span class="lineCov">         20 :     max_wait_time = (flags &amp; DOTLOCK_CREATE_FLAG_NONBLOCK) != 0 ? 0 :</span>
+<span class="lineNum">     488 </span><span class="lineCov">         10 :         now + set-&gt;timeout;</span>
+<span class="lineNum">     489 </span><span class="lineCov">         10 :     tmp_path = t_str_new(256);</span>
+<span class="lineNum">     490 </span>            : 
+<span class="lineNum">     491 </span><span class="lineCov">         10 :     i_zero(&amp;lock_info);</span>
+<span class="lineNum">     492 </span><span class="lineCov">         10 :     lock_info.path = dotlock-&gt;path;</span>
+<span class="lineNum">     493 </span><span class="lineCov">         10 :     lock_info.set = set;</span>
+<span class="lineNum">     494 </span><span class="lineCov">         10 :     lock_info.lock_path = lock_path;</span>
+<span class="lineNum">     495 </span><span class="lineCov">         10 :     lock_info.fd = -1;</span>
+<span class="lineNum">     496 </span><span class="lineCov">         10 :     lock_info.use_io_notify = set-&gt;use_io_notify;</span>
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span><span class="lineCov">         10 :     last_notify = 0; do_wait = FALSE;</span>
+<span class="lineNum">     499 </span>            : 
+<span class="lineNum">     500 </span><span class="lineCov">         10 :     file_lock_wait_start();</span>
+<span class="lineNum">     501 </span>            :     do {
+<span class="lineNum">     502 </span><span class="lineCov">         10 :         if (do_wait) {</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :             if (prev_last_change != lock_info.last_change) {</span>
+<span class="lineNum">     504 </span>            :                 /* dotlock changed since last check,
+<span class="lineNum">     505 </span>            :                    reset the wait time */
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :                 lock_info.wait_usecs = LOCK_RANDOM_USLEEP_TIME;</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :                 prev_last_change = lock_info.last_change;</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :                 prev_wait_update = now;</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :             } else if (prev_wait_update != now &amp;&amp;</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :                    lock_info.wait_usecs &lt; LOCK_MAX_WAIT_USECS) {</span>
+<span class="lineNum">     511 </span>            :                 /* we've been waiting for a while now, increase
+<span class="lineNum">     512 </span>            :                    the wait time to avoid wasting CPU */
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :                 prev_wait_update = now;</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :                 lock_info.wait_usecs += lock_info.wait_usecs/2;</span>
+<span class="lineNum">     515 </span>            :             }
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :             dotlock_wait(&amp;lock_info);</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :             now = time(NULL);</span>
+<span class="lineNum">     518 </span>            :         }
+<span class="lineNum">     519 </span>            : 
+<span class="lineNum">     520 </span><span class="lineCov">         10 :         ret = check_lock(now, &amp;lock_info);</span>
+<span class="lineNum">     521 </span><span class="lineCov">         10 :         if (ret &lt; 0)</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     523 </span>            : 
+<span class="lineNum">     524 </span><span class="lineCov">         10 :         if (ret == 1) {</span>
+<span class="lineNum">     525 </span><span class="lineCov">         10 :             if ((flags &amp; DOTLOCK_CREATE_FLAG_CHECKONLY) != 0)</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineCov">         20 :             ret = set-&gt;use_excl_lock ?</span>
+<span class="lineNum">     529 </span><span class="lineCov">         17 :                 try_create_lock_excl(&amp;lock_info, write_pid) :</span>
+<span class="lineNum">     530 </span><span class="lineCov">          7 :                 try_create_lock_hardlink(&amp;lock_info, write_pid,</span>
+<span class="lineNum">     531 </span>            :                              tmp_path, now);
+<span class="lineNum">     532 </span><span class="lineCov">         10 :             if (ret != 0) {</span>
+<span class="lineNum">     533 </span>            :                 /* if we succeeded, get the current time once
+<span class="lineNum">     534 </span>            :                    more in case disk I/O usage was really high
+<span class="lineNum">     535 </span>            :                    and it took a long time to create the lock */
+<span class="lineNum">     536 </span><span class="lineCov">         10 :                 now = time(NULL);</span>
+<span class="lineNum">     537 </span><span class="lineCov">         10 :                 break;</span>
+<span class="lineNum">     538 </span>            :             }
+<span class="lineNum">     539 </span>            :         }
+<span class="lineNum">     540 </span>            : 
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :         if (last_notify != now &amp;&amp; set-&gt;callback != NULL) {</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :             last_notify = now;</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :             change_secs = now - lock_info.last_change;</span>
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :             wait_left = max_wait_time - now;</span>
+<span class="lineNum">     545 </span>            : 
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :             if (change_secs &gt;= stale_notify_threshold &amp;&amp;</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :                 change_secs &lt;= wait_left) {</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :                 unsigned int secs_left =</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :                     set-&gt;stale_timeout &lt; change_secs ?</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :                     0 : set-&gt;stale_timeout - change_secs;</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :                 if (!set-&gt;callback(secs_left, TRUE,</span>
+<span class="lineNum">     552 </span>            :                            set-&gt;context)) {
+<span class="lineNum">     553 </span>            :                     /* we don't want to override */
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :                     lock_info.last_change = now;</span>
+<span class="lineNum">     555 </span>            :                 }
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :             } else if (wait_left &gt; 0) {</span>
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :                 (void)set-&gt;callback(wait_left, FALSE,</span>
+<span class="lineNum">     558 </span>            :                             set-&gt;context);
+<span class="lineNum">     559 </span>            :             }
+<span class="lineNum">     560 </span>            :         }
+<span class="lineNum">     561 </span>            : 
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :         do_wait = TRUE;</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :         now = time(NULL);</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :     } while (now &lt; max_wait_time);</span>
+<span class="lineNum">     565 </span><span class="lineCov">         10 :     file_lock_wait_end(dotlock-&gt;path);</span>
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineCov">         10 :     if (ret &gt; 0) {</span>
+<span class="lineNum">     568 </span><span class="lineCov">         10 :         i_assert(lock_info.fd != -1);</span>
+<span class="lineNum">     569 </span><span class="lineCov">         10 :         if (fstat(lock_info.fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :             i_error(&quot;fstat(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     572 </span>            :         } else {
+<span class="lineNum">     573 </span>            :             /* successful dotlock creation */
+<span class="lineNum">     574 </span><span class="lineCov">         10 :             dotlock-&gt;dev = st.st_dev;</span>
+<span class="lineNum">     575 </span><span class="lineCov">         10 :             dotlock-&gt;ino = st.st_ino;</span>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineCov">         10 :             dotlock-&gt;fd = lock_info.fd;</span>
+<span class="lineNum">     578 </span><span class="lineCov">         10 :                         dotlock-&gt;lock_time = now;</span>
+<span class="lineNum">     579 </span><span class="lineCov">         10 :             lock_info.fd = -1;</span>
+<span class="lineNum">     580 </span>            : 
+<span class="lineNum">     581 </span><span class="lineCov">         20 :             if (st.st_ctime + MAX_TIME_DIFF &lt; now ||</span>
+<span class="lineNum">     582 </span><span class="lineCov">         10 :                 st.st_ctime - MAX_TIME_DIFF &gt; now) {</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :                 i_warning(&quot;Created dotlock file's timestamp is &quot;</span>
+<span class="lineNum">     584 </span>            :                       &quot;different than current time &quot;
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :                       &quot;(%s vs %s): %s&quot;, dec2str(st.st_ctime),</span>
+<span class="lineNum">     586 </span>            :                       dec2str(now), dotlock-&gt;path);
+<span class="lineNum">     587 </span>            :             }
+<span class="lineNum">     588 </span>            :         }
+<span class="lineNum">     589 </span>            :     }
+<span class="lineNum">     590 </span>            : 
+<span class="lineNum">     591 </span><span class="lineCov">         10 :     if (lock_info.fd != -1) {</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :         int old_errno = errno;</span>
+<span class="lineNum">     593 </span>            : 
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         if (close(lock_info.fd) &lt; 0)</span>
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :             i_error(&quot;close(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         errno = old_errno;</span>
+<span class="lineNum">     597 </span>            :     }
+<span class="lineNum">     598 </span><span class="lineCov">         10 :     if (lock_info.temp_path != NULL)</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :         i_unlink(lock_info.temp_path);</span>
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineCov">         10 :     if (ret == 0)</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         errno = EAGAIN;</span>
+<span class="lineNum">     603 </span><span class="lineCov">         10 :     return ret;</span>
+<a name="604"><span class="lineNum">     604 </span>            : }</a>
+<span class="lineNum">     605 </span>            : 
+<span class="lineNum">     606 </span><span class="lineCov">         10 : static void file_dotlock_free(struct dotlock **_dotlock)</span>
+<span class="lineNum">     607 </span>            : {
+<span class="lineNum">     608 </span><span class="lineCov">         10 :     struct dotlock *dotlock = *_dotlock;</span>
+<span class="lineNum">     609 </span>            :     int old_errno;
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineCov">         10 :     *_dotlock = NULL;</span>
+<span class="lineNum">     612 </span>            : 
+<span class="lineNum">     613 </span><span class="lineCov">         10 :     if (dotlock-&gt;fd != -1) {</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :         old_errno = errno;</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :         if (close(dotlock-&gt;fd) &lt; 0)</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :             i_error(&quot;close(%s) failed: %m&quot;, dotlock-&gt;path);</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :         dotlock-&gt;fd = -1;</span>
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :         errno = old_errno;</span>
+<span class="lineNum">     619 </span>            :     }
+<span class="lineNum">     620 </span>            : 
+<span class="lineNum">     621 </span><span class="lineCov">         10 :     i_free(dotlock-&gt;path);</span>
+<span class="lineNum">     622 </span><span class="lineCov">         10 :     i_free(dotlock-&gt;lock_path);</span>
+<span class="lineNum">     623 </span><span class="lineCov">         10 :     i_free(dotlock);</span>
+<a name="624"><span class="lineNum">     624 </span><span class="lineCov">         10 : }</span></a>
+<span class="lineNum">     625 </span>            : 
+<span class="lineNum">     626 </span><span class="lineCov">          1 : static int file_dotlock_create_real(struct dotlock *dotlock,</span>
+<span class="lineNum">     627 </span>            :                     enum dotlock_create_flags flags)
+<span class="lineNum">     628 </span>            : {
+<span class="lineNum">     629 </span>            :     const char *lock_path;
+<span class="lineNum">     630 </span>            :     struct stat st;
+<span class="lineNum">     631 </span>            :     int fd, ret;
+<span class="lineNum">     632 </span>            : 
+<span class="lineNum">     633 </span><span class="lineCov">          1 :     ret = dotlock_create(dotlock, flags, TRUE, &amp;lock_path);</span>
+<span class="lineNum">     634 </span><span class="lineCov">          1 :     if (ret &lt;= 0 || (flags &amp; DOTLOCK_CREATE_FLAG_CHECKONLY) != 0)</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     636 </span>            : 
+<span class="lineNum">     637 </span><span class="lineCov">          1 :     fd = dotlock-&gt;fd;</span>
+<span class="lineNum">     638 </span><span class="lineCov">          1 :     dotlock-&gt;fd = -1;</span>
+<span class="lineNum">     639 </span>            : 
+<span class="lineNum">     640 </span><span class="lineCov">          1 :     if (close(fd) &lt; 0) {</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         i_error(&quot;close(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     643 </span>            :     }
+<span class="lineNum">     644 </span>            : 
+<span class="lineNum">     645 </span>            :     /* With NFS the writes may have been flushed only when closing the
+<span class="lineNum">     646 </span>            :        file. Get the mtime again after that to avoid &quot;dotlock was modified&quot;
+<span class="lineNum">     647 </span>            :        errors. */
+<span class="lineNum">     648 </span><span class="lineCov">          1 :     if (lstat(lock_path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :         if (errno != ENOENT)</span>
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :             i_error(&quot;stat(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     651 </span>            :         else {
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :             i_error(&quot;dotlock %s was immediately deleted under us&quot;,</span>
+<span class="lineNum">     653 </span>            :                 lock_path);
+<span class="lineNum">     654 </span>            :         }
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     656 </span>            :     }
+<span class="lineNum">     657 </span>            :     /* extra sanity check won't hurt.. */
+<span class="lineNum">     658 </span><span class="lineCov">          1 :     if (st.st_dev != dotlock-&gt;dev || st.st_ino != dotlock-&gt;ino) {</span>
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :         errno = ENOENT;</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :         i_error(&quot;dotlock %s was immediately recreated under us&quot;,</span>
+<span class="lineNum">     661 </span>            :             lock_path);
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     663 </span>            :     }
+<span class="lineNum">     664 </span><span class="lineCov">          1 :     dotlock-&gt;mtime = st.st_mtime;</span>
+<span class="lineNum">     665 </span><span class="lineCov">          1 :     return 1;</span>
+<a name="666"><span class="lineNum">     666 </span>            : }</a>
+<span class="lineNum">     667 </span>            : 
+<span class="lineNum">     668 </span><span class="lineCov">          1 : int file_dotlock_create(const struct dotlock_settings *set, const char *path,</span>
+<span class="lineNum">     669 </span>            :             enum dotlock_create_flags flags,
+<span class="lineNum">     670 </span>            :             struct dotlock **dotlock_r)
+<span class="lineNum">     671 </span>            : {
+<span class="lineNum">     672 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">     673 </span>            :     int ret;
+<span class="lineNum">     674 </span>            : 
+<span class="lineNum">     675 </span><span class="lineCov">          1 :     dotlock = file_dotlock_alloc(set, path);</span>
+<span class="lineNum">     676 </span><span class="lineCov">          1 :     T_BEGIN {</span>
+<span class="lineNum">     677 </span><span class="lineCov">          1 :         ret = file_dotlock_create_real(dotlock, flags);</span>
+<span class="lineNum">     678 </span><span class="lineCov">          1 :     } T_END;</span>
+<span class="lineNum">     679 </span><span class="lineCov">          1 :     if (ret &lt;= 0 || (flags &amp; DOTLOCK_CREATE_FLAG_CHECKONLY) != 0)</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :         file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineCov">          1 :     *dotlock_r = dotlock;</span>
+<span class="lineNum">     683 </span><span class="lineCov">          1 :     return ret;</span>
+<a name="684"><span class="lineNum">     684 </span>            : }</a>
+<span class="lineNum">     685 </span>            : 
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 : static void dotlock_replaced_warning(struct dotlock *dotlock, bool deleted)</span>
+<span class="lineNum">     687 </span>            : {
+<span class="lineNum">     688 </span>            :     const char *lock_path;
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :     time_t now = time(NULL);</span>
+<span class="lineNum">     690 </span>            : 
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     lock_path = file_dotlock_get_lock_path(dotlock);</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :     if (dotlock-&gt;mtime == dotlock-&gt;lock_time) {</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :         i_warning(&quot;Our dotlock file %s was %s &quot;</span>
+<span class="lineNum">     694 </span>            :               &quot;(locked %d secs ago, touched %d secs ago)&quot;,
+<span class="lineNum">     695 </span>            :               lock_path, deleted ? &quot;deleted&quot; : &quot;overridden&quot;,
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :               (int)(now - dotlock-&gt;lock_time),</span>
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :               (int)(now - dotlock-&gt;mtime));</span>
+<span class="lineNum">     698 </span>            :     } else {
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :         i_warning(&quot;Our dotlock file %s was %s &quot;</span>
+<span class="lineNum">     700 </span>            :               &quot;(kept it %d secs)&quot;, lock_path,
+<span class="lineNum">     701 </span>            :               deleted ? &quot;deleted&quot; : &quot;overridden&quot;,
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :               (int)(now - dotlock-&gt;lock_time));</span>
+<span class="lineNum">     703 </span>            :     }
+<a name="704"><span class="lineNum">     704 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     705 </span>            : 
+<span class="lineNum">     706 </span><span class="lineCov">          1 : static bool file_dotlock_has_mtime_changed(time_t t1, time_t t2)</span>
+<span class="lineNum">     707 </span>            : {
+<span class="lineNum">     708 </span>            :     time_t diff;
+<span class="lineNum">     709 </span>            : 
+<span class="lineNum">     710 </span><span class="lineCov">          1 :     if (t1 == t2)</span>
+<span class="lineNum">     711 </span><span class="lineCov">          1 :         return FALSE;</span>
+<span class="lineNum">     712 </span>            : 
+<span class="lineNum">     713 </span>            :     /* with NFS t1 may have been looked up from local cache.
+<span class="lineNum">     714 </span>            :        allow it to be a little bit different. */
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :     diff = t1 &gt; t2 ? t1-t2 : t2-t1;</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :     return diff &gt; FILE_DOTLOCK_MAX_STAT_MTIME_DIFF;</span>
+<a name="717"><span class="lineNum">     717 </span>            : }</a>
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span><span class="lineCov">          1 : int file_dotlock_delete(struct dotlock **dotlock_p)</span>
+<span class="lineNum">     720 </span>            : {
+<span class="lineNum">     721 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">     722 </span>            :     const char *lock_path;
+<span class="lineNum">     723 </span>            :         struct stat st;
+<span class="lineNum">     724 </span>            :     int ret;
+<span class="lineNum">     725 </span>            : 
+<span class="lineNum">     726 </span><span class="lineCov">          1 :     dotlock = *dotlock_p;</span>
+<span class="lineNum">     727 </span><span class="lineCov">          1 :     *dotlock_p = NULL;</span>
+<span class="lineNum">     728 </span>            : 
+<span class="lineNum">     729 </span><span class="lineCov">          1 :     lock_path = file_dotlock_get_lock_path(dotlock);</span>
+<span class="lineNum">     730 </span><span class="lineCov">          1 :     if (nfs_safe_lstat(lock_path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :         if (errno == ENOENT) {</span>
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :             dotlock_replaced_warning(dotlock, TRUE);</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :             file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     735 </span>            :         }
+<span class="lineNum">     736 </span>            : 
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :         i_error(&quot;lstat(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :         file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     740 </span>            :     }
+<span class="lineNum">     741 </span>            : 
+<span class="lineNum">     742 </span><span class="lineCov">          2 :     if (dotlock-&gt;ino != st.st_ino ||</span>
+<span class="lineNum">     743 </span><span class="lineCov">          2 :         !CMP_DEV_T(dotlock-&gt;dev, st.st_dev)) {</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :         dotlock_replaced_warning(dotlock, FALSE);</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :         errno = EEXIST;</span>
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :         file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     748 </span>            :     }
+<span class="lineNum">     749 </span>            : 
+<span class="lineNum">     750 </span><span class="lineCov">          1 :     if (file_dotlock_has_mtime_changed(dotlock-&gt;mtime, st.st_mtime) &amp;&amp;</span>
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :         dotlock-&gt;fd == -1) {</span>
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :         i_warning(&quot;Our dotlock file %s was modified (%s vs %s), &quot;</span>
+<span class="lineNum">     753 </span>            :               &quot;assuming it wasn't overridden (kept it %d secs)&quot;,
+<span class="lineNum">     754 </span>            :               lock_path,
+<span class="lineNum">     755 </span><span class="lineNoCov">          0 :               dec2str(dotlock-&gt;mtime), dec2str(st.st_mtime),</span>
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :               (int)(time(NULL) - dotlock-&gt;lock_time));</span>
+<span class="lineNum">     757 </span>            :     }
+<span class="lineNum">     758 </span>            : 
+<span class="lineNum">     759 </span><span class="lineCov">          1 :     if ((ret = i_unlink_if_exists(lock_path)) == 0)</span>
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 :         dotlock_replaced_warning(dotlock, TRUE);</span>
+<span class="lineNum">     761 </span><span class="lineCov">          1 :     file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     762 </span><span class="lineCov">          1 :     return ret;</span>
+<a name="763"><span class="lineNum">     763 </span>            : }</a>
+<span class="lineNum">     764 </span>            : 
+<span class="lineNum">     765 </span><span class="lineCov">          9 : int file_dotlock_open(const struct dotlock_settings *set, const char *path,</span>
+<span class="lineNum">     766 </span>            :               enum dotlock_create_flags flags,
+<span class="lineNum">     767 </span>            :               struct dotlock **dotlock_r)
+<span class="lineNum">     768 </span>            : {
+<span class="lineNum">     769 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">     770 </span>            :     int ret;
+<span class="lineNum">     771 </span>            : 
+<span class="lineNum">     772 </span><span class="lineCov">          9 :     dotlock = file_dotlock_alloc(set, path);</span>
+<span class="lineNum">     773 </span><span class="lineCov">          9 :     T_BEGIN {</span>
+<span class="lineNum">     774 </span>            :         const char *lock_path;
+<span class="lineNum">     775 </span>            : 
+<span class="lineNum">     776 </span><span class="lineCov">          9 :         ret = dotlock_create(dotlock, flags, FALSE, &amp;lock_path);</span>
+<span class="lineNum">     777 </span><span class="lineCov">          9 :     } T_END;</span>
+<span class="lineNum">     778 </span>            : 
+<span class="lineNum">     779 </span><span class="lineCov">          9 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :         file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :         *dotlock_r = NULL;</span>
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     783 </span>            :     }
+<span class="lineNum">     784 </span>            : 
+<span class="lineNum">     785 </span><span class="lineCov">          9 :     *dotlock_r = dotlock;</span>
+<span class="lineNum">     786 </span><span class="lineCov">          9 :     return dotlock-&gt;fd;</span>
+<span class="lineNum">     787 </span>            : }
+<a name="788"><span class="lineNum">     788 </span>            : </a>
+<span class="lineNum">     789 </span>            : static int ATTR_NULL(7)
+<span class="lineNum">     790 </span><span class="lineNoCov">          0 : file_dotlock_open_mode_full(const struct dotlock_settings *set, const char *path,</span>
+<span class="lineNum">     791 </span>            :                 enum dotlock_create_flags flags,
+<span class="lineNum">     792 </span>            :                 mode_t mode, uid_t uid, gid_t gid,
+<span class="lineNum">     793 </span>            :                 const char *gid_origin, struct dotlock **dotlock_r)
+<span class="lineNum">     794 </span>            : {
+<span class="lineNum">     795 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">     796 </span>            :     mode_t old_mask;
+<span class="lineNum">     797 </span>            :     int fd;
+<span class="lineNum">     798 </span>            : 
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :     old_mask = umask(0666 ^ mode);</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :     fd = file_dotlock_open(set, path, flags, &amp;dotlock);</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :     umask(old_mask);</span>
+<span class="lineNum">     802 </span>            : 
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :     if (fd != -1 &amp;&amp; (uid != (uid_t)-1 || gid != (gid_t)-1)) {</span>
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :         if (fchown(fd, uid, gid) &lt; 0) {</span>
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :             if (errno == EPERM &amp;&amp; uid == (uid_t)-1) {</span>
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 :                 i_error(&quot;%s&quot;, eperm_error_get_chgrp(&quot;fchown&quot;,</span>
+<span class="lineNum">     807 </span>            :                     file_dotlock_get_lock_path(dotlock),
+<span class="lineNum">     808 </span>            :                     gid, gid_origin));
+<span class="lineNum">     809 </span>            :             } else {
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :                 i_error(&quot;fchown(%s, %ld, %ld) failed: %m&quot;,</span>
+<span class="lineNum">     811 </span>            :                     file_dotlock_get_lock_path(dotlock),
+<span class="lineNum">     812 </span>            :                     (long)uid, (long)gid);
+<span class="lineNum">     813 </span>            :             }
+<span class="lineNum">     814 </span><span class="lineNoCov">          0 :             file_dotlock_delete(&amp;dotlock);</span>
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     816 </span>            :         }
+<span class="lineNum">     817 </span>            :     }
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :     *dotlock_r = dotlock;</span>
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :     return fd;</span>
+<a name="820"><span class="lineNum">     820 </span>            : }</a>
+<span class="lineNum">     821 </span>            : 
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 : int file_dotlock_open_mode(const struct dotlock_settings *set, const char *path,</span>
+<span class="lineNum">     823 </span>            :                enum dotlock_create_flags flags,
+<span class="lineNum">     824 </span>            :                mode_t mode, uid_t uid, gid_t gid,
+<span class="lineNum">     825 </span>            :                struct dotlock **dotlock_r)
+<span class="lineNum">     826 </span>            : {
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :     return file_dotlock_open_mode_full(set, path, flags, mode, uid, gid,</span>
+<span class="lineNum">     828 </span>            :                        NULL, dotlock_r);
+<a name="829"><span class="lineNum">     829 </span>            : }</a>
+<span class="lineNum">     830 </span>            : 
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 : int file_dotlock_open_group(const struct dotlock_settings *set, const char *path,</span>
+<span class="lineNum">     832 </span>            :                 enum dotlock_create_flags flags,
+<span class="lineNum">     833 </span>            :                 mode_t mode, gid_t gid, const char *gid_origin,
+<span class="lineNum">     834 </span>            :                 struct dotlock **dotlock_r)
+<span class="lineNum">     835 </span>            : {
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :     return file_dotlock_open_mode_full(set, path, flags, mode, (uid_t)-1,</span>
+<span class="lineNum">     837 </span>            :                        gid, gid_origin, dotlock_r);
+<a name="838"><span class="lineNum">     838 </span>            : }</a>
+<span class="lineNum">     839 </span>            : 
+<span class="lineNum">     840 </span><span class="lineCov">          9 : int file_dotlock_replace(struct dotlock **dotlock_p,</span>
+<span class="lineNum">     841 </span>            :              enum dotlock_replace_flags flags)
+<span class="lineNum">     842 </span>            : {
+<span class="lineNum">     843 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">     844 </span>            :     const char *lock_path;
+<span class="lineNum">     845 </span>            :     bool is_locked;
+<span class="lineNum">     846 </span>            : 
+<span class="lineNum">     847 </span><span class="lineCov">          9 :     dotlock = *dotlock_p;</span>
+<span class="lineNum">     848 </span><span class="lineCov">          9 :     *dotlock_p = NULL;</span>
+<span class="lineNum">     849 </span>            : 
+<span class="lineNum">     850 </span><span class="lineCov">          9 :     is_locked = (flags &amp; DOTLOCK_REPLACE_FLAG_VERIFY_OWNER) == 0 ? TRUE :</span>
+<span class="lineNum">     851 </span><span class="lineNoCov">          0 :         file_dotlock_is_locked(dotlock);</span>
+<span class="lineNum">     852 </span>            : 
+<span class="lineNum">     853 </span><span class="lineCov">          9 :     if ((flags &amp; DOTLOCK_REPLACE_FLAG_DONT_CLOSE_FD) != 0)</span>
+<span class="lineNum">     854 </span><span class="lineCov">          9 :         dotlock-&gt;fd = -1;</span>
+<span class="lineNum">     855 </span>            : 
+<span class="lineNum">     856 </span><span class="lineCov">          9 :     if (!is_locked) {</span>
+<span class="lineNum">     857 </span><span class="lineNoCov">          0 :         dotlock_replaced_warning(dotlock, FALSE);</span>
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :         errno = EEXIST;</span>
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :         file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     861 </span>            :     }
+<span class="lineNum">     862 </span>            : 
+<span class="lineNum">     863 </span><span class="lineCov">          9 :     lock_path = file_dotlock_get_lock_path(dotlock);</span>
+<span class="lineNum">     864 </span><span class="lineCov">          9 :     if (rename(lock_path, dotlock-&gt;path) &lt; 0) {</span>
+<span class="lineNum">     865 </span><span class="lineNoCov">          0 :         i_error(&quot;rename(%s, %s) failed: %m&quot;, lock_path, dotlock-&gt;path);</span>
+<span class="lineNum">     866 </span><span class="lineNoCov">          0 :         if (errno == ENOENT)</span>
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :             dotlock_replaced_warning(dotlock, TRUE);</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :         file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     869 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     870 </span>            :     }
+<span class="lineNum">     871 </span><span class="lineCov">          9 :     file_dotlock_free(&amp;dotlock);</span>
+<span class="lineNum">     872 </span><span class="lineCov">          9 :     return 1;</span>
+<a name="873"><span class="lineNum">     873 </span>            : }</a>
+<span class="lineNum">     874 </span>            : 
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 : int file_dotlock_touch(struct dotlock *dotlock)</span>
+<span class="lineNum">     876 </span>            : {
+<span class="lineNum">     877 </span><span class="lineNoCov">          0 :     time_t now = time(NULL);</span>
+<span class="lineNum">     878 </span>            :     struct utimbuf buf;
+<span class="lineNum">     879 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     880 </span>            : 
+<span class="lineNum">     881 </span><span class="lineNoCov">          0 :     if (dotlock-&gt;mtime == now)</span>
+<span class="lineNum">     882 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     883 </span>            : 
+<span class="lineNum">     884 </span><span class="lineNoCov">          0 :     dotlock-&gt;mtime = now;</span>
+<span class="lineNum">     885 </span><span class="lineNoCov">          0 :     buf.actime = buf.modtime = now;</span>
+<span class="lineNum">     886 </span>            : 
+<span class="lineNum">     887 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     888 </span><span class="lineNoCov">          0 :         const char *lock_path = file_dotlock_get_lock_path(dotlock);</span>
+<span class="lineNum">     889 </span><span class="lineNoCov">          0 :         if (utime(lock_path, &amp;buf) &lt; 0) {</span>
+<span class="lineNum">     890 </span><span class="lineNoCov">          0 :             i_error(&quot;utime(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     892 </span>            :         }
+<span class="lineNum">     893 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     894 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="895"><span class="lineNum">     895 </span>            : }</a>
+<span class="lineNum">     896 </span>            : 
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 : bool file_dotlock_is_locked(struct dotlock *dotlock)</span>
+<span class="lineNum">     898 </span>            : {
+<span class="lineNum">     899 </span>            :     struct stat st, st2;
+<span class="lineNum">     900 </span>            :     const char *lock_path;
+<span class="lineNum">     901 </span>            : 
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :     lock_path = file_dotlock_get_lock_path(dotlock);</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :     if (fstat(dotlock-&gt;fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     904 </span><span class="lineNoCov">          0 :         i_error(&quot;fstat(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     905 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     906 </span>            :     }
+<span class="lineNum">     907 </span>            : 
+<span class="lineNum">     908 </span><span class="lineNoCov">          0 :     if (nfs_safe_lstat(lock_path, &amp;st2) &lt; 0) {</span>
+<span class="lineNum">     909 </span><span class="lineNoCov">          0 :         i_error(&quot;lstat(%s) failed: %m&quot;, lock_path);</span>
+<span class="lineNum">     910 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     911 </span>            :     }
+<span class="lineNum">     912 </span><span class="lineNoCov">          0 :     return st.st_ino == st2.st_ino &amp;&amp; CMP_DEV_T(st.st_dev, st2.st_dev);</span>
+<a name="913"><span class="lineNum">     913 </span>            : }</a>
+<span class="lineNum">     914 </span>            : 
+<span class="lineNum">     915 </span><span class="lineCov">         19 : const char *file_dotlock_get_lock_path(struct dotlock *dotlock)</span>
+<span class="lineNum">     916 </span>            : {
+<span class="lineNum">     917 </span><span class="lineCov">         19 :     if (dotlock-&gt;lock_path == NULL) {</span>
+<span class="lineNum">     918 </span><span class="lineCov">         10 :         dotlock-&gt;lock_path =</span>
+<span class="lineNum">     919 </span><span class="lineCov">         10 :             i_strconcat(dotlock-&gt;path,</span>
+<span class="lineNum">     920 </span>            :                     dotlock-&gt;settings.lock_suffix, NULL);
+<span class="lineNum">     921 </span>            :     }
+<span class="lineNum">     922 </span><span class="lineCov">         19 :     return dotlock-&gt;lock_path;</span>
+<span class="lineNum">     923 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

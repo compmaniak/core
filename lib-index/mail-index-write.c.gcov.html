@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-index/mail-index-write.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-index</a> - mail-index-write.c<span style="font-size: 80%;"> (source / <a href="mail-index-write.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">83</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;read-full.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mail-index-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mail-transaction-log-private.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : #define MAIL_INDEX_MIN_UPDATE_SIZE 1024
+<span class="lineNum">      13 </span>            : /* if we're updating &gt;= count-n messages, recreate the index */
+<a name="14"><span class="lineNum">      14 </span>            : #define MAIL_INDEX_MAX_OVERWRITE_NEG_SEQ_COUNT 10</a>
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span><span class="lineNoCov">          0 : static int mail_index_create_backup(struct mail_index *index)</span>
+<span class="lineNum">      17 </span>            : {
+<span class="lineNum">      18 </span>            :     const char *backup_path, *tmp_backup_path;
+<span class="lineNum">      19 </span>            :     int ret;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span><span class="lineNoCov">          0 :     if (index-&gt;fd != -1) {</span>
+<span class="lineNum">      22 </span>            :         /* we very much want to avoid creating a backup file that
+<span class="lineNum">      23 </span>            :            hasn't been written to disk yet */
+<span class="lineNum">      24 </span><span class="lineNoCov">          0 :         if (fdatasync(index-&gt;fd) &lt; 0) {</span>
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 :             mail_index_set_error(index, &quot;fdatasync(%s) failed: %m&quot;,</span>
+<span class="lineNum">      26 </span>            :                          index-&gt;filepath);
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">      28 </span>            :         }
+<span class="lineNum">      29 </span>            :     }
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :     backup_path = t_strconcat(index-&gt;filepath, &quot;.backup&quot;, NULL);</span>
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :     tmp_backup_path = t_strconcat(backup_path, &quot;.tmp&quot;, NULL);</span>
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 :     ret = link(index-&gt;filepath, tmp_backup_path);</span>
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     if (ret &lt; 0 &amp;&amp; errno == EEXIST) {</span>
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 :         if (unlink(tmp_backup_path) &lt; 0 &amp;&amp; errno != ENOENT) {</span>
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :             mail_index_set_error(index, &quot;unlink(%s) failed: %m&quot;,</span>
+<span class="lineNum">      37 </span>            :                          tmp_backup_path);
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">      39 </span>            :         }
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :         ret = link(index-&gt;filepath, tmp_backup_path);</span>
+<span class="lineNum">      41 </span>            :     }
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :         if (errno == ENOENT) {</span>
+<span class="lineNum">      44 </span>            :             /* no dovecot.index file, ignore */
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">      46 </span>            :         }
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :         mail_index_set_error(index, &quot;link(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">      48 </span>            :                      index-&gt;filepath, tmp_backup_path);
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      50 </span>            :     }
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     if (rename(tmp_backup_path, backup_path) &lt; 0) {</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         mail_index_set_error(index, &quot;rename(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">      54 </span>            :                      tmp_backup_path, backup_path);
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      56 </span>            :     }
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="58"><span class="lineNum">      58 </span>            : }</a>
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 : static int mail_index_recreate(struct mail_index *index)</span>
+<span class="lineNum">      61 </span>            : {
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     struct mail_index_map *map = index-&gt;map;</span>
+<span class="lineNum">      63 </span>            :     struct ostream *output;
+<span class="lineNum">      64 </span>            :     unsigned int base_size;
+<span class="lineNum">      65 </span>            :     const char *path;
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     int ret = 0, fd;</span>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     i_assert(!MAIL_INDEX_IS_IN_MEMORY(index));</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     i_assert(map-&gt;hdr.indexid == index-&gt;indexid);</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     i_assert((map-&gt;hdr.flags &amp; MAIL_INDEX_HDR_FLAG_CORRUPTED) == 0);</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     i_assert(index-&gt;indexid != 0);</span>
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     fd = mail_index_create_tmp_file(index, index-&gt;filepath, &amp;path);</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     if (fd == -1)</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     output = o_stream_create_fd_file(fd, 0, FALSE);</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     o_stream_cork(output);</span>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     base_size = I_MIN(map-&gt;hdr.base_header_size, sizeof(map-&gt;hdr));</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     o_stream_nsend(output, &amp;map-&gt;hdr, base_size);</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     o_stream_nsend(output, CONST_PTR_OFFSET(map-&gt;hdr_base, base_size),</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :                map-&gt;hdr.header_size - base_size);</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     o_stream_nsend(output, map-&gt;rec_map-&gt;records,</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :                map-&gt;rec_map-&gt;records_count * map-&gt;hdr.record_size);</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     if (o_stream_finish(output) &lt; 0) {</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :         mail_index_file_set_syscall_error(index, path, &quot;write()&quot;);</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">      89 </span>            :     }
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     o_stream_destroy(&amp;output);</span>
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     if (ret == 0 &amp;&amp; index-&gt;fsync_mode != FSYNC_MODE_NEVER) {</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         if (fdatasync(fd) &lt; 0) {</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :             mail_index_file_set_syscall_error(index, path,</span>
+<span class="lineNum">      95 </span>            :                               &quot;fdatasync()&quot;);
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">      97 </span>            :         }
+<span class="lineNum">      98 </span>            :     }
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     if (close(fd) &lt; 0) {</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         mail_index_file_set_syscall_error(index, path, &quot;close()&quot;);</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     103 </span>            :     }
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :     if ((index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_KEEP_BACKUPS) != 0)</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         (void)mail_index_create_backup(index);</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     if (ret == 0 &amp;&amp; rename(path, index-&gt;filepath) &lt; 0) {</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         mail_index_set_error(index, &quot;rename(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">     110 </span>            :                      path, index-&gt;filepath);
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     112 </span>            :     }
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     if (ret &lt; 0)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         i_unlink(path);</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="117"><span class="lineNum">     117 </span>            : }</a>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 : void mail_index_write(struct mail_index *index, bool want_rotate)</span>
+<span class="lineNum">     120 </span>            : {
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     struct mail_index_map *map = index-&gt;map;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     struct mail_index_header *hdr = &amp;map-&gt;hdr;</span>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     i_assert(index-&gt;log_sync_locked);</span>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     if (index-&gt;readonly)</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span>            :     /* rotate the .log before writing index, so the index will point to
+<span class="lineNum">     130 </span>            :        the latest log. */
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     if (want_rotate &amp;&amp;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         hdr-&gt;log_file_seq == index-&gt;log-&gt;head-&gt;hdr.file_seq &amp;&amp;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         hdr-&gt;log_file_tail_offset == hdr-&gt;log_file_head_offset) {</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         if (mail_transaction_log_rotate(index-&gt;log, FALSE) == 0) {</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :             struct mail_transaction_log_file *file =</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :                 index-&gt;log-&gt;head;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             i_assert(file-&gt;hdr.prev_file_seq == hdr-&gt;log_file_seq);</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :             i_assert(file-&gt;hdr.prev_file_offset == hdr-&gt;log_file_head_offset);</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :             hdr-&gt;log_file_seq = file-&gt;hdr.file_seq;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :             hdr-&gt;log_file_head_offset =</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :                 hdr-&gt;log_file_tail_offset = file-&gt;hdr.hdr_size;</span>
+<span class="lineNum">     142 </span>            :             /* Assume .log.2 was created successfully. If it
+<span class="lineNum">     143 </span>            :                wasn't, it just causes an extra stat() and gets
+<span class="lineNum">     144 </span>            :                fixed later on. */
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :             hdr-&gt;log2_rotate_time = ioloop_time;</span>
+<span class="lineNum">     146 </span>            :         }
+<span class="lineNum">     147 </span>            :     }
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     if (!MAIL_INDEX_IS_IN_MEMORY(index)) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         if (mail_index_recreate(index) &lt; 0) {</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :             (void)mail_index_move_to_memory(index);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     153 </span>            :         }
+<span class="lineNum">     154 </span>            :     }
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     index-&gt;last_read_log_file_seq = hdr-&gt;log_file_seq;</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     index-&gt;last_read_log_file_tail_offset = hdr-&gt;log_file_tail_offset;</span>
+<span class="lineNum">     158 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

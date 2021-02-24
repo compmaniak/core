@@ -1,0 +1,424 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-compression/istream-lzma.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-compression</a> - istream-lzma.c<span style="font-size: 80%;"> (source / <a href="istream-lzma.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">60</td>
+            <td class="headerCovTableEntry">176</td>
+            <td class="headerCovTableEntryLo">34.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryLo">50.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : 
+<span class="lineNum">       5 </span>            : #ifdef HAVE_LZMA
+<span class="lineNum">       6 </span>            : 
+<span class="lineNum">       7 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream-zlib.h&quot;
+<span class="lineNum">       9 </span>            : #include &lt;lzma.h&gt;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : #define CHUNK_SIZE (1024*64)
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #define LZMA_MEMORY_LIMIT (1024*1024*80)
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : struct lzma_istream {
+<span class="lineNum">      16 </span>            :     struct istream_private istream;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            :     lzma_stream strm;
+<span class="lineNum">      19 </span>            :     uoff_t eof_offset, stream_size;
+<span class="lineNum">      20 </span>            :     size_t high_pos;
+<span class="lineNum">      21 </span>            :     struct stat last_parent_statbuf;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            :     bool log_errors:1;
+<span class="lineNum">      24 </span>            :     bool marked:1;
+<span class="lineNum">      25 </span>            :     bool strm_closed:1;
+<a name="26"><span class="lineNum">      26 </span>            : };</a>
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span><span class="lineCov">          2 : static void i_stream_lzma_close(struct iostream_private *stream,</span>
+<span class="lineNum">      29 </span>            :                  bool close_parent)
+<span class="lineNum">      30 </span>            : {
+<span class="lineNum">      31 </span><span class="lineCov">          2 :     struct lzma_istream *zstream = (struct lzma_istream *)stream;</span>
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span><span class="lineCov">          2 :     if (!zstream-&gt;strm_closed) {</span>
+<span class="lineNum">      34 </span><span class="lineCov">          1 :         lzma_end(&amp;zstream-&gt;strm);</span>
+<span class="lineNum">      35 </span><span class="lineCov">          1 :         zstream-&gt;strm_closed = TRUE;</span>
+<span class="lineNum">      36 </span>            :     }
+<span class="lineNum">      37 </span><span class="lineCov">          2 :     if (close_parent)</span>
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :         i_stream_close(zstream-&gt;istream.parent);</span>
+<a name="39"><span class="lineNum">      39 </span><span class="lineCov">          2 : }</span></a>
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 : static void lzma_read_error(struct lzma_istream *zstream, const char *error)</span>
+<span class="lineNum">      42 </span>            : {
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :     io_stream_set_error(&amp;zstream-&gt;istream.iostream,</span>
+<span class="lineNum">      44 </span>            :                 &quot;lzma.read(%s): %s at %&quot;PRIuUOFF_T,
+<span class="lineNum">      45 </span>            :                 i_stream_get_name(&amp;zstream-&gt;istream.istream), error,
+<span class="lineNum">      46 </span>            :                 i_stream_get_absolute_offset(&amp;zstream-&gt;istream.istream));
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     if (zstream-&gt;log_errors)</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :         i_error(&quot;%s&quot;, zstream-&gt;istream.iostream.error);</span>
+<a name="49"><span class="lineNum">      49 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span><span class="lineCov">          1 : static void lzma_stream_end(struct lzma_istream *zstream)</span>
+<span class="lineNum">      52 </span>            : {
+<span class="lineNum">      53 </span><span class="lineCov">          2 :     zstream-&gt;eof_offset = zstream-&gt;istream.istream.v_offset +</span>
+<span class="lineNum">      54 </span><span class="lineCov">          1 :         (zstream-&gt;istream.pos - zstream-&gt;istream.skip);</span>
+<span class="lineNum">      55 </span><span class="lineCov">          1 :     zstream-&gt;stream_size = zstream-&gt;eof_offset;</span>
+<a name="56"><span class="lineNum">      56 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineCov">        546 : static ssize_t i_stream_lzma_read(struct istream_private *stream)</span>
+<span class="lineNum">      59 </span>            : {
+<span class="lineNum">      60 </span><span class="lineCov">        546 :     struct lzma_istream *zstream = (struct lzma_istream *)stream;</span>
+<span class="lineNum">      61 </span>            :     const unsigned char *data;
+<span class="lineNum">      62 </span>            :     uoff_t high_offset;
+<span class="lineNum">      63 </span>            :     size_t size, out_size;
+<span class="lineNum">      64 </span>            :     lzma_ret ret;
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span><span class="lineCov">        546 :     high_offset = stream-&gt;istream.v_offset + (stream-&gt;pos - stream-&gt;skip);</span>
+<span class="lineNum">      67 </span><span class="lineCov">        546 :     if (zstream-&gt;eof_offset == high_offset) {</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         i_assert(zstream-&gt;high_pos == 0 ||</span>
+<span class="lineNum">      69 </span>            :              zstream-&gt;high_pos == stream-&gt;pos);
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :         stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      72 </span>            :     }
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineCov">        546 :     if (stream-&gt;pos &lt; zstream-&gt;high_pos) {</span>
+<span class="lineNum">      75 </span>            :         /* we're here because we seeked back within the read buffer. */
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         ret = zstream-&gt;high_pos - stream-&gt;pos;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         stream-&gt;pos = zstream-&gt;high_pos;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         zstream-&gt;high_pos = 0;</span>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         if (zstream-&gt;eof_offset != (uoff_t)-1) {</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :             high_offset = stream-&gt;istream.v_offset +</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :                 (stream-&gt;pos - stream-&gt;skip);</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :             i_assert(zstream-&gt;eof_offset == high_offset);</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :             stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">      85 </span>            :         }
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">      87 </span>            :     }
+<span class="lineNum">      88 </span><span class="lineCov">        546 :     zstream-&gt;high_pos = 0;</span>
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span><span class="lineCov">        546 :     if (!zstream-&gt;marked) {</span>
+<span class="lineNum">      91 </span><span class="lineCov">        546 :         if (!i_stream_try_alloc(stream, CHUNK_SIZE, &amp;out_size))</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :             return -2; /* buffer full */</span>
+<span class="lineNum">      93 </span>            :     } else {
+<span class="lineNum">      94 </span>            :         /* try to avoid compressing, so we can quickly seek backwards */
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         if (!i_stream_try_alloc_avoid_compress(stream, CHUNK_SIZE, &amp;out_size))</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :             return -2; /* buffer full */</span>
+<span class="lineNum">      97 </span>            :     }
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineCov">        546 :     if (i_stream_read_more(stream-&gt;parent, &amp;data, &amp;size) &lt; 0) {</span>
+<span class="lineNum">     100 </span><span class="lineCov">          1 :         if (stream-&gt;parent-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :             stream-&gt;istream.stream_errno =</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :                 stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     103 </span>            :         } else {
+<span class="lineNum">     104 </span><span class="lineCov">          1 :             i_assert(stream-&gt;parent-&gt;eof);</span>
+<span class="lineNum">     105 </span><span class="lineCov">          1 :             lzma_stream_end(zstream);</span>
+<span class="lineNum">     106 </span><span class="lineCov">          1 :             stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     107 </span>            :         }
+<span class="lineNum">     108 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     109 </span>            :     }
+<span class="lineNum">     110 </span><span class="lineCov">        545 :     if (size == 0) {</span>
+<span class="lineNum">     111 </span>            :         /* no more input */
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         i_assert(!stream-&gt;istream.blocking);</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     114 </span>            :     }
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineCov">        545 :     zstream-&gt;strm.next_in = data;</span>
+<span class="lineNum">     117 </span><span class="lineCov">        545 :     zstream-&gt;strm.avail_in = size;</span>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineCov">        545 :     zstream-&gt;strm.next_out = stream-&gt;w_buffer + stream-&gt;pos;</span>
+<span class="lineNum">     120 </span><span class="lineCov">        545 :     zstream-&gt;strm.avail_out = out_size;</span>
+<span class="lineNum">     121 </span><span class="lineCov">        545 :     ret = lzma_code(&amp;zstream-&gt;strm, LZMA_RUN);</span>
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineCov">        545 :     out_size -= zstream-&gt;strm.avail_out;</span>
+<span class="lineNum">     124 </span><span class="lineCov">        545 :     stream-&gt;pos += out_size;</span>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">        545 :     i_stream_skip(stream-&gt;parent, size - zstream-&gt;strm.avail_in);</span>
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineCov">        545 :     switch (ret) {</span>
+<span class="lineNum">     129 </span>            :     case LZMA_OK:
+<span class="lineNum">     130 </span><span class="lineCov">        545 :         break;</span>
+<span class="lineNum">     131 </span>            :     case LZMA_DATA_ERROR:
+<span class="lineNum">     132 </span>            :     case LZMA_BUF_ERROR:
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         lzma_read_error(zstream, &quot;corrupted data&quot;);</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = EINVAL;</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     136 </span>            :     case LZMA_FORMAT_ERROR:
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         lzma_read_error(zstream, &quot;wrong magic in header (not xz file?)&quot;);</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = EINVAL;</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     140 </span>            :     case LZMA_OPTIONS_ERROR:
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         lzma_read_error(zstream, &quot;Unsupported xz options&quot;);</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = EIO;</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     144 </span>            :     case LZMA_MEM_ERROR:
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         i_fatal_status(FATAL_OUTOFMEM, &quot;lzma.read(%s): Out of memory&quot;,</span>
+<span class="lineNum">     146 </span>            :                    i_stream_get_name(&amp;stream-&gt;istream));
+<span class="lineNum">     147 </span>            :     case LZMA_STREAM_END:
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :         lzma_stream_end(zstream);</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :         if (out_size == 0) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :             stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     152 </span>            :         }
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     154 </span>            :     default:
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         lzma_read_error(zstream, t_strdup_printf(</span>
+<span class="lineNum">     156 </span>            :             &quot;lzma_code() failed with %d&quot;, ret));
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = EIO;</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     159 </span>            :     }
+<span class="lineNum">     160 </span><span class="lineCov">        545 :     if (out_size == 0) {</span>
+<span class="lineNum">     161 </span>            :         /* read more input */
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         return i_stream_lzma_read(stream);</span>
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span><span class="lineCov">        545 :     return out_size;</span>
+<a name="165"><span class="lineNum">     165 </span>            : }</a>
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineCov">          1 : static void i_stream_lzma_init(struct lzma_istream *zstream)</span>
+<span class="lineNum">     168 </span>            : {
+<span class="lineNum">     169 </span>            :     lzma_ret ret;
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineCov">          1 :     ret = lzma_stream_decoder(&amp;zstream-&gt;strm, LZMA_MEMORY_LIMIT,</span>
+<span class="lineNum">     172 </span>            :                   LZMA_CONCATENATED);
+<span class="lineNum">     173 </span><span class="lineCov">          1 :     switch (ret) {</span>
+<span class="lineNum">     174 </span>            :     case LZMA_OK:
+<span class="lineNum">     175 </span><span class="lineCov">          1 :         break;</span>
+<span class="lineNum">     176 </span>            :     case LZMA_MEM_ERROR:
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         i_fatal_status(FATAL_OUTOFMEM, &quot;lzma: Out of memory&quot;);</span>
+<span class="lineNum">     178 </span>            :     default:
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         i_fatal(&quot;lzma_stream_decoder() failed with ret=%d&quot;, ret);</span>
+<span class="lineNum">     180 </span>            :     }
+<a name="181"><span class="lineNum">     181 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 : static void i_stream_lzma_reset(struct lzma_istream *zstream)</span>
+<span class="lineNum">     184 </span>            : {
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :     struct istream_private *stream = &amp;zstream-&gt;istream;</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :     i_stream_seek(stream-&gt;parent, stream-&gt;parent_start_offset);</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     zstream-&gt;eof_offset = (uoff_t)-1;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     zstream-&gt;strm.next_in = NULL;</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     zstream-&gt;strm.avail_in = 0;</span>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     stream-&gt;parent_expected_offset = stream-&gt;parent_start_offset;</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     stream-&gt;skip = stream-&gt;pos = 0;</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     stream-&gt;istream.v_offset = 0;</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     zstream-&gt;high_pos = 0;</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     lzma_end(&amp;zstream-&gt;strm);</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     i_stream_lzma_init(zstream);</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 : }</span>
+<a name="200"><span class="lineNum">     200 </span>            : </a>
+<span class="lineNum">     201 </span>            : static void
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 : i_stream_lzma_seek(struct istream_private *stream, uoff_t v_offset, bool mark)</span>
+<span class="lineNum">     203 </span>            : {
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     struct lzma_istream *zstream = (struct lzma_istream *) stream;</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     uoff_t start_offset = stream-&gt;istream.v_offset - stream-&gt;skip;</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     if (v_offset &lt; start_offset) {</span>
+<span class="lineNum">     208 </span>            :         /* have to seek backwards */
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         i_stream_lzma_reset(zstream);</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         start_offset = 0;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     } else if (zstream-&gt;high_pos != 0) {</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :         stream-&gt;pos = zstream-&gt;high_pos;</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         zstream-&gt;high_pos = 0;</span>
+<span class="lineNum">     214 </span>            :     }
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     if (v_offset &lt;= start_offset + stream-&gt;pos) {</span>
+<span class="lineNum">     217 </span>            :         /* seeking backwards within what's already cached */
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         stream-&gt;skip = v_offset - start_offset;</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :         stream-&gt;istream.v_offset = v_offset;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         zstream-&gt;high_pos = stream-&gt;pos;</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         stream-&gt;pos = stream-&gt;skip;</span>
+<span class="lineNum">     222 </span>            :     } else {
+<span class="lineNum">     223 </span>            :         /* read and cache forward */
+<span class="lineNum">     224 </span>            :         ssize_t ret;
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span>            :         do {
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :             size_t avail = stream-&gt;pos - stream-&gt;skip;</span>
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :             if (stream-&gt;istream.v_offset + avail &gt;= v_offset) {</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :                 i_stream_skip(&amp;stream-&gt;istream,</span>
+<span class="lineNum">     231 </span>            :                           v_offset -
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :                           stream-&gt;istream.v_offset);</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :                 ret = -1;</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     235 </span>            :             }
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :             i_stream_skip(&amp;stream-&gt;istream, avail);</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         } while ((ret = i_stream_read(&amp;stream-&gt;istream)) &gt; 0);</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         i_assert(ret == -1);</span>
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         if (stream-&gt;istream.v_offset != v_offset) {</span>
+<span class="lineNum">     242 </span>            :             /* some failure, we've broken it */
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :             if (stream-&gt;istream.stream_errno != 0) {</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :                 i_error(&quot;lzma_istream.seek(%s) failed: %s&quot;,</span>
+<span class="lineNum">     245 </span>            :                     i_stream_get_name(&amp;stream-&gt;istream),
+<span class="lineNum">     246 </span>            :                     strerror(stream-&gt;istream.stream_errno));
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :                 i_stream_close(&amp;stream-&gt;istream);</span>
+<span class="lineNum">     248 </span>            :             } else {
+<span class="lineNum">     249 </span>            :                 /* unexpected EOF. allow it since we may just
+<span class="lineNum">     250 </span>            :                    want to check if there's anything.. */
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :                 i_assert(stream-&gt;istream.eof);</span>
+<span class="lineNum">     252 </span>            :             }
+<span class="lineNum">     253 </span>            :         }
+<span class="lineNum">     254 </span>            :     }
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     if (mark)</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         zstream-&gt;marked = TRUE;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 : }</span>
+<a name="259"><span class="lineNum">     259 </span>            : </a>
+<span class="lineNum">     260 </span>            : static int
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 : i_stream_lzma_stat(struct istream_private *stream, bool exact)</span>
+<span class="lineNum">     262 </span>            : {
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :     struct lzma_istream *zstream = (struct lzma_istream *) stream;</span>
+<span class="lineNum">     264 </span>            :     const struct stat *st;
+<span class="lineNum">     265 </span>            :     size_t size;
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     if (i_stream_stat(stream-&gt;parent, exact, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     270 </span>            :     }
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     stream-&gt;statbuf = *st;</span>
+<span class="lineNum">     272 </span>            : 
+<span class="lineNum">     273 </span>            :     /* when exact=FALSE always return the parent stat's size, even if we
+<span class="lineNum">     274 </span>            :        know the exact value. this is necessary because otherwise e.g. mbox
+<span class="lineNum">     275 </span>            :        code can see two different values and think that a compressed mbox
+<span class="lineNum">     276 </span>            :        file keeps changing. */
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     if (!exact)</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     if (zstream-&gt;stream_size == (uoff_t)-1) {</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         uoff_t old_offset = stream-&gt;istream.v_offset;</span>
+<span class="lineNum">     282 </span>            :         ssize_t ret;
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span>            :         do {
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :             size = i_stream_get_data_size(&amp;stream-&gt;istream);</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :             i_stream_skip(&amp;stream-&gt;istream, size);</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         } while ((ret = i_stream_read(&amp;stream-&gt;istream)) &gt; 0);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         i_assert(ret == -1);</span>
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         i_stream_seek(&amp;stream-&gt;istream, old_offset);</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         if (zstream-&gt;stream_size == (uoff_t)-1)</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     293 </span>            :     }
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     stream-&gt;statbuf.st_size = zstream-&gt;stream_size;</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="296"><span class="lineNum">     296 </span>            : }</a>
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 : static void i_stream_lzma_sync(struct istream_private *stream)</span>
+<span class="lineNum">     299 </span>            : {
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     struct lzma_istream *zstream = (struct lzma_istream *) stream;</span>
+<span class="lineNum">     301 </span>            :     const struct stat *st;
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     if (i_stream_stat(stream-&gt;parent, FALSE, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :         if (memcmp(&amp;zstream-&gt;last_parent_statbuf,</span>
+<span class="lineNum">     305 </span>            :                st, sizeof(*st)) == 0) {
+<span class="lineNum">     306 </span>            :             /* a compressed file doesn't change unexpectedly,
+<span class="lineNum">     307 </span>            :                don't clear our caches unnecessarily */
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     309 </span>            :         }
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         zstream-&gt;last_parent_statbuf = *st;</span>
+<span class="lineNum">     311 </span>            :     }
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     i_stream_lzma_reset(zstream);</span>
+<a name="313"><span class="lineNum">     313 </span>            : }</a>
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineCov">          1 : struct istream *i_stream_create_lzma(struct istream *input, bool log_errors)</span>
+<span class="lineNum">     316 </span>            : {
+<span class="lineNum">     317 </span>            :     struct lzma_istream *zstream;
+<span class="lineNum">     318 </span>            : 
+<span class="lineNum">     319 </span><span class="lineCov">          1 :     zstream = i_new(struct lzma_istream, 1);</span>
+<span class="lineNum">     320 </span><span class="lineCov">          1 :     zstream-&gt;eof_offset = (uoff_t)-1;</span>
+<span class="lineNum">     321 </span><span class="lineCov">          1 :     zstream-&gt;stream_size = (uoff_t)-1;</span>
+<span class="lineNum">     322 </span><span class="lineCov">          1 :     zstream-&gt;log_errors = log_errors;</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineCov">          1 :     i_stream_lzma_init(zstream);</span>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineCov">          1 :     zstream-&gt;istream.iostream.close = i_stream_lzma_close;</span>
+<span class="lineNum">     327 </span><span class="lineCov">          1 :     zstream-&gt;istream.max_buffer_size = input-&gt;real_stream-&gt;max_buffer_size;</span>
+<span class="lineNum">     328 </span><span class="lineCov">          1 :     zstream-&gt;istream.read = i_stream_lzma_read;</span>
+<span class="lineNum">     329 </span><span class="lineCov">          1 :     zstream-&gt;istream.seek = i_stream_lzma_seek;</span>
+<span class="lineNum">     330 </span><span class="lineCov">          1 :     zstream-&gt;istream.stat = i_stream_lzma_stat;</span>
+<span class="lineNum">     331 </span><span class="lineCov">          1 :     zstream-&gt;istream.sync = i_stream_lzma_sync;</span>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineCov">          1 :     zstream-&gt;istream.istream.readable_fd = FALSE;</span>
+<span class="lineNum">     334 </span><span class="lineCov">          1 :     zstream-&gt;istream.istream.blocking = input-&gt;blocking;</span>
+<span class="lineNum">     335 </span><span class="lineCov">          1 :     zstream-&gt;istream.istream.seekable = input-&gt;seekable;</span>
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineCov">          1 :     return i_stream_create(&amp;zstream-&gt;istream, input,</span>
+<span class="lineNum">     338 </span>            :                    i_stream_get_fd(input), 0);
+<span class="lineNum">     339 </span>            : }
+<span class="lineNum">     340 </span>            : #endif
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

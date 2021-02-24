@@ -1,0 +1,679 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-ntlm/ntlm-des.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-ntlm</a> - ntlm-des.c<span style="font-size: 80%;"> (source / <a href="ntlm-des.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">61</td>
+            <td class="headerCovTableEntry">61</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * Implementation of DES encryption for NTLM
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright 1997-2005 Simon Tatham.
+<span class="lineNum">       5 </span>            :  *
+<span class="lineNum">       6 </span>            :  * This software is released under the MIT license.
+<span class="lineNum">       7 </span>            :  */
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;ntlm-des.h&quot;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : /*
+<span class="lineNum">      13 </span>            :  * Description of DES
+<span class="lineNum">      14 </span>            :  * ------------------
+<span class="lineNum">      15 </span>            :  *
+<span class="lineNum">      16 </span>            :  * Unlike the description in FIPS 46, I'm going to use _sensible_ indices:
+<span class="lineNum">      17 </span>            :  * bits in an n-bit word are numbered from 0 at the LSB to n-1 at the MSB.
+<span class="lineNum">      18 </span>            :  * And S-boxes are indexed by six consecutive bits, not by the outer two
+<span class="lineNum">      19 </span>            :  * followed by the middle four.
+<span class="lineNum">      20 </span>            :  *
+<span class="lineNum">      21 </span>            :  * The DES encryption routine requires a 64-bit input, and a key schedule K
+<span class="lineNum">      22 </span>            :  * containing 16 48-bit elements.
+<span class="lineNum">      23 </span>            :  *
+<span class="lineNum">      24 </span>            :  *   First the input is permuted by the initial permutation IP.
+<span class="lineNum">      25 </span>            :  *   Then the input is split into 32-bit words L and R. (L is the MSW.)
+<span class="lineNum">      26 </span>            :  *   Next, 16 rounds. In each round:
+<span class="lineNum">      27 </span>            :  *     (L, R) &lt;- (R, L xor f(R, K[i]))
+<span class="lineNum">      28 </span>            :  *   Then the pre-output words L and R are swapped.
+<span class="lineNum">      29 </span>            :  *   Then L and R are glued back together into a 64-bit word. (L is the MSW,
+<span class="lineNum">      30 </span>            :  *     again, but since we just swapped them, the MSW is the R that came out
+<span class="lineNum">      31 </span>            :  *     of the last round.)
+<span class="lineNum">      32 </span>            :  *   The 64-bit output block is permuted by the inverse of IP and returned.
+<span class="lineNum">      33 </span>            :  *
+<span class="lineNum">      34 </span>            :  * Decryption is identical except that the elements of K are used in the
+<span class="lineNum">      35 </span>            :  * opposite order. (This wouldn't work if that word swap didn't happen.)
+<span class="lineNum">      36 </span>            :  *
+<span class="lineNum">      37 </span>            :  * The function f, used in each round, accepts a 32-bit word R and a
+<span class="lineNum">      38 </span>            :  * 48-bit key block K. It produces a 32-bit output.
+<span class="lineNum">      39 </span>            :  *
+<span class="lineNum">      40 </span>            :  *   First R is expanded to 48 bits using the bit-selection function E.
+<span class="lineNum">      41 </span>            :  *   The resulting 48-bit block is XORed with the key block K to produce
+<span class="lineNum">      42 </span>            :  *     a 48-bit block X.
+<span class="lineNum">      43 </span>            :  *   This block X is split into eight groups of 6 bits. Each group of 6
+<span class="lineNum">      44 </span>            :  *     bits is then looked up in one of the eight S-boxes to convert
+<span class="lineNum">      45 </span>            :  *     it to 4 bits. These eight groups of 4 bits are glued back
+<span class="lineNum">      46 </span>            :  *     together to produce a 32-bit preoutput block.
+<span class="lineNum">      47 </span>            :  *   The preoutput block is permuted using the permutation P and returned.
+<span class="lineNum">      48 </span>            :  *
+<span class="lineNum">      49 </span>            :  * Key setup maps a 64-bit key word into a 16x48-bit key schedule. Although
+<span class="lineNum">      50 </span>            :  * the approved input format for the key is a 64-bit word, eight of the
+<span class="lineNum">      51 </span>            :  * bits are discarded, so the actual quantity of key used is 56 bits.
+<span class="lineNum">      52 </span>            :  *
+<span class="lineNum">      53 </span>            :  *   First the input key is converted to two 28-bit words C and D using
+<span class="lineNum">      54 </span>            :  *     the bit-selection function PC1.
+<span class="lineNum">      55 </span>            :  *   Then 16 rounds of key setup occur. In each round, C and D are each
+<span class="lineNum">      56 </span>            :  *     rotated left by either 1 or 2 bits (depending on which round), and
+<span class="lineNum">      57 </span>            :  *     then converted into a key schedule element using the bit-selection
+<span class="lineNum">      58 </span>            :  *     function PC2.
+<span class="lineNum">      59 </span>            :  *
+<span class="lineNum">      60 </span>            :  * That's the actual algorithm. Now for the tedious details: all those
+<span class="lineNum">      61 </span>            :  * painful permutations and lookup tables.
+<span class="lineNum">      62 </span>            :  *
+<span class="lineNum">      63 </span>            :  * IP is a 64-to-64 bit permutation. Its output contains the following
+<span class="lineNum">      64 </span>            :  * bits of its input (listed in order MSB to LSB of output).
+<span class="lineNum">      65 </span>            :  *
+<span class="lineNum">      66 </span>            :  *    6 14 22 30 38 46 54 62  4 12 20 28 36 44 52 60
+<span class="lineNum">      67 </span>            :  *    2 10 18 26 34 42 50 58  0  8 16 24 32 40 48 56
+<span class="lineNum">      68 </span>            :  *    7 15 23 31 39 47 55 63  5 13 21 29 37 45 53 61
+<span class="lineNum">      69 </span>            :  *    3 11 19 27 35 43 51 59  1  9 17 25 33 41 49 57
+<span class="lineNum">      70 </span>            :  *
+<span class="lineNum">      71 </span>            :  * E is a 32-to-48 bit selection function. Its output contains the following
+<span class="lineNum">      72 </span>            :  * bits of its input (listed in order MSB to LSB of output).
+<span class="lineNum">      73 </span>            :  *
+<span class="lineNum">      74 </span>            :  *    0 31 30 29 28 27 28 27 26 25 24 23 24 23 22 21 20 19 20 19 18 17 16 15
+<span class="lineNum">      75 </span>            :  *   16 15 14 13 12 11 12 11 10  9  8  7  8  7  6  5  4  3  4  3  2  1  0 31
+<span class="lineNum">      76 </span>            :  *
+<span class="lineNum">      77 </span>            :  * The S-boxes are arbitrary table-lookups each mapping a 6-bit input to a
+<span class="lineNum">      78 </span>            :  * 4-bit output. In other words, each S-box is an array[64] of 4-bit numbers.
+<span class="lineNum">      79 </span>            :  * The S-boxes are listed below. The first S-box listed is applied to the
+<span class="lineNum">      80 </span>            :  * most significant six bits of the block X; the last one is applied to the
+<span class="lineNum">      81 </span>            :  * least significant.
+<span class="lineNum">      82 </span>            :  *
+<span class="lineNum">      83 </span>            :  *   14  0  4 15 13  7  1  4  2 14 15  2 11 13  8  1
+<span class="lineNum">      84 </span>            :  *    3 10 10  6  6 12 12 11  5  9  9  5  0  3  7  8
+<span class="lineNum">      85 </span>            :  *    4 15  1 12 14  8  8  2 13  4  6  9  2  1 11  7
+<span class="lineNum">      86 </span>            :  *   15  5 12 11  9  3  7 14  3 10 10  0  5  6  0 13
+<span class="lineNum">      87 </span>            :  *
+<span class="lineNum">      88 </span>            :  *   15  3  1 13  8  4 14  7  6 15 11  2  3  8  4 14
+<span class="lineNum">      89 </span>            :  *    9 12  7  0  2  1 13 10 12  6  0  9  5 11 10  5
+<span class="lineNum">      90 </span>            :  *    0 13 14  8  7 10 11  1 10  3  4 15 13  4  1  2
+<span class="lineNum">      91 </span>            :  *    5 11  8  6 12  7  6 12  9  0  3  5  2 14 15  9
+<span class="lineNum">      92 </span>            :  *
+<span class="lineNum">      93 </span>            :  *   10 13  0  7  9  0 14  9  6  3  3  4 15  6  5 10
+<span class="lineNum">      94 </span>            :  *    1  2 13  8 12  5  7 14 11 12  4 11  2 15  8  1
+<span class="lineNum">      95 </span>            :  *   13  1  6 10  4 13  9  0  8  6 15  9  3  8  0  7
+<span class="lineNum">      96 </span>            :  *   11  4  1 15  2 14 12  3  5 11 10  5 14  2  7 12
+<span class="lineNum">      97 </span>            :  *
+<span class="lineNum">      98 </span>            :  *    7 13 13  8 14 11  3  5  0  6  6 15  9  0 10  3
+<span class="lineNum">      99 </span>            :  *    1  4  2  7  8  2  5 12 11  1 12 10  4 14 15  9
+<span class="lineNum">     100 </span>            :  *   10  3  6 15  9  0  0  6 12 10 11  1  7 13 13  8
+<span class="lineNum">     101 </span>            :  *   15  9  1  4  3  5 14 11  5 12  2  7  8  2  4 14
+<span class="lineNum">     102 </span>            :  *
+<span class="lineNum">     103 </span>            :  *    2 14 12 11  4  2  1 12  7  4 10  7 11 13  6  1
+<span class="lineNum">     104 </span>            :  *    8  5  5  0  3 15 15 10 13  3  0  9 14  8  9  6
+<span class="lineNum">     105 </span>            :  *    4 11  2  8  1 12 11  7 10  1 13 14  7  2  8 13
+<span class="lineNum">     106 </span>            :  *   15  6  9 15 12  0  5  9  6 10  3  4  0  5 14  3
+<span class="lineNum">     107 </span>            :  *
+<span class="lineNum">     108 </span>            :  *   12 10  1 15 10  4 15  2  9  7  2 12  6  9  8  5
+<span class="lineNum">     109 </span>            :  *    0  6 13  1  3 13  4 14 14  0  7 11  5  3 11  8
+<span class="lineNum">     110 </span>            :  *    9  4 14  3 15  2  5 12  2  9  8  5 12 15  3 10
+<span class="lineNum">     111 </span>            :  *    7 11  0 14  4  1 10  7  1  6 13  0 11  8  6 13
+<span class="lineNum">     112 </span>            :  *
+<span class="lineNum">     113 </span>            :  *    4 13 11  0  2 11 14  7 15  4  0  9  8  1 13 10
+<span class="lineNum">     114 </span>            :  *    3 14 12  3  9  5  7 12  5  2 10 15  6  8  1  6
+<span class="lineNum">     115 </span>            :  *    1  6  4 11 11 13 13  8 12  1  3  4  7 10 14  7
+<span class="lineNum">     116 </span>            :  *   10  9 15  5  6  0  8 15  0 14  5  2  9  3  2 12
+<span class="lineNum">     117 </span>            :  *
+<span class="lineNum">     118 </span>            :  *   13  1  2 15  8 13  4  8  6 10 15  3 11  7  1  4
+<span class="lineNum">     119 </span>            :  *   10 12  9  5  3  6 14 11  5  0  0 14 12  9  7  2
+<span class="lineNum">     120 </span>            :  *    7  2 11  1  4 14  1  7  9  4 12 10 14  8  2 13
+<span class="lineNum">     121 </span>            :  *    0 15  6 12 10  9 13  0 15  3  3  5  5  6  8 11
+<span class="lineNum">     122 </span>            :  *
+<span class="lineNum">     123 </span>            :  * P is a 32-to-32 bit permutation. Its output contains the following
+<span class="lineNum">     124 </span>            :  * bits of its input (listed in order MSB to LSB of output).
+<span class="lineNum">     125 </span>            :  *
+<span class="lineNum">     126 </span>            :  *   16 25 12 11  3 20  4 15 31 17  9  6 27 14  1 22
+<span class="lineNum">     127 </span>            :  *   30 24  8 18  0  5 29 23 13 19  2 26 10 21 28  7
+<span class="lineNum">     128 </span>            :  *
+<span class="lineNum">     129 </span>            :  * PC1 is a 64-to-56 bit selection function. Its output is in two words,
+<span class="lineNum">     130 </span>            :  * C and D. The word C contains the following bits of its input (listed
+<span class="lineNum">     131 </span>            :  * in order MSB to LSB of output).
+<span class="lineNum">     132 </span>            :  *
+<span class="lineNum">     133 </span>            :  *    7 15 23 31 39 47 55 63  6 14 22 30 38 46
+<span class="lineNum">     134 </span>            :  *   54 62  5 13 21 29 37 45 53 61  4 12 20 28
+<span class="lineNum">     135 </span>            :  *
+<span class="lineNum">     136 </span>            :  * And the word D contains these bits.
+<span class="lineNum">     137 </span>            :  *
+<span class="lineNum">     138 </span>            :  *    1  9 17 25 33 41 49 57  2 10 18 26 34 42
+<span class="lineNum">     139 </span>            :  *   50 58  3 11 19 27 35 43 51 59 36 44 52 60
+<span class="lineNum">     140 </span>            :  *
+<span class="lineNum">     141 </span>            :  * PC2 is a 56-to-48 bit selection function. Its input is in two words,
+<span class="lineNum">     142 </span>            :  * C and D. These are treated as one 56-bit word (with C more significant,
+<span class="lineNum">     143 </span>            :  * so that bits 55 to 28 of the word are bits 27 to 0 of C, and bits 27 to
+<span class="lineNum">     144 </span>            :  * 0 of the word are bits 27 to 0 of D). The output contains the following
+<span class="lineNum">     145 </span>            :  * bits of this 56-bit input word (listed in order MSB to LSB of output).
+<span class="lineNum">     146 </span>            :  *
+<span class="lineNum">     147 </span>            :  *   42 39 45 32 55 51 53 28 41 50 35 46 33 37 44 52 30 48 40 49 29 36 43 54
+<span class="lineNum">     148 </span>            :  *   15  4 25 19  9  1 26 16  5 11 23  8 12  7 17  0 22  3 10 14  6 20 27 24
+<span class="lineNum">     149 </span>            :  */
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span>            : /*
+<span class="lineNum">     152 </span>            :  * Implementation details
+<span class="lineNum">     153 </span>            :  * ----------------------
+<span class="lineNum">     154 </span>            :  * 
+<span class="lineNum">     155 </span>            :  * If you look at the code in this module, you'll find it looks
+<span class="lineNum">     156 </span>            :  * nothing _like_ the above algorithm. Here I explain the
+<span class="lineNum">     157 </span>            :  * differences...
+<span class="lineNum">     158 </span>            :  *
+<span class="lineNum">     159 </span>            :  * Key setup has not been heavily optimised here. We are not
+<span class="lineNum">     160 </span>            :  * concerned with key agility: we aren't codebreakers. We don't
+<span class="lineNum">     161 </span>            :  * mind a little delay (and it really is a little one; it may be a
+<span class="lineNum">     162 </span>            :  * factor of five or so slower than it could be but it's still not
+<span class="lineNum">     163 </span>            :  * an appreciable length of time) while setting up. The only tweaks
+<span class="lineNum">     164 </span>            :  * in the key setup are ones which change the format of the key
+<span class="lineNum">     165 </span>            :  * schedule to speed up the actual encryption. I'll describe those
+<span class="lineNum">     166 </span>            :  * below.
+<span class="lineNum">     167 </span>            :  *
+<span class="lineNum">     168 </span>            :  * The first and most obvious optimization is the S-boxes. Since
+<span class="lineNum">     169 </span>            :  * each S-box always targets the same four bits in the final 32-bit
+<span class="lineNum">     170 </span>            :  * word, so the output from (for example) S-box 0 must always be
+<span class="lineNum">     171 </span>            :  * shifted left 28 bits, we can store the already-shifted outputs
+<span class="lineNum">     172 </span>            :  * in the lookup tables. This reduces lookup-and-shift to lookup,
+<span class="lineNum">     173 </span>            :  * so the S-box step is now just a question of ORing together eight
+<span class="lineNum">     174 </span>            :  * table lookups.
+<span class="lineNum">     175 </span>            :  *
+<span class="lineNum">     176 </span>            :  * The permutation P is just a bit order change; it's invariant
+<span class="lineNum">     177 </span>            :  * with respect to OR, in that P(x)|P(y) = P(x|y). Therefore, we
+<span class="lineNum">     178 </span>            :  * can apply P to every entry of the S-box tables and then we don't
+<span class="lineNum">     179 </span>            :  * have to do it in the code of f(). This yields a set of tables
+<span class="lineNum">     180 </span>            :  * which might be called SP-boxes.
+<span class="lineNum">     181 </span>            :  *
+<span class="lineNum">     182 </span>            :  * The bit-selection function E is our next target. Note that E is
+<span class="lineNum">     183 </span>            :  * immediately followed by the operation of splitting into 6-bit
+<span class="lineNum">     184 </span>            :  * chunks. Examining the 6-bit chunks coming out of E we notice
+<span class="lineNum">     185 </span>            :  * they're all contiguous within the word (speaking cyclically -
+<span class="lineNum">     186 </span>            :  * the end two wrap round); so we can extract those bit strings
+<span class="lineNum">     187 </span>            :  * individually rather than explicitly running E. This would yield
+<span class="lineNum">     188 </span>            :  * code such as
+<span class="lineNum">     189 </span>            :  *
+<span class="lineNum">     190 </span>            :  *     y |= SPboxes[0][ (rotl(R, 5) ^  top6bitsofK) &amp; 0x3F ];
+<span class="lineNum">     191 </span>            :  *     t |= SPboxes[1][ (rotl(R,11) ^ next6bitsofK) &amp; 0x3F ];
+<span class="lineNum">     192 </span>            :  *
+<span class="lineNum">     193 </span>            :  * and so on; and the key schedule preparation would have to
+<span class="lineNum">     194 </span>            :  * provide each 6-bit chunk separately.
+<span class="lineNum">     195 </span>            :  *
+<span class="lineNum">     196 </span>            :  * Really we'd like to XOR in the key schedule element before
+<span class="lineNum">     197 </span>            :  * looking up bit strings in R. This we can't do, naively, because
+<span class="lineNum">     198 </span>            :  * the 6-bit strings we want overlap. But look at the strings:
+<span class="lineNum">     199 </span>            :  *
+<span class="lineNum">     200 </span>            :  *       3322222222221111111111
+<span class="lineNum">     201 </span>            :  * bit   10987654321098765432109876543210
+<span class="lineNum">     202 </span>            :  * 
+<span class="lineNum">     203 </span>            :  * box0  XXXXX                          X
+<span class="lineNum">     204 </span>            :  * box1     XXXXXX
+<span class="lineNum">     205 </span>            :  * box2         XXXXXX
+<span class="lineNum">     206 </span>            :  * box3             XXXXXX
+<span class="lineNum">     207 </span>            :  * box4                 XXXXXX
+<span class="lineNum">     208 </span>            :  * box5                     XXXXXX
+<span class="lineNum">     209 </span>            :  * box6                         XXXXXX
+<span class="lineNum">     210 </span>            :  * box7  X                          XXXXX
+<span class="lineNum">     211 </span>            :  *
+<span class="lineNum">     212 </span>            :  * The bit strings we need to XOR in for boxes 0, 2, 4 and 6 don't
+<span class="lineNum">     213 </span>            :  * overlap with each other. Neither do the ones for boxes 1, 3, 5
+<span class="lineNum">     214 </span>            :  * and 7. So we could provide the key schedule in the form of two
+<span class="lineNum">     215 </span>            :  * words that we can separately XOR into R, and then every S-box
+<span class="lineNum">     216 </span>            :  * index is available as a (cyclically) contiguous 6-bit substring
+<span class="lineNum">     217 </span>            :  * of one or the other of the results.
+<span class="lineNum">     218 </span>            :  *
+<span class="lineNum">     219 </span>            :  * The comments in Eric Young's libdes implementation point out
+<span class="lineNum">     220 </span>            :  * that two of these bit strings require a rotation (rather than a
+<span class="lineNum">     221 </span>            :  * simple shift) to extract. It's unavoidable that at least _one_
+<span class="lineNum">     222 </span>            :  * must do; but we can actually run the whole inner algorithm (all
+<span class="lineNum">     223 </span>            :  * 16 rounds) rotated one bit to the left, so that what the `real'
+<span class="lineNum">     224 </span>            :  * DES description sees as L=0x80000001 we see as L=0x00000003.
+<span class="lineNum">     225 </span>            :  * This requires rotating all our SP-box entries one bit to the
+<span class="lineNum">     226 </span>            :  * left, and rotating each word of the key schedule elements one to
+<span class="lineNum">     227 </span>            :  * the left, and rotating L and R one bit left just after IP and
+<span class="lineNum">     228 </span>            :  * one bit right again just before FP. And in each round we convert
+<span class="lineNum">     229 </span>            :  * a rotate into a shift, so we've saved a few per cent.
+<span class="lineNum">     230 </span>            :  *
+<span class="lineNum">     231 </span>            :  * That's about it for the inner loop; the SP-box tables as listed
+<span class="lineNum">     232 </span>            :  * below are what I've described here (the original S value,
+<span class="lineNum">     233 </span>            :  * shifted to its final place in the input to P, run through P, and
+<span class="lineNum">     234 </span>            :  * then rotated one bit left). All that remains is to optimise the
+<span class="lineNum">     235 </span>            :  * initial permutation IP.
+<span class="lineNum">     236 </span>            :  *
+<span class="lineNum">     237 </span>            :  * IP is not an arbitrary permutation. It has the nice property
+<span class="lineNum">     238 </span>            :  * that if you take any bit number, write it in binary (6 bits),
+<span class="lineNum">     239 </span>            :  * permute those 6 bits and invert some of them, you get the final
+<span class="lineNum">     240 </span>            :  * position of that bit. Specifically, the bit whose initial
+<span class="lineNum">     241 </span>            :  * position is given (in binary) as fedcba ends up in position
+<span class="lineNum">     242 </span>            :  * AcbFED (where a capital letter denotes the inverse of a bit).
+<span class="lineNum">     243 </span>            :  *
+<span class="lineNum">     244 </span>            :  * We have the 64-bit data in two 32-bit words L and R, where bits
+<span class="lineNum">     245 </span>            :  * in L are those with f=1 and bits in R are those with f=0. We
+<span class="lineNum">     246 </span>            :  * note that we can do a simple transformation: suppose we exchange
+<span class="lineNum">     247 </span>            :  * the bits with f=1,c=0 and the bits with f=0,c=1. This will cause
+<span class="lineNum">     248 </span>            :  * the bit fedcba to be in position cedfba - we've `swapped' bits c
+<span class="lineNum">     249 </span>            :  * and f in the position of each bit!
+<span class="lineNum">     250 </span>            :  * 
+<span class="lineNum">     251 </span>            :  * Better still, this transformation is easy. In the example above,
+<span class="lineNum">     252 </span>            :  * bits in L with c=0 are bits 0x0F0F0F0F, and those in R with c=1
+<span class="lineNum">     253 </span>            :  * are 0xF0F0F0F0. So we can do
+<span class="lineNum">     254 </span>            :  *
+<span class="lineNum">     255 </span>            :  *     difference = ((R &gt;&gt; 4) ^ L) &amp; 0x0F0F0F0F
+<span class="lineNum">     256 </span>            :  *     R ^= (difference &lt;&lt; 4)
+<span class="lineNum">     257 </span>            :  *     L ^= difference
+<span class="lineNum">     258 </span>            :  *
+<span class="lineNum">     259 </span>            :  * to perform the swap. Let's denote this by bitswap(4,0x0F0F0F0F).
+<span class="lineNum">     260 </span>            :  * Also, we can invert the bit at the top just by exchanging L and
+<span class="lineNum">     261 </span>            :  * R. So in a few swaps and a few of these bit operations we can
+<span class="lineNum">     262 </span>            :  * do:
+<span class="lineNum">     263 </span>            :  * 
+<span class="lineNum">     264 </span>            :  * Initially the position of bit fedcba is     fedcba
+<span class="lineNum">     265 </span>            :  * Swap L with R to make it                    Fedcba
+<span class="lineNum">     266 </span>            :  * Perform bitswap( 4,0x0F0F0F0F) to make it   cedFba
+<span class="lineNum">     267 </span>            :  * Perform bitswap(16,0x0000FFFF) to make it   ecdFba
+<span class="lineNum">     268 </span>            :  * Swap L with R to make it                    EcdFba
+<span class="lineNum">     269 </span>            :  * Perform bitswap( 2,0x33333333) to make it   bcdFEa
+<span class="lineNum">     270 </span>            :  * Perform bitswap( 8,0x00FF00FF) to make it   dcbFEa
+<span class="lineNum">     271 </span>            :  * Swap L with R to make it                    DcbFEa
+<span class="lineNum">     272 </span>            :  * Perform bitswap( 1,0x55555555) to make it   acbFED
+<span class="lineNum">     273 </span>            :  * Swap L with R to make it                    AcbFED
+<span class="lineNum">     274 </span>            :  *
+<span class="lineNum">     275 </span>            :  * (In the actual code the four swaps are implicit: R and L are
+<span class="lineNum">     276 </span>            :  * simply used the other way round in the first, second and last
+<span class="lineNum">     277 </span>            :  * bitswap operations.)
+<span class="lineNum">     278 </span>            :  *
+<span class="lineNum">     279 </span>            :  * The final permutation is just the inverse of IP, so it can be
+<span class="lineNum">     280 </span>            :  * performed by a similar set of operations.
+<span class="lineNum">     281 </span>            :  */
+<span class="lineNum">     282 </span>            : 
+<span class="lineNum">     283 </span>            : struct des_context {
+<span class="lineNum">     284 </span>            :     uint32_t k0246[16], k1357[16];
+<span class="lineNum">     285 </span>            : };
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span>            : #define rotl(x, c) ( (x &lt;&lt; c) | (x &gt;&gt; (32-c)) )
+<a name="288"><span class="lineNum">     288 </span>            : #define rotl28(x, c) ( ( (x &lt;&lt; c) | (x &gt;&gt; (28-c)) ) &amp; 0x0FFFFFFF)</a>
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineCov">        408 : static uint32_t bitsel(uint32_t * input, const int *bitnums, int size)</span>
+<span class="lineNum">     291 </span>            : {
+<span class="lineNum">     292 </span><span class="lineCov">        408 :     uint32_t ret = 0;</span>
+<span class="lineNum">     293 </span><span class="lineCov">      13776 :     while (size-- &gt; 0) {</span>
+<span class="lineNum">     294 </span><span class="lineCov">      12960 :         int bitpos = *bitnums++;</span>
+<span class="lineNum">     295 </span><span class="lineCov">      12960 :         ret &lt;&lt;= 1;</span>
+<span class="lineNum">     296 </span><span class="lineCov">      12960 :         if (bitpos &gt;= 0)</span>
+<span class="lineNum">     297 </span><span class="lineCov">       9888 :             ret |= 1 &amp; (input[bitpos / 32] &gt;&gt; (bitpos % 32));</span>
+<span class="lineNum">     298 </span>            :     }
+<span class="lineNum">     299 </span><span class="lineCov">        408 :     return ret;</span>
+<a name="300"><span class="lineNum">     300 </span>            : }</a>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">         12 : static inline void des_key_setup(uint32_t key_msw, uint32_t key_lsw,</span>
+<span class="lineNum">     303 </span>            :                  struct des_context *sched)
+<span class="lineNum">     304 </span>            : {
+<span class="lineNum">     305 </span>            :     /* Tables are modified to work with 56-bit key */
+<span class="lineNum">     306 </span>            :     static const int PC1_Cbits[] = {
+<span class="lineNum">     307 </span>            :         6, 13, 20, 27, 34, 41, 48, 55, 5, 12, 19, 26, 33, 40,
+<span class="lineNum">     308 </span>            :         47, 54, 4, 11, 18, 25, 32, 39, 46, 53, 3, 10, 17, 24
+<span class="lineNum">     309 </span>            :     };
+<span class="lineNum">     310 </span>            :     static const int PC1_Dbits[] = {
+<span class="lineNum">     311 </span>            :         0, 7, 14, 21, 28, 35, 42, 49, 1, 8, 15, 22, 29, 36,
+<span class="lineNum">     312 </span>            :         43, 50, 2, 9, 16, 23, 30, 37, 44, 51, 31, 38, 45, 52
+<span class="lineNum">     313 </span>            :     };
+<span class="lineNum">     314 </span>            :     /*
+<span class="lineNum">     315 </span>            :      * The bit numbers in the two lists below don't correspond to
+<span class="lineNum">     316 </span>            :      * the ones in the above description of PC2, because in the
+<span class="lineNum">     317 </span>            :      * above description C and D are concatenated so `bit 28' means
+<span class="lineNum">     318 </span>            :      * bit 0 of C. In this implementation we're using the standard
+<span class="lineNum">     319 </span>            :      * `bitsel' function above and C is in the second word, so bit
+<span class="lineNum">     320 </span>            :      * 0 of C is addressed by writing `32' here.
+<span class="lineNum">     321 </span>            :      */
+<span class="lineNum">     322 </span>            :     static const int PC2_0246[] = {
+<span class="lineNum">     323 </span>            :         49, 36, 59, 55, -1, -1, 37, 41, 48, 56, 34, 52, -1, -1, 15, 4,
+<span class="lineNum">     324 </span>            :         25, 19, 9, 1, -1, -1, 12, 7, 17, 0, 22, 3, -1, -1, 46, 43
+<span class="lineNum">     325 </span>            :     };
+<span class="lineNum">     326 </span>            :     static const int PC2_1357[] = {
+<span class="lineNum">     327 </span>            :         -1, -1, 57, 32, 45, 54, 39, 50, -1, -1, 44, 53, 33, 40, 47, 58,
+<span class="lineNum">     328 </span>            :         -1, -1, 26, 16, 5, 11, 23, 8, -1, -1, 10, 14, 6, 20, 27, 24
+<span class="lineNum">     329 </span>            :     };
+<span class="lineNum">     330 </span>            :     static const int leftshifts[] = {
+<span class="lineNum">     331 </span>            :         1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1
+<span class="lineNum">     332 </span>            :     };
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span>            :     uint32_t C, D;
+<span class="lineNum">     335 </span>            :     uint32_t buf[2];
+<span class="lineNum">     336 </span>            :     int i;
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineCov">         12 :     buf[0] = key_lsw;</span>
+<span class="lineNum">     339 </span><span class="lineCov">         12 :     buf[1] = key_msw;</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineCov">         12 :     C = bitsel(buf, PC1_Cbits, 28);</span>
+<span class="lineNum">     342 </span><span class="lineCov">         12 :     D = bitsel(buf, PC1_Dbits, 28);</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineCov">        204 :     for (i = 0; i &lt; 16; i++) {</span>
+<span class="lineNum">     345 </span><span class="lineCov">        192 :         C = rotl28(C, leftshifts[i]);</span>
+<span class="lineNum">     346 </span><span class="lineCov">        192 :         D = rotl28(D, leftshifts[i]);</span>
+<span class="lineNum">     347 </span><span class="lineCov">        192 :         buf[0] = D;</span>
+<span class="lineNum">     348 </span><span class="lineCov">        192 :         buf[1] = C;</span>
+<span class="lineNum">     349 </span><span class="lineCov">        192 :         sched-&gt;k0246[i] = bitsel(buf, PC2_0246, 32);</span>
+<span class="lineNum">     350 </span><span class="lineCov">        192 :         sched-&gt;k1357[i] = bitsel(buf, PC2_1357, 32);</span>
+<span class="lineNum">     351 </span>            :     }
+<span class="lineNum">     352 </span><span class="lineCov">         12 : }</span>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span>            : static const uint32_t SPboxes[8][64] = {
+<span class="lineNum">     355 </span>            :     {0x01010400, 0x00000000, 0x00010000, 0x01010404,
+<span class="lineNum">     356 </span>            :      0x01010004, 0x00010404, 0x00000004, 0x00010000,
+<span class="lineNum">     357 </span>            :      0x00000400, 0x01010400, 0x01010404, 0x00000400,
+<span class="lineNum">     358 </span>            :      0x01000404, 0x01010004, 0x01000000, 0x00000004,
+<span class="lineNum">     359 </span>            :      0x00000404, 0x01000400, 0x01000400, 0x00010400,
+<span class="lineNum">     360 </span>            :      0x00010400, 0x01010000, 0x01010000, 0x01000404,
+<span class="lineNum">     361 </span>            :      0x00010004, 0x01000004, 0x01000004, 0x00010004,
+<span class="lineNum">     362 </span>            :      0x00000000, 0x00000404, 0x00010404, 0x01000000,
+<span class="lineNum">     363 </span>            :      0x00010000, 0x01010404, 0x00000004, 0x01010000,
+<span class="lineNum">     364 </span>            :      0x01010400, 0x01000000, 0x01000000, 0x00000400,
+<span class="lineNum">     365 </span>            :      0x01010004, 0x00010000, 0x00010400, 0x01000004,
+<span class="lineNum">     366 </span>            :      0x00000400, 0x00000004, 0x01000404, 0x00010404,
+<span class="lineNum">     367 </span>            :      0x01010404, 0x00010004, 0x01010000, 0x01000404,
+<span class="lineNum">     368 </span>            :      0x01000004, 0x00000404, 0x00010404, 0x01010400,
+<span class="lineNum">     369 </span>            :      0x00000404, 0x01000400, 0x01000400, 0x00000000,
+<span class="lineNum">     370 </span>            :      0x00010004, 0x00010400, 0x00000000, 0x01010004},
+<span class="lineNum">     371 </span>            : 
+<span class="lineNum">     372 </span>            :     {0x80108020, 0x80008000, 0x00008000, 0x00108020,
+<span class="lineNum">     373 </span>            :      0x00100000, 0x00000020, 0x80100020, 0x80008020,
+<span class="lineNum">     374 </span>            :      0x80000020, 0x80108020, 0x80108000, 0x80000000,
+<span class="lineNum">     375 </span>            :      0x80008000, 0x00100000, 0x00000020, 0x80100020,
+<span class="lineNum">     376 </span>            :      0x00108000, 0x00100020, 0x80008020, 0x00000000,
+<span class="lineNum">     377 </span>            :      0x80000000, 0x00008000, 0x00108020, 0x80100000,
+<span class="lineNum">     378 </span>            :      0x00100020, 0x80000020, 0x00000000, 0x00108000,
+<span class="lineNum">     379 </span>            :      0x00008020, 0x80108000, 0x80100000, 0x00008020,
+<span class="lineNum">     380 </span>            :      0x00000000, 0x00108020, 0x80100020, 0x00100000,
+<span class="lineNum">     381 </span>            :      0x80008020, 0x80100000, 0x80108000, 0x00008000,
+<span class="lineNum">     382 </span>            :      0x80100000, 0x80008000, 0x00000020, 0x80108020,
+<span class="lineNum">     383 </span>            :      0x00108020, 0x00000020, 0x00008000, 0x80000000,
+<span class="lineNum">     384 </span>            :      0x00008020, 0x80108000, 0x00100000, 0x80000020,
+<span class="lineNum">     385 </span>            :      0x00100020, 0x80008020, 0x80000020, 0x00100020,
+<span class="lineNum">     386 </span>            :      0x00108000, 0x00000000, 0x80008000, 0x00008020,
+<span class="lineNum">     387 </span>            :      0x80000000, 0x80100020, 0x80108020, 0x00108000},
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span>            :     {0x00000208, 0x08020200, 0x00000000, 0x08020008,
+<span class="lineNum">     390 </span>            :      0x08000200, 0x00000000, 0x00020208, 0x08000200,
+<span class="lineNum">     391 </span>            :      0x00020008, 0x08000008, 0x08000008, 0x00020000,
+<span class="lineNum">     392 </span>            :      0x08020208, 0x00020008, 0x08020000, 0x00000208,
+<span class="lineNum">     393 </span>            :      0x08000000, 0x00000008, 0x08020200, 0x00000200,
+<span class="lineNum">     394 </span>            :      0x00020200, 0x08020000, 0x08020008, 0x00020208,
+<span class="lineNum">     395 </span>            :      0x08000208, 0x00020200, 0x00020000, 0x08000208,
+<span class="lineNum">     396 </span>            :      0x00000008, 0x08020208, 0x00000200, 0x08000000,
+<span class="lineNum">     397 </span>            :      0x08020200, 0x08000000, 0x00020008, 0x00000208,
+<span class="lineNum">     398 </span>            :      0x00020000, 0x08020200, 0x08000200, 0x00000000,
+<span class="lineNum">     399 </span>            :      0x00000200, 0x00020008, 0x08020208, 0x08000200,
+<span class="lineNum">     400 </span>            :      0x08000008, 0x00000200, 0x00000000, 0x08020008,
+<span class="lineNum">     401 </span>            :      0x08000208, 0x00020000, 0x08000000, 0x08020208,
+<span class="lineNum">     402 </span>            :      0x00000008, 0x00020208, 0x00020200, 0x08000008,
+<span class="lineNum">     403 </span>            :      0x08020000, 0x08000208, 0x00000208, 0x08020000,
+<span class="lineNum">     404 </span>            :      0x00020208, 0x00000008, 0x08020008, 0x00020200},
+<span class="lineNum">     405 </span>            : 
+<span class="lineNum">     406 </span>            :     {0x00802001, 0x00002081, 0x00002081, 0x00000080,
+<span class="lineNum">     407 </span>            :      0x00802080, 0x00800081, 0x00800001, 0x00002001,
+<span class="lineNum">     408 </span>            :      0x00000000, 0x00802000, 0x00802000, 0x00802081,
+<span class="lineNum">     409 </span>            :      0x00000081, 0x00000000, 0x00800080, 0x00800001,
+<span class="lineNum">     410 </span>            :      0x00000001, 0x00002000, 0x00800000, 0x00802001,
+<span class="lineNum">     411 </span>            :      0x00000080, 0x00800000, 0x00002001, 0x00002080,
+<span class="lineNum">     412 </span>            :      0x00800081, 0x00000001, 0x00002080, 0x00800080,
+<span class="lineNum">     413 </span>            :      0x00002000, 0x00802080, 0x00802081, 0x00000081,
+<span class="lineNum">     414 </span>            :      0x00800080, 0x00800001, 0x00802000, 0x00802081,
+<span class="lineNum">     415 </span>            :      0x00000081, 0x00000000, 0x00000000, 0x00802000,
+<span class="lineNum">     416 </span>            :      0x00002080, 0x00800080, 0x00800081, 0x00000001,
+<span class="lineNum">     417 </span>            :      0x00802001, 0x00002081, 0x00002081, 0x00000080,
+<span class="lineNum">     418 </span>            :      0x00802081, 0x00000081, 0x00000001, 0x00002000,
+<span class="lineNum">     419 </span>            :      0x00800001, 0x00002001, 0x00802080, 0x00800081,
+<span class="lineNum">     420 </span>            :      0x00002001, 0x00002080, 0x00800000, 0x00802001,
+<span class="lineNum">     421 </span>            :      0x00000080, 0x00800000, 0x00002000, 0x00802080},
+<span class="lineNum">     422 </span>            : 
+<span class="lineNum">     423 </span>            :     {0x00000100, 0x02080100, 0x02080000, 0x42000100,
+<span class="lineNum">     424 </span>            :      0x00080000, 0x00000100, 0x40000000, 0x02080000,
+<span class="lineNum">     425 </span>            :      0x40080100, 0x00080000, 0x02000100, 0x40080100,
+<span class="lineNum">     426 </span>            :      0x42000100, 0x42080000, 0x00080100, 0x40000000,
+<span class="lineNum">     427 </span>            :      0x02000000, 0x40080000, 0x40080000, 0x00000000,
+<span class="lineNum">     428 </span>            :      0x40000100, 0x42080100, 0x42080100, 0x02000100,
+<span class="lineNum">     429 </span>            :      0x42080000, 0x40000100, 0x00000000, 0x42000000,
+<span class="lineNum">     430 </span>            :      0x02080100, 0x02000000, 0x42000000, 0x00080100,
+<span class="lineNum">     431 </span>            :      0x00080000, 0x42000100, 0x00000100, 0x02000000,
+<span class="lineNum">     432 </span>            :      0x40000000, 0x02080000, 0x42000100, 0x40080100,
+<span class="lineNum">     433 </span>            :      0x02000100, 0x40000000, 0x42080000, 0x02080100,
+<span class="lineNum">     434 </span>            :      0x40080100, 0x00000100, 0x02000000, 0x42080000,
+<span class="lineNum">     435 </span>            :      0x42080100, 0x00080100, 0x42000000, 0x42080100,
+<span class="lineNum">     436 </span>            :      0x02080000, 0x00000000, 0x40080000, 0x42000000,
+<span class="lineNum">     437 </span>            :      0x00080100, 0x02000100, 0x40000100, 0x00080000,
+<span class="lineNum">     438 </span>            :      0x00000000, 0x40080000, 0x02080100, 0x40000100},
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span>            :     {0x20000010, 0x20400000, 0x00004000, 0x20404010,
+<span class="lineNum">     441 </span>            :      0x20400000, 0x00000010, 0x20404010, 0x00400000,
+<span class="lineNum">     442 </span>            :      0x20004000, 0x00404010, 0x00400000, 0x20000010,
+<span class="lineNum">     443 </span>            :      0x00400010, 0x20004000, 0x20000000, 0x00004010,
+<span class="lineNum">     444 </span>            :      0x00000000, 0x00400010, 0x20004010, 0x00004000,
+<span class="lineNum">     445 </span>            :      0x00404000, 0x20004010, 0x00000010, 0x20400010,
+<span class="lineNum">     446 </span>            :      0x20400010, 0x00000000, 0x00404010, 0x20404000,
+<span class="lineNum">     447 </span>            :      0x00004010, 0x00404000, 0x20404000, 0x20000000,
+<span class="lineNum">     448 </span>            :      0x20004000, 0x00000010, 0x20400010, 0x00404000,
+<span class="lineNum">     449 </span>            :      0x20404010, 0x00400000, 0x00004010, 0x20000010,
+<span class="lineNum">     450 </span>            :      0x00400000, 0x20004000, 0x20000000, 0x00004010,
+<span class="lineNum">     451 </span>            :      0x20000010, 0x20404010, 0x00404000, 0x20400000,
+<span class="lineNum">     452 </span>            :      0x00404010, 0x20404000, 0x00000000, 0x20400010,
+<span class="lineNum">     453 </span>            :      0x00000010, 0x00004000, 0x20400000, 0x00404010,
+<span class="lineNum">     454 </span>            :      0x00004000, 0x00400010, 0x20004010, 0x00000000,
+<span class="lineNum">     455 </span>            :      0x20404000, 0x20000000, 0x00400010, 0x20004010},
+<span class="lineNum">     456 </span>            : 
+<span class="lineNum">     457 </span>            :     {0x00200000, 0x04200002, 0x04000802, 0x00000000,
+<span class="lineNum">     458 </span>            :      0x00000800, 0x04000802, 0x00200802, 0x04200800,
+<span class="lineNum">     459 </span>            :      0x04200802, 0x00200000, 0x00000000, 0x04000002,
+<span class="lineNum">     460 </span>            :      0x00000002, 0x04000000, 0x04200002, 0x00000802,
+<span class="lineNum">     461 </span>            :      0x04000800, 0x00200802, 0x00200002, 0x04000800,
+<span class="lineNum">     462 </span>            :      0x04000002, 0x04200000, 0x04200800, 0x00200002,
+<span class="lineNum">     463 </span>            :      0x04200000, 0x00000800, 0x00000802, 0x04200802,
+<span class="lineNum">     464 </span>            :      0x00200800, 0x00000002, 0x04000000, 0x00200800,
+<span class="lineNum">     465 </span>            :      0x04000000, 0x00200800, 0x00200000, 0x04000802,
+<span class="lineNum">     466 </span>            :      0x04000802, 0x04200002, 0x04200002, 0x00000002,
+<span class="lineNum">     467 </span>            :      0x00200002, 0x04000000, 0x04000800, 0x00200000,
+<span class="lineNum">     468 </span>            :      0x04200800, 0x00000802, 0x00200802, 0x04200800,
+<span class="lineNum">     469 </span>            :      0x00000802, 0x04000002, 0x04200802, 0x04200000,
+<span class="lineNum">     470 </span>            :      0x00200800, 0x00000000, 0x00000002, 0x04200802,
+<span class="lineNum">     471 </span>            :      0x00000000, 0x00200802, 0x04200000, 0x00000800,
+<span class="lineNum">     472 </span>            :      0x04000002, 0x04000800, 0x00000800, 0x00200002},
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span>            :     {0x10001040, 0x00001000, 0x00040000, 0x10041040,
+<span class="lineNum">     475 </span>            :      0x10000000, 0x10001040, 0x00000040, 0x10000000,
+<span class="lineNum">     476 </span>            :      0x00040040, 0x10040000, 0x10041040, 0x00041000,
+<span class="lineNum">     477 </span>            :      0x10041000, 0x00041040, 0x00001000, 0x00000040,
+<span class="lineNum">     478 </span>            :      0x10040000, 0x10000040, 0x10001000, 0x00001040,
+<span class="lineNum">     479 </span>            :      0x00041000, 0x00040040, 0x10040040, 0x10041000,
+<span class="lineNum">     480 </span>            :      0x00001040, 0x00000000, 0x00000000, 0x10040040,
+<span class="lineNum">     481 </span>            :      0x10000040, 0x10001000, 0x00041040, 0x00040000,
+<span class="lineNum">     482 </span>            :      0x00041040, 0x00040000, 0x10041000, 0x00001000,
+<span class="lineNum">     483 </span>            :      0x00000040, 0x10040040, 0x00001000, 0x00041040,
+<span class="lineNum">     484 </span>            :      0x10001000, 0x00000040, 0x10000040, 0x10040000,
+<span class="lineNum">     485 </span>            :      0x10040040, 0x10000000, 0x00040000, 0x10001040,
+<span class="lineNum">     486 </span>            :      0x00000000, 0x10041040, 0x00040040, 0x10000040,
+<span class="lineNum">     487 </span>            :      0x10040000, 0x10001000, 0x10001040, 0x00000000,
+<span class="lineNum">     488 </span>            :      0x10041040, 0x00041000, 0x00041000, 0x00001040,
+<span class="lineNum">     489 </span>            :      0x00001040, 0x00040040, 0x10000000, 0x10041000}
+<span class="lineNum">     490 </span>            : };
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span>            : #define f(R, K0246, K1357) (\
+<span class="lineNum">     493 </span>            :     s0246 = R ^ K0246, \
+<span class="lineNum">     494 </span>            :     s1357 = R ^ K1357, \
+<span class="lineNum">     495 </span>            :     s0246 = rotl(s0246, 28), \
+<span class="lineNum">     496 </span>            :     SPboxes[0] [(s0246 &gt;&gt; 24) &amp; 0x3F] | \
+<span class="lineNum">     497 </span>            :     SPboxes[1] [(s1357 &gt;&gt; 24) &amp; 0x3F] | \
+<span class="lineNum">     498 </span>            :     SPboxes[2] [(s0246 &gt;&gt; 16) &amp; 0x3F] | \
+<span class="lineNum">     499 </span>            :     SPboxes[3] [(s1357 &gt;&gt; 16) &amp; 0x3F] | \
+<span class="lineNum">     500 </span>            :     SPboxes[4] [(s0246 &gt;&gt;  8) &amp; 0x3F] | \
+<span class="lineNum">     501 </span>            :     SPboxes[5] [(s1357 &gt;&gt;  8) &amp; 0x3F] | \
+<span class="lineNum">     502 </span>            :     SPboxes[6] [(s0246      ) &amp; 0x3F] | \
+<span class="lineNum">     503 </span>            :     SPboxes[7] [(s1357      ) &amp; 0x3F])
+<span class="lineNum">     504 </span>            : 
+<span class="lineNum">     505 </span>            : #define bitswap(L, R, n, mask) (\
+<span class="lineNum">     506 </span>            :     swap = mask &amp; ( (R &gt;&gt; n) ^ L ), \
+<span class="lineNum">     507 </span>            :     R ^= swap &lt;&lt; n, \
+<span class="lineNum">     508 </span>            :     L ^= swap)
+<span class="lineNum">     509 </span>            : 
+<span class="lineNum">     510 </span>            : /* Initial permutation */
+<span class="lineNum">     511 </span>            : #define IP(L, R) (\
+<span class="lineNum">     512 </span>            :     bitswap(R, L,  4, 0x0F0F0F0F), \
+<span class="lineNum">     513 </span>            :     bitswap(R, L, 16, 0x0000FFFF), \
+<span class="lineNum">     514 </span>            :     bitswap(L, R,  2, 0x33333333), \
+<span class="lineNum">     515 </span>            :     bitswap(L, R,  8, 0x00FF00FF), \
+<span class="lineNum">     516 </span>            :     bitswap(R, L,  1, 0x55555555))
+<span class="lineNum">     517 </span>            : 
+<span class="lineNum">     518 </span>            : /* Final permutation */
+<span class="lineNum">     519 </span>            : #define FP(L, R) (\
+<span class="lineNum">     520 </span>            :     bitswap(R, L,  1, 0x55555555), \
+<span class="lineNum">     521 </span>            :     bitswap(L, R,  8, 0x00FF00FF), \
+<span class="lineNum">     522 </span>            :     bitswap(L, R,  2, 0x33333333), \
+<span class="lineNum">     523 </span>            :     bitswap(R, L, 16, 0x0000FFFF), \
+<span class="lineNum">     524 </span>            :     bitswap(R, L,  4, 0x0F0F0F0F))
+<a name="525"><span class="lineNum">     525 </span>            : </a>
+<span class="lineNum">     526 </span>            : static void
+<span class="lineNum">     527 </span><span class="lineCov">         12 : des_encipher(uint32_t *output, uint32_t L, uint32_t R,</span>
+<span class="lineNum">     528 </span>            :          struct des_context *sched)
+<span class="lineNum">     529 </span>            : {
+<span class="lineNum">     530 </span>            :     uint32_t swap, s0246, s1357;
+<span class="lineNum">     531 </span>            : 
+<span class="lineNum">     532 </span><span class="lineCov">         12 :     IP(L, R);</span>
+<span class="lineNum">     533 </span>            : 
+<span class="lineNum">     534 </span><span class="lineCov">         12 :     L = rotl(L, 1);</span>
+<span class="lineNum">     535 </span><span class="lineCov">         12 :     R = rotl(R, 1);</span>
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[0], sched-&gt;k1357[0]);</span>
+<span class="lineNum">     538 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[1], sched-&gt;k1357[1]);</span>
+<span class="lineNum">     539 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[2], sched-&gt;k1357[2]);</span>
+<span class="lineNum">     540 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[3], sched-&gt;k1357[3]);</span>
+<span class="lineNum">     541 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[4], sched-&gt;k1357[4]);</span>
+<span class="lineNum">     542 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[5], sched-&gt;k1357[5]);</span>
+<span class="lineNum">     543 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[6], sched-&gt;k1357[6]);</span>
+<span class="lineNum">     544 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[7], sched-&gt;k1357[7]);</span>
+<span class="lineNum">     545 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[8], sched-&gt;k1357[8]);</span>
+<span class="lineNum">     546 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[9], sched-&gt;k1357[9]);</span>
+<span class="lineNum">     547 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[10], sched-&gt;k1357[10]);</span>
+<span class="lineNum">     548 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[11], sched-&gt;k1357[11]);</span>
+<span class="lineNum">     549 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[12], sched-&gt;k1357[12]);</span>
+<span class="lineNum">     550 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[13], sched-&gt;k1357[13]);</span>
+<span class="lineNum">     551 </span><span class="lineCov">         12 :     L ^= f(R, sched-&gt;k0246[14], sched-&gt;k1357[14]);</span>
+<span class="lineNum">     552 </span><span class="lineCov">         12 :     R ^= f(L, sched-&gt;k0246[15], sched-&gt;k1357[15]);</span>
+<span class="lineNum">     553 </span>            : 
+<span class="lineNum">     554 </span><span class="lineCov">         12 :     L = rotl(L, 31);</span>
+<span class="lineNum">     555 </span><span class="lineCov">         12 :     R = rotl(R, 31);</span>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineCov">         12 :     swap = L;</span>
+<span class="lineNum">     558 </span><span class="lineCov">         12 :     L = R;</span>
+<span class="lineNum">     559 </span><span class="lineCov">         12 :     R = swap;</span>
+<span class="lineNum">     560 </span>            : 
+<span class="lineNum">     561 </span><span class="lineCov">         12 :     FP(L, R);</span>
+<span class="lineNum">     562 </span>            : 
+<span class="lineNum">     563 </span><span class="lineCov">         12 :     output[0] = L;</span>
+<span class="lineNum">     564 </span><span class="lineCov">         12 :     output[1] = R;</span>
+<span class="lineNum">     565 </span><span class="lineCov">         12 : }</span>
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span>            : #define GET_32BIT_MSB_FIRST(cp) \
+<span class="lineNum">     568 </span>            :     ((unsigned long) be32_to_cpu_unaligned(cp))
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span>            : #define PUT_32BIT_MSB_FIRST(cp, value) \
+<span class="lineNum">     571 </span>            :     cpu32_to_be_unaligned((value), (cp))
+<a name="572"><span class="lineNum">     572 </span>            : </a>
+<span class="lineNum">     573 </span>            : static inline void
+<span class="lineNum">     574 </span><span class="lineCov">         12 : des_cbc_encrypt(unsigned char *dest, const unsigned char *src,</span>
+<span class="lineNum">     575 </span>            :         struct des_context *sched)
+<span class="lineNum">     576 </span>            : {
+<span class="lineNum">     577 </span>            :     uint32_t out[2], L, R;
+<span class="lineNum">     578 </span>            : 
+<span class="lineNum">     579 </span><span class="lineCov">         12 :     L = GET_32BIT_MSB_FIRST(src);</span>
+<span class="lineNum">     580 </span><span class="lineCov">         12 :     R = GET_32BIT_MSB_FIRST(src + 4);</span>
+<span class="lineNum">     581 </span><span class="lineCov">         12 :     des_encipher(out, L, R, sched);</span>
+<span class="lineNum">     582 </span><span class="lineCov">         12 :     PUT_32BIT_MSB_FIRST(dest, out[0]);</span>
+<span class="lineNum">     583 </span><span class="lineCov">         12 :     PUT_32BIT_MSB_FIRST(dest + 4, out[1]);</span>
+<a name="584"><span class="lineNum">     584 </span><span class="lineCov">         12 : }</span></a>
+<span class="lineNum">     585 </span>            : 
+<span class="lineNum">     586 </span><span class="lineCov">         12 : void deshash(unsigned char *dst, const unsigned char *key,</span>
+<span class="lineNum">     587 </span>            :          const unsigned char *src)
+<span class="lineNum">     588 </span>            : {
+<span class="lineNum">     589 </span>            :     struct des_context ctx;
+<span class="lineNum">     590 </span>            : 
+<span class="lineNum">     591 </span><span class="lineCov">         12 :     des_key_setup(GET_32BIT_MSB_FIRST(key) &gt;&gt; 8,</span>
+<span class="lineNum">     592 </span>            :               GET_32BIT_MSB_FIRST(key + 3), &amp;ctx);
+<span class="lineNum">     593 </span>            : 
+<span class="lineNum">     594 </span><span class="lineCov">         12 :     des_cbc_encrypt(dst, src, &amp;ctx);</span>
+<span class="lineNum">     595 </span><span class="lineCov">         12 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

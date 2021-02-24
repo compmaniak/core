@@ -1,0 +1,445 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/pop3c/pop3c-sync.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/pop3c</a> - pop3c-sync.c<span style="font-size: 80%;"> (source / <a href="pop3c-sync.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">181</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2011-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;bsearch-insert-pos.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;sort.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;strnum.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;pop3c-client.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;pop3c-storage.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;pop3c-sync.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;mailbox-recent-flags.h&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : struct pop3c_sync_msg {
+<span class="lineNum">      17 </span>            :     uint32_t seq;
+<span class="lineNum">      18 </span>            :     const char *uidl;
+<span class="lineNum">      19 </span>            : };
+<a name="20"><span class="lineNum">      20 </span>            : ARRAY_DEFINE_TYPE(pop3c_sync_msg, struct pop3c_sync_msg);</a>
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span><span class="lineNoCov">          0 : int pop3c_sync_get_uidls(struct pop3c_mailbox *mbox)</span>
+<span class="lineNum">      23 </span>            : {
+<span class="lineNum">      24 </span>            :     ARRAY_TYPE(const_string) uidls;
+<span class="lineNum">      25 </span>            :     struct istream *input;
+<span class="lineNum">      26 </span>            :     const char *error, *cline;
+<span class="lineNum">      27 </span>            :     char *line, *p;
+<span class="lineNum">      28 </span>            :     unsigned int seq, line_seq;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span><span class="lineNoCov">          0 :     if (mbox-&gt;msg_uidls != NULL)</span>
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :     if ((pop3c_client_get_capabilities(mbox-&gt;client) &amp;</span>
+<span class="lineNum">      33 </span>            :          POP3C_CAPABILITY_UIDL) == 0) {
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :         mail_storage_set_error(mbox-&gt;box.storage,</span>
+<span class="lineNum">      35 </span>            :                        MAIL_ERROR_NOTPOSSIBLE,
+<span class="lineNum">      36 </span>            :                        &quot;UIDLs not supported by server&quot;);
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      38 </span>            :     }
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :     if (pop3c_client_cmd_stream(mbox-&gt;client, &quot;UIDL\r\n&quot;,</span>
+<span class="lineNum">      41 </span>            :                     &amp;input, &amp;error) &lt; 0) {
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;mbox-&gt;box, &quot;UIDL failed: %s&quot;, error);</span>
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      44 </span>            :     }
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :     mbox-&gt;uidl_pool = pool_alloconly_create(&quot;POP3 UIDLs&quot;, 1024*32);</span>
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     p_array_init(&amp;uidls, mbox-&gt;uidl_pool, 64); seq = 0;</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     while ((line = i_stream_read_next_line(input)) != NULL) {</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :         seq++;</span>
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :         p = strchr(line, ' ');</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :         if (p == NULL) {</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :             mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">      53 </span>            :                 &quot;Invalid UIDL line: %s&quot;, line);
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">      55 </span>            :         }
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :         *p++ = '\0';</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :         if (str_to_uint(line, &amp;line_seq) &lt; 0 || line_seq != seq) {</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :             mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">      59 </span>            :                 &quot;Unexpected UIDL seq: %s != %u&quot;, line, seq);
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">      61 </span>            :         }
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         cline = p_strdup(mbox-&gt;uidl_pool, p);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         array_append(&amp;uidls, &amp;cline, 1);</span>
+<span class="lineNum">      65 </span>            :     }
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     i_stream_destroy(&amp;input);</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     if (line != NULL) {</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         pool_unref(&amp;mbox-&gt;uidl_pool);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      70 </span>            :     }
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     if (seq == 0) {</span>
+<span class="lineNum">      72 </span>            :         /* make msg_uidls non-NULL */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         array_append_zero(&amp;uidls);</span>
+<span class="lineNum">      74 </span>            :     }
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     mbox-&gt;msg_uidls = array_idx(&amp;uidls, 0);</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     mbox-&gt;msg_count = seq;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="78"><span class="lineNum">      78 </span>            : }</a>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 : int pop3c_sync_get_sizes(struct pop3c_mailbox *mbox)</span>
+<span class="lineNum">      81 </span>            : {
+<span class="lineNum">      82 </span>            :     struct istream *input;
+<span class="lineNum">      83 </span>            :     const char *error;
+<span class="lineNum">      84 </span>            :     char *line, *p;
+<span class="lineNum">      85 </span>            :     unsigned int seq, line_seq;
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     i_assert(mbox-&gt;msg_sizes == NULL);</span>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :     if (mbox-&gt;msg_uidls == NULL) {</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :         if (pop3c_sync_get_uidls(mbox) &lt; 0)</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">      92 </span>            :     }
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     if (mbox-&gt;msg_count == 0) {</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         mbox-&gt;msg_sizes = i_new(uoff_t, 1);</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      96 </span>            :     }
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     if (pop3c_client_cmd_stream(mbox-&gt;client, &quot;LIST\r\n&quot;,</span>
+<span class="lineNum">      99 </span>            :                     &amp;input, &amp;error) &lt; 0) {
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;mbox-&gt;box, &quot;LIST failed: %s&quot;, error);</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     102 </span>            :     }
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     mbox-&gt;msg_sizes = i_new(uoff_t, mbox-&gt;msg_count); seq = 0;</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :     while ((line = i_stream_read_next_line(input)) != NULL) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         if (++seq &gt; mbox-&gt;msg_count) {</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :             mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     108 </span>            :                 &quot;Too much data in LIST: %s&quot;, line);
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     110 </span>            :         }
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         p = strchr(line, ' ');</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         if (p == NULL) {</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :             mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     114 </span>            :                 &quot;Invalid LIST line: %s&quot;, line);
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     116 </span>            :         }
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         *p++ = '\0';</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :         if (str_to_uint(line, &amp;line_seq) &lt; 0 || line_seq != seq) {</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :             mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     120 </span>            :                 &quot;Unexpected LIST seq: %s != %u&quot;, line, seq);
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     122 </span>            :         }
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         if (str_to_uoff(p, &amp;mbox-&gt;msg_sizes[seq-1]) &lt; 0) {</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :             mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     125 </span>            :                 &quot;Invalid LIST size: %s&quot;, p);
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     127 </span>            :         }
+<span class="lineNum">     128 </span>            :     }
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     i_stream_destroy(&amp;input);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     if (line != NULL) {</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         i_free_and_null(mbox-&gt;msg_sizes);</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     133 </span>            :     }
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     135 </span>            : }
+<a name="136"><span class="lineNum">     136 </span>            : </a>
+<span class="lineNum">     137 </span>            : static void
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 : pop3c_get_local_msgs(pool_t pool, ARRAY_TYPE(pop3c_sync_msg) *local_msgs,</span>
+<span class="lineNum">     139 </span>            :              uint32_t messages_count,
+<span class="lineNum">     140 </span>            :              struct mail_cache_view *cache_view,
+<span class="lineNum">     141 </span>            :              unsigned int cache_idx)
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     string_t *str = t_str_new(128);</span>
+<span class="lineNum">     144 </span>            :     struct pop3c_sync_msg msg;
+<span class="lineNum">     145 </span>            :     uint32_t seq;
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     i_zero(&amp;msg);</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     for (seq = 1; seq &lt;= messages_count; seq++) {</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :         str_truncate(str, 0);</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         if (mail_cache_lookup_field(cache_view, str, seq,</span>
+<span class="lineNum">     151 </span>            :                         cache_idx) &gt; 0)
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :             msg.uidl = p_strdup(pool, str_c(str));</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         msg.seq = seq;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         array_idx_set(local_msgs, seq-1, &amp;msg);</span>
+<span class="lineNum">     155 </span>            :     }
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : }</span>
+<a name="157"><span class="lineNum">     157 </span>            : </a>
+<span class="lineNum">     158 </span>            : static void
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 : pop3c_get_remote_msgs(ARRAY_TYPE(pop3c_sync_msg) *remote_msgs,</span>
+<span class="lineNum">     160 </span>            :               struct pop3c_mailbox *mbox)
+<span class="lineNum">     161 </span>            : {
+<span class="lineNum">     162 </span>            :     struct pop3c_sync_msg *msg;
+<span class="lineNum">     163 </span>            :     uint32_t seq;
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     for (seq = 1; seq &lt;= mbox-&gt;msg_count; seq++) {</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :         msg = array_append_space(remote_msgs);</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         msg-&gt;seq = seq;</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :         msg-&gt;uidl = mbox-&gt;msg_uidls[seq-1];</span>
+<span class="lineNum">     169 </span>            :     }
+<a name="170"><span class="lineNum">     170 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 : static int pop3c_sync_msg_uidl_cmp(const struct pop3c_sync_msg *msg1,</span>
+<span class="lineNum">     173 </span>            :                    const struct pop3c_sync_msg *msg2)
+<span class="lineNum">     174 </span>            : {
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     return null_strcmp(msg1-&gt;uidl, msg2-&gt;uidl);</span>
+<span class="lineNum">     176 </span>            : }
+<a name="177"><span class="lineNum">     177 </span>            : </a>
+<span class="lineNum">     178 </span>            : static void
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 : pop3c_sync_messages(struct pop3c_mailbox *mbox,</span>
+<span class="lineNum">     180 </span>            :             struct mail_index_view *sync_view,
+<span class="lineNum">     181 </span>            :             struct mail_index_transaction *sync_trans,
+<span class="lineNum">     182 </span>            :             struct mail_cache_view *cache_view)
+<span class="lineNum">     183 </span>            : {
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     struct index_mailbox_context *ibox =</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :         INDEX_STORAGE_CONTEXT(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     186 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     187 </span>            :     struct mail_cache_transaction_ctx *cache_trans;
+<span class="lineNum">     188 </span>            :     ARRAY_TYPE(pop3c_sync_msg) local_msgs, remote_msgs;
+<span class="lineNum">     189 </span>            :     const struct pop3c_sync_msg *lmsg, *rmsg;
+<span class="lineNum">     190 </span>            :     uint32_t seq1, seq2, next_uid;
+<span class="lineNum">     191 </span>            :     unsigned int lidx, ridx, lcount, rcount;
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     unsigned int cache_idx = ibox-&gt;cache_fields[MAIL_CACHE_POP3_UIDL].idx;</span>
+<span class="lineNum">     193 </span>            :     pool_t pool;
+<span class="lineNum">     194 </span>            : 
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     i_assert(mbox-&gt;msg_uids == NULL);</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span>            :     /* set our uidvalidity */
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(sync_view);</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     if (hdr-&gt;uid_validity == 0) {</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         uint32_t uid_validity = ioloop_time;</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         mail_index_update_header(sync_trans,</span>
+<span class="lineNum">     202 </span>            :             offsetof(struct mail_index_header, uid_validity),
+<span class="lineNum">     203 </span>            :             &amp;uid_validity, sizeof(uid_validity), TRUE);
+<span class="lineNum">     204 </span>            :     }
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;pop3c sync&quot;, 10240);</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     p_array_init(&amp;local_msgs, pool, hdr-&gt;messages_count);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     pop3c_get_local_msgs(pool, &amp;local_msgs, hdr-&gt;messages_count,</span>
+<span class="lineNum">     209 </span>            :                  cache_view, cache_idx);
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     p_array_init(&amp;remote_msgs, pool, mbox-&gt;msg_count);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     pop3c_get_remote_msgs(&amp;remote_msgs, mbox);</span>
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span>            :     /* sort the messages by UIDLs, because some servers reorder messages */
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     array_sort(&amp;local_msgs, pop3c_sync_msg_uidl_cmp);</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     array_sort(&amp;remote_msgs, pop3c_sync_msg_uidl_cmp);</span>
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span>            :     /* skip over existing messages with matching UIDLs and expunge the ones
+<span class="lineNum">     218 </span>            :        that no longer exist in remote. */
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     mbox-&gt;msg_uids = mbox-&gt;msg_count == 0 ?</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         i_new(uint32_t, 1) : /* avoid malloc(0) assert */</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         i_new(uint32_t, mbox-&gt;msg_count);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     cache_trans = mail_cache_get_transaction(cache_view, sync_trans);</span>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     lmsg = array_get(&amp;local_msgs, &amp;lcount);</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     rmsg = array_get(&amp;remote_msgs, &amp;rcount);</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     next_uid = hdr-&gt;next_uid;</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     lidx = ridx = 0;</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     while (lidx &lt; lcount || ridx &lt; rcount) {</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         uint32_t lseq = lidx &lt; lcount ? lmsg[lidx].seq : 0;</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         uint32_t rseq = ridx &lt; rcount ? rmsg[ridx].seq : 0;</span>
+<span class="lineNum">     231 </span>            :         int ret;
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :         if (lidx &gt;= lcount)</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :             ret = 1;</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         else if (ridx &gt;= rcount || lmsg[lidx].uidl == NULL)</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     237 </span>            :         else
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :             ret = strcmp(lmsg[lidx].uidl, rmsg[ridx].uidl);</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     240 </span>            :             /* message expunged in remote, or we didn't have a
+<span class="lineNum">     241 </span>            :                local message's UIDL in cache. */
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :             mail_index_expunge(sync_trans, lseq);</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :             lidx++;</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         } else if (ret &gt; 0) {</span>
+<span class="lineNum">     245 </span>            :             /* new message in remote */
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :             i_assert(mbox-&gt;msg_uids[rseq-1] == 0);</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :             mbox-&gt;msg_uids[rseq-1] = next_uid;</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :             mail_index_append(sync_trans, next_uid++, &amp;lseq);</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :             mail_cache_add(cache_trans, lseq, cache_idx,</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :                        rmsg[ridx].uidl,</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :                        strlen(rmsg[ridx].uidl)+1);</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             ridx++;</span>
+<span class="lineNum">     253 </span>            :         } else {
+<span class="lineNum">     254 </span>            :             /* UIDL matched */
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :             i_assert(mbox-&gt;msg_uids[rseq-1] == 0);</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :             mail_index_lookup_uid(sync_view, lseq,</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :                           &amp;mbox-&gt;msg_uids[rseq-1]);</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :             lidx++;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :             ridx++;</span>
+<span class="lineNum">     260 </span>            :         }
+<span class="lineNum">     261 </span>            :     }
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span>            :     /* mark the newly seen messages as recent */
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     if (mail_index_lookup_seq_range(sync_view, hdr-&gt;first_recent_uid,</span>
+<span class="lineNum">     265 </span>            :                     hdr-&gt;next_uid, &amp;seq1, &amp;seq2))
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         mailbox_recent_flags_set_seqs(&amp;mbox-&gt;box, sync_view, seq1, seq2);</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     pool_unref(&amp;pool);</span>
+<a name="268"><span class="lineNum">     268 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 : int pop3c_sync(struct pop3c_mailbox *mbox)</span>
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span>            :         struct mail_index_sync_ctx *index_sync_ctx;
+<span class="lineNum">     273 </span>            :     struct mail_index_view *sync_view, *trans_view;
+<span class="lineNum">     274 </span>            :     struct mail_index_transaction *sync_trans;
+<span class="lineNum">     275 </span>            :     struct mail_index_sync_rec sync_rec;
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     struct mail_cache_view *cache_view = NULL;</span>
+<span class="lineNum">     277 </span>            :     enum mail_index_sync_flags sync_flags;
+<span class="lineNum">     278 </span>            :     unsigned int idx;
+<span class="lineNum">     279 </span>            :     string_t *str;
+<span class="lineNum">     280 </span>            :     const char *reply;
+<span class="lineNum">     281 </span>            :     int ret;
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     bool deletions = FALSE;</span>
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     if (pop3c_sync_get_uidls(mbox) &lt; 0)</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     sync_flags = index_storage_get_sync_flags(&amp;mbox-&gt;box) |</span>
+<span class="lineNum">     288 </span>            :         MAIL_INDEX_SYNC_FLAG_FLUSH_DIRTY;
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :     ret = mail_index_sync_begin(mbox-&gt;box.index, &amp;index_sync_ctx,</span>
+<span class="lineNum">     291 </span>            :                     &amp;sync_view, &amp;sync_trans, sync_flags);
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             mailbox_set_index_error(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     296 </span>            :     }
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     if (mbox-&gt;msg_uids == NULL) {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         trans_view = mail_index_transaction_open_updated_view(sync_trans);</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         cache_view = mail_cache_view_open(mbox-&gt;box.cache, trans_view);</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         pop3c_sync_messages(mbox, sync_view, sync_trans, cache_view);</span>
+<span class="lineNum">     302 </span>            :     }
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span>            :     /* mark expunges messages as deleted in this pop3 session,
+<span class="lineNum">     305 </span>            :        if those exist */
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     str = t_str_new(32);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     while (mail_index_sync_next(index_sync_ctx, &amp;sync_rec)) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         if (sync_rec.type != MAIL_INDEX_SYNC_TYPE_EXPUNGE)</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         if (!bsearch_insert_pos(&amp;sync_rec.uid1, mbox-&gt;msg_uids,</span>
+<span class="lineNum">     312 </span>            :                     mbox-&gt;msg_count, sizeof(uint32_t),
+<span class="lineNum">     313 </span>            :                     uint32_cmp, &amp;idx)) {
+<span class="lineNum">     314 </span>            :             /* no such messages in this session */
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     316 </span>            :         }
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         for (; idx &lt; mbox-&gt;msg_count; idx++) {</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :             i_assert(mbox-&gt;msg_uids[idx] &gt;= sync_rec.uid1);</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :             if (mbox-&gt;msg_uids[idx] &gt; sync_rec.uid2)</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :             str_truncate(str, 0);</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :             str_printfa(str, &quot;DELE %u\r\n&quot;, idx+1);</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :             pop3c_client_cmd_line_async_nocb(mbox-&gt;client, str_c(str));</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :             deletions = TRUE;</span>
+<span class="lineNum">     326 </span>            :         }
+<span class="lineNum">     327 </span>            :     }
+<span class="lineNum">     328 </span>            : 
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     if (mail_index_sync_commit(&amp;index_sync_ctx) &lt; 0) {</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         mailbox_set_index_error(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     332 </span>            :     }
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :     if (cache_view != NULL) {</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         mail_cache_view_close(&amp;cache_view);</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;trans_view);</span>
+<span class="lineNum">     336 </span>            :     }
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :     if (deletions) {</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :         if (pop3c_client_cmd_line(mbox-&gt;client, &quot;QUIT\r\n&quot;,</span>
+<span class="lineNum">     339 </span>            :                       &amp;reply) &lt; 0) {
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :             mail_storage_set_error(mbox-&gt;box.storage,</span>
+<span class="lineNum">     341 </span>            :                            MAIL_ERROR_TEMP, reply);
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     343 </span>            :         }
+<span class="lineNum">     344 </span>            :     }
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     346 </span>            : }
+<a name="347"><span class="lineNum">     347 </span>            : </a>
+<span class="lineNum">     348 </span>            : struct mailbox_sync_context *
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 : pop3c_storage_sync_init(struct mailbox *box, enum mailbox_sync_flags flags)</span>
+<span class="lineNum">     350 </span>            : {
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     struct pop3c_mailbox *mbox = POP3C_MAILBOX(box);</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     if ((flags &amp; MAILBOX_SYNC_FLAG_FULL_READ) != 0 &amp;&amp;</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         mbox-&gt;msg_uidls == NULL) {</span>
+<span class="lineNum">     356 </span>            :         /* FIXME: reconnect */
+<span class="lineNum">     357 </span>            :     }
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     ret = pop3c_sync(mbox);</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     return index_mailbox_sync_init(box, flags, ret &lt; 0);</span>
+<span class="lineNum">     361 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

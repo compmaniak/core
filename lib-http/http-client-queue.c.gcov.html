@@ -1,0 +1,1107 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-client-queue.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-client-queue.c<span style="font-size: 80%;"> (source / <a href="http-client-queue.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">452</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">29</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;bsearch-insert-pos.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;llist.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;time-util.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;dns-lookup.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;http-response-parser.h&quot;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : #include &quot;http-client-private.h&quot;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define TIMEOUT_CMP_MARGIN_USECS 2000
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : static void
+<span class="lineNum">      22 </span>            : http_client_queue_fail(struct http_client_queue *queue,
+<span class="lineNum">      23 </span>            :     unsigned int status, const char *error);
+<span class="lineNum">      24 </span>            : static void
+<span class="lineNum">      25 </span>            : http_client_queue_set_delay_timer(struct http_client_queue *queue,
+<span class="lineNum">      26 </span>            :     struct timeval time);
+<span class="lineNum">      27 </span>            : static void
+<span class="lineNum">      28 </span>            : http_client_queue_set_request_timer(struct http_client_queue *queue,
+<span class="lineNum">      29 </span>            :     const struct timeval *time);
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : /*
+<span class="lineNum">      32 </span>            :  * Queue object
+<span class="lineNum">      33 </span>            :  */
+<a name="34"><span class="lineNum">      34 </span>            : </a>
+<span class="lineNum">      35 </span>            : static struct http_client_queue *
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 : http_client_queue_find(struct http_client_host *host,</span>
+<span class="lineNum">      37 </span>            :     const struct http_client_peer_addr *addr)
+<span class="lineNum">      38 </span>            : {
+<span class="lineNum">      39 </span>            :     struct http_client_queue *const *queue_idx;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;host-&gt;queues, queue_idx) {</span>
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :         struct http_client_queue *queue = *queue_idx;</span>
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :         if (http_client_peer_addr_cmp(&amp;queue-&gt;addr, addr) == 0)</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :             return queue;</span>
+<span class="lineNum">      46 </span>            :     }
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">      49 </span>            : }
+<a name="50"><span class="lineNum">      50 </span>            : </a>
+<span class="lineNum">      51 </span>            : static struct http_client_queue *
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 : http_client_queue_create(struct http_client_host *host,</span>
+<span class="lineNum">      53 </span>            :     const struct http_client_peer_addr *addr)
+<span class="lineNum">      54 </span>            : {
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     const char *hostname = host-&gt;shared-&gt;name;</span>
+<span class="lineNum">      56 </span>            :     struct http_client_queue *queue;
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     queue = i_new(struct http_client_queue, 1);</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     queue-&gt;client = host-&gt;client;</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     queue-&gt;host = host;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     queue-&gt;addr = *addr;</span>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     switch (addr-&gt;type) {</span>
+<span class="lineNum">      64 </span>            :     case HTTP_CLIENT_PEER_ADDR_RAW:
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :         queue-&gt;name =</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :             i_strdup_printf(&quot;raw://%s:%u&quot;, hostname, addr-&gt;a.tcp.port);</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :         queue-&gt;addr.a.tcp.https_name = NULL;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">      69 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTPS_TUNNEL:
+<span class="lineNum">      70 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTPS:
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         queue-&gt;name =</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :             i_strdup_printf(&quot;https://%s:%u&quot;, hostname, addr-&gt;a.tcp.port);</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         queue-&gt;addr_name = i_strdup(addr-&gt;a.tcp.https_name);</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         queue-&gt;addr.a.tcp.https_name = queue-&gt;addr_name;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">      76 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTP:
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         queue-&gt;name =</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :             i_strdup_printf(&quot;http://%s:%u&quot;, hostname, addr-&gt;a.tcp.port);</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         queue-&gt;addr.a.tcp.https_name = NULL;</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">      81 </span>            :     case HTTP_CLIENT_PEER_ADDR_UNIX:
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         queue-&gt;name = i_strdup_printf(&quot;unix:%s&quot;, addr-&gt;a.un.path);</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         queue-&gt;addr_name = i_strdup(addr-&gt;a.un.path);</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :         queue-&gt;addr.a.un.path = queue-&gt;addr_name;</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">      86 </span>            :     default:
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">      88 </span>            :     }
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     queue-&gt;event = event_create(queue-&gt;client-&gt;event);</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     event_set_append_log_prefix(queue-&gt;event,</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :         t_strdup_printf(&quot;queue %s: &quot;, queue-&gt;name));</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     queue-&gt;ips_connect_idx = 0;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     i_array_init(&amp;queue-&gt;pending_peers, 8);</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     i_array_init(&amp;queue-&gt;requests, 16);</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     i_array_init(&amp;queue-&gt;queued_requests, 16);</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     i_array_init(&amp;queue-&gt;queued_urgent_requests, 16);</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     i_array_init(&amp;queue-&gt;delayed_requests, 4);</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     array_append(&amp;host-&gt;queues, &amp;queue, 1);</span>
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     return queue;</span>
+<span class="lineNum">     102 </span>            : }
+<a name="103"><span class="lineNum">     103 </span>            : </a>
+<span class="lineNum">     104 </span>            : struct http_client_queue *
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 : http_client_queue_get(struct http_client_host *host,</span>
+<span class="lineNum">     106 </span>            :     const struct http_client_peer_addr *addr)
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span>            :     struct http_client_queue *queue;
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     queue = http_client_queue_find(host, addr);</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :     if (queue == NULL)</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         queue = http_client_queue_create(host, addr);</span>
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     return queue;</span>
+<a name="115"><span class="lineNum">     115 </span>            : }</a>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 : void http_client_queue_free(struct http_client_queue *queue)</span>
+<span class="lineNum">     118 </span>            : {
+<span class="lineNum">     119 </span>            :     struct http_client_peer *const *peer_idx;
+<span class="lineNum">     120 </span>            :     ARRAY_TYPE(http_client_peer) peers;
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event, &quot;Destroy&quot;);</span>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span>            :     /* currently only called when peer is freed, so there is no need to
+<span class="lineNum">     125 </span>            :        unlink from the peer */
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span>            :     /* unlink all peers */
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (queue-&gt;cur_peer != NULL) {</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         struct http_client_peer *peer = queue-&gt;cur_peer;</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         queue-&gt;cur_peer = NULL;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         http_client_peer_unlink_queue(peer, queue);</span>
+<span class="lineNum">     132 </span>            :     }
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     t_array_init(&amp;peers, array_count(&amp;queue-&gt;pending_peers));</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     array_copy(&amp;peers.arr, 0, &amp;queue-&gt;pending_peers.arr, 0,</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         array_count(&amp;queue-&gt;pending_peers));</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     array_foreach(&amp;peers, peer_idx)</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         http_client_peer_unlink_queue(*peer_idx, queue);</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     array_free(&amp;queue-&gt;pending_peers);</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span>            :     /* abort all requests */
+<span class="lineNum">     141 </span>            :     http_client_queue_fail
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         (queue, HTTP_CLIENT_REQUEST_ERROR_ABORTED, &quot;Aborted&quot;);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     array_free(&amp;queue-&gt;requests);</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     array_free(&amp;queue-&gt;queued_requests);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     array_free(&amp;queue-&gt;queued_urgent_requests);</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     array_free(&amp;queue-&gt;delayed_requests);</span>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span>            :     /* cancel timeouts */
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_connect);</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_delayed);</span>
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span>            :     /* free */
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     event_unref(&amp;queue-&gt;event);</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     i_free(queue-&gt;addr_name);</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     i_free(queue-&gt;name);</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     i_free(queue);</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span>            : /*
+<span class="lineNum">     160 </span>            :  * Error handling
+<span class="lineNum">     161 </span>            :  */
+<a name="162"><span class="lineNum">     162 </span>            : </a>
+<span class="lineNum">     163 </span>            : static void
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 : http_client_queue_fail_full(struct http_client_queue *queue,</span>
+<span class="lineNum">     165 </span>            :     unsigned int status, const char *error, bool queued_only)
+<span class="lineNum">     166 </span>            : {
+<span class="lineNum">     167 </span>            :     ARRAY_TYPE(http_client_request) *req_arr, treqs;
+<span class="lineNum">     168 </span>            :     struct http_client_request **req_idx;
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     unsigned int retained = 0;</span>
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span>            :     /* abort requests */
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     req_arr = &amp;queue-&gt;requests;</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     t_array_init(&amp;treqs, array_count(req_arr));</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     array_copy(&amp;treqs.arr, 0, &amp;req_arr-&gt;arr, 0, array_count(req_arr));</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;treqs, req_idx) {</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :         struct http_client_request *req = *req_idx;</span>
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         i_assert(req-&gt;state &gt;= HTTP_REQUEST_STATE_QUEUED);</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         if (queued_only &amp;&amp;</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :             req-&gt;state != HTTP_REQUEST_STATE_QUEUED)</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             retained++;</span>
+<span class="lineNum">     182 </span>            :         else
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :             http_client_request_error(&amp;req, status, error);</span>
+<span class="lineNum">     184 </span>            :     }
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span>            :   /* all queues should be empty now... unless new requests were submitted
+<span class="lineNum">     187 </span>            :      from the callback. this invariant captures it all: */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     i_assert((retained +</span>
+<span class="lineNum">     189 </span>            :         array_count(&amp;queue-&gt;delayed_requests) +
+<span class="lineNum">     190 </span>            :         array_count(&amp;queue-&gt;queued_requests) +
+<span class="lineNum">     191 </span>            :         array_count(&amp;queue-&gt;queued_urgent_requests)) ==
+<span class="lineNum">     192 </span>            :             array_count(&amp;queue-&gt;requests));
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 : }</span>
+<a name="194"><span class="lineNum">     194 </span>            : </a>
+<span class="lineNum">     195 </span>            : static void
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 : http_client_queue_fail(struct http_client_queue *queue,</span>
+<span class="lineNum">     197 </span>            :     unsigned int status, const char *error)
+<span class="lineNum">     198 </span>            : {
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     http_client_queue_fail_full(queue, status, error, FALSE);</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span>            : /*
+<span class="lineNum">     203 </span>            :  * Connection management
+<span class="lineNum">     204 </span>            :  */
+<a name="205"><span class="lineNum">     205 </span>            : </a>
+<span class="lineNum">     206 </span>            : static bool
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 : http_client_queue_is_last_connect_ip(struct http_client_queue *queue)</span>
+<span class="lineNum">     208 </span>            : {
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set =</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         &amp;queue-&gt;client-&gt;set;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     struct http_client_host *host = queue-&gt;host;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     unsigned int ips_count = http_client_host_get_ips_count(host);</span>
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     i_assert(queue-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_UNIX);</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     i_assert(queue-&gt;ips_connect_idx &lt; ips_count);</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     i_assert(queue-&gt;ips_connect_start_idx &lt; ips_count);</span>
+<span class="lineNum">     217 </span>            : 
+<span class="lineNum">     218 </span>            :     /* if a maximum connect attempts &gt; 1 is set, enforce it directly */
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     if (set-&gt;max_connect_attempts &gt; 1 &amp;&amp;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         queue-&gt;connect_attempts &gt;= set-&gt;max_connect_attempts)</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     222 </span>            :         
+<span class="lineNum">     223 </span>            :     /* otherwise, we'll always go through all the IPs. we don't necessarily
+<span class="lineNum">     224 </span>            :        start connecting from the first IP, so we'll need to treat the IPs as
+<span class="lineNum">     225 </span>            :        a ring buffer where we automatically wrap back to the first IP
+<span class="lineNum">     226 </span>            :        when necessary. */
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     return (queue-&gt;ips_connect_idx + 1) % ips_count ==</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         queue-&gt;ips_connect_start_idx;</span>
+<span class="lineNum">     229 </span>            : }
+<a name="230"><span class="lineNum">     230 </span>            : </a>
+<span class="lineNum">     231 </span>            : static void
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 : http_client_queue_recover_from_lookup(struct http_client_queue *queue)</span>
+<span class="lineNum">     233 </span>            : {
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     struct http_client_host *host = queue-&gt;host;</span>
+<span class="lineNum">     235 </span>            :     unsigned int ip_idx;
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     i_assert(queue-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_UNIX);</span>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     if (queue-&gt;cur_peer == NULL) {</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         queue-&gt;ips_connect_idx = queue-&gt;ips_connect_start_idx = 0;</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     242 </span>            :     }
+<span class="lineNum">     243 </span>            : 
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     if (http_client_host_get_ip_idx(host,</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         &amp;queue-&gt;cur_peer-&gt;shared-&gt;addr.a.tcp.ip, &amp;ip_idx)) {</span>
+<span class="lineNum">     246 </span>            :         /* continue with current peer */
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         queue-&gt;ips_connect_idx = queue-&gt;ips_connect_start_idx = ip_idx;</span>
+<span class="lineNum">     248 </span>            :     } else {
+<span class="lineNum">     249 </span>            :         /* reset connect attempts */
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :         queue-&gt;ips_connect_idx = queue-&gt;ips_connect_start_idx = 0;</span>
+<span class="lineNum">     251 </span>            :     }
+<span class="lineNum">     252 </span>            : }
+<a name="253"><span class="lineNum">     253 </span>            : </a>
+<span class="lineNum">     254 </span>            : static void
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 : http_client_queue_soft_connect_timeout(struct http_client_queue *queue)</span>
+<span class="lineNum">     256 </span>            : {
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     struct http_client_host *host = queue-&gt;host;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     const struct http_client_peer_addr *addr = &amp;queue-&gt;addr;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     unsigned int ips_count = http_client_host_get_ips_count(host);</span>
+<span class="lineNum">     260 </span>            :     const char *https_name;
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     i_assert(queue-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_UNIX);</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_connect);</span>
+<span class="lineNum">     265 </span>            : 
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     if (http_client_queue_is_last_connect_ip(queue)) {</span>
+<span class="lineNum">     267 </span>            :         /* no more IPs to try */
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     269 </span>            :     }
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span>            :     /* if our our previous connection attempt takes longer than the
+<span class="lineNum">     272 </span>            :        soft_connect_timeout, we start a connection attempt to the next IP in
+<span class="lineNum">     273 </span>            :        parallel */
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :     https_name = http_client_peer_addr_get_https_name(addr);</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event, &quot;Connection to %s%s is taking a long time; &quot;</span>
+<span class="lineNum">     276 </span>            :         &quot;starting parallel connection attempt to next IP&quot;,
+<span class="lineNum">     277 </span>            :         http_client_peer_addr2str(addr), (https_name == NULL ? &quot;&quot; :
+<span class="lineNum">     278 </span>            :             t_strdup_printf(&quot; (SSL=%s)&quot;, https_name)));
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span>            :     /* next IP */
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     queue-&gt;ips_connect_idx = (queue-&gt;ips_connect_idx + 1) % ips_count;</span>
+<span class="lineNum">     282 </span>            : 
+<span class="lineNum">     283 </span>            :     /* setup connection to new peer (can start new soft timeout) */
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     http_client_queue_connection_setup(queue);</span>
+<span class="lineNum">     285 </span>            : }
+<a name="286"><span class="lineNum">     286 </span>            : </a>
+<span class="lineNum">     287 </span>            : static struct http_client_peer *
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 : http_client_queue_connection_attempt(struct http_client_queue *queue)</span>
+<span class="lineNum">     289 </span>            : {
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :     struct http_client *client = queue-&gt;client;</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     struct http_client_host *host = queue-&gt;host;</span>
+<span class="lineNum">     292 </span>            :     struct http_client_peer *peer;
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     struct http_client_peer_addr *addr = &amp;queue-&gt;addr;</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     unsigned int num_requests =</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         array_count(&amp;queue-&gt;queued_requests) +</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         array_count(&amp;queue-&gt;queued_urgent_requests);</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     const char *ssl = &quot;&quot;;</span>
+<span class="lineNum">     298 </span>            :     int ret;
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     if (num_requests == 0)</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span>            :     /* check whether host IPs are still up-to-date */
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     if ((ret=http_client_host_refresh(host)) &lt; 0) {</span>
+<span class="lineNum">     305 </span>            :         /* performing asynchronous lookup */
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;queue-&gt;to_connect);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     308 </span>            :     }
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     if (ret &gt; 0) {</span>
+<span class="lineNum">     310 </span>            :         /* new lookup performed */
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         http_client_queue_recover_from_lookup(queue);</span>
+<span class="lineNum">     312 </span>            :     }
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span>            :     /* update our peer address */
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     if (queue-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_UNIX) {</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         const struct ip_addr *ip = http_client_host_get_ip(host,</span>
+<span class="lineNum">     317 </span>            :             queue-&gt;ips_connect_idx);
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         queue-&gt;addr.a.tcp.ip = *ip;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         ssl = http_client_peer_addr_get_https_name(addr);</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :         ssl = (ssl == NULL ? &quot;&quot; : t_strdup_printf(&quot; (SSL=%s)&quot;, ssl));</span>
+<span class="lineNum">     321 </span>            :     }
+<span class="lineNum">     322 </span>            : 
+<span class="lineNum">     323 </span>            :     /* already got a peer? */
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     peer = NULL;</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     if (queue-&gt;cur_peer != NULL) {</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :         i_assert(array_count(&amp;queue-&gt;pending_peers) == 0);</span>
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span>            :         /* is it still the one we want? */
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :         if (http_client_peer_addr_cmp</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :             (addr, &amp;queue-&gt;cur_peer-&gt;shared-&gt;addr) == 0) {</span>
+<span class="lineNum">     331 </span>            :             /* is it still connected? */
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :             if (http_client_peer_is_connected(queue-&gt;cur_peer)) {</span>
+<span class="lineNum">     333 </span>            :                 /* yes */
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :                 e_debug(queue-&gt;event,</span>
+<span class="lineNum">     335 </span>            :                     &quot;Using existing connection to %s%s &quot;
+<span class="lineNum">     336 </span>            :                     &quot;(%u requests pending)&quot;,
+<span class="lineNum">     337 </span>            :                     http_client_peer_addr2str(addr), ssl, num_requests);
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span>            :                 /* handle requests; */
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :                 http_client_peer_trigger_request_handler(queue-&gt;cur_peer);</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :                 return queue-&gt;cur_peer;</span>
+<span class="lineNum">     342 </span>            :             }
+<span class="lineNum">     343 </span>            :             /* no */
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :             peer = queue-&gt;cur_peer;</span>
+<span class="lineNum">     345 </span>            :         } else {
+<span class="lineNum">     346 </span>            :             /* peer is not relevant to this queue anymore */
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :             http_client_peer_unlink_queue(queue-&gt;cur_peer, queue);</span>
+<span class="lineNum">     348 </span>            :         }
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :         queue-&gt;cur_peer = NULL;</span>
+<span class="lineNum">     351 </span>            :     }
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     if (peer == NULL)</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         peer = http_client_peer_get(queue-&gt;client, addr);</span>
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event, &quot;Setting up connection to %s%s &quot;</span>
+<span class="lineNum">     357 </span>            :         &quot;(%u requests pending)&quot;, http_client_peer_addr2str(addr), ssl,
+<span class="lineNum">     358 </span>            :         num_requests);
+<span class="lineNum">     359 </span>            : 
+<span class="lineNum">     360 </span>            :     /* create provisional link between queue and peer */
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :     http_client_peer_link_queue(peer, queue);</span>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span>            :     /* handle requests; creates new connections when needed/possible */
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     http_client_peer_trigger_request_handler(peer);</span>
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     if (http_client_peer_is_connected(peer)) {</span>
+<span class="lineNum">     367 </span>            :         /* drop any pending peers */
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         if (array_count(&amp;queue-&gt;pending_peers) &gt; 0) {</span>
+<span class="lineNum">     369 </span>            :             struct http_client_peer *const *peer_idx;
+<span class="lineNum">     370 </span>            : 
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :             array_foreach(&amp;queue-&gt;pending_peers, peer_idx) {</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :                 i_assert(http_client_peer_addr_cmp</span>
+<span class="lineNum">     373 </span>            :                     (&amp;(*peer_idx)-&gt;shared-&gt;addr, addr) != 0);
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :                 http_client_peer_unlink_queue(*peer_idx, queue);</span>
+<span class="lineNum">     375 </span>            :             }
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             array_clear(&amp;queue-&gt;pending_peers);</span>
+<span class="lineNum">     377 </span>            :         }
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :         queue-&gt;cur_peer = peer;</span>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         http_client_peer_trigger_request_handler(queue-&gt;cur_peer);</span>
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span>            :     } else {
+<span class="lineNum">     383 </span>            :         struct http_client_peer *const *peer_idx;
+<span class="lineNum">     384 </span>            :         unsigned int msecs;
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :         bool new_peer = TRUE;</span>
+<span class="lineNum">     386 </span>            : 
+<span class="lineNum">     387 </span>            :         /* not already connected, wait for connections */
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span>            :         /* we may be waiting for this peer already */
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :         array_foreach(&amp;queue-&gt;pending_peers, peer_idx) {</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :             if (http_client_peer_addr_cmp</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :                 (&amp;(*peer_idx)-&gt;shared-&gt;addr, addr) == 0) {</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :                 i_assert(*peer_idx == peer);</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :                 new_peer = FALSE;</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     396 </span>            :             }
+<span class="lineNum">     397 </span>            :         }
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         if (new_peer) {</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :             e_debug(queue-&gt;event, &quot;Started new connection to %s%s&quot;,</span>
+<span class="lineNum">     400 </span>            :                 http_client_peer_addr2str(addr), ssl);
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :             array_append(&amp;queue-&gt;pending_peers, &amp;peer, 1);</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :             if (queue-&gt;connect_attempts++ == 0)</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :                 queue-&gt;first_connect_time = ioloop_timeval;</span>
+<span class="lineNum">     405 </span>            :         }
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span>            :         /* start soft connect time-out (but only if we have another IP left) */
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         if (queue-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_UNIX) {</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :             msecs = client-&gt;set.soft_connect_timeout_msecs;</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :             if (!http_client_queue_is_last_connect_ip(queue) &amp;&amp; msecs &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :                 queue-&gt;to_connect == NULL) {</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :                 queue-&gt;to_connect =</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :                     timeout_add(msecs, http_client_queue_soft_connect_timeout, queue);</span>
+<span class="lineNum">     414 </span>            :             }
+<span class="lineNum">     415 </span>            :         }
+<span class="lineNum">     416 </span>            :     }
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     return peer;</span>
+<a name="419"><span class="lineNum">     419 </span>            : }</a>
+<span class="lineNum">     420 </span>            : 
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 : void http_client_queue_connection_setup(struct http_client_queue *queue)</span>
+<span class="lineNum">     422 </span>            : {
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :     (void)http_client_queue_connection_attempt(queue);</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 : }</span>
+<a name="425"><span class="lineNum">     425 </span>            : </a>
+<span class="lineNum">     426 </span>            : unsigned int
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 : http_client_queue_host_lookup_done(struct http_client_queue *queue)</span>
+<span class="lineNum">     428 </span>            : {
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     unsigned int reqs_pending =</span>
+<span class="lineNum">     430 </span>            :         http_client_queue_requests_pending(queue, NULL);
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :     http_client_queue_recover_from_lookup(queue);</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     if (reqs_pending &gt; 0)</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :         http_client_queue_connection_setup(queue);</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     return reqs_pending;</span>
+<a name="435"><span class="lineNum">     435 </span>            : }</a>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 : void http_client_queue_host_lookup_failure(</span>
+<span class="lineNum">     438 </span>            :     struct http_client_queue *queue, const char *error)
+<span class="lineNum">     439 </span>            : {
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     http_client_queue_fail_full(queue,</span>
+<span class="lineNum">     441 </span>            :         HTTP_CLIENT_REQUEST_ERROR_HOST_LOOKUP_FAILED,
+<span class="lineNum">     442 </span>            :         error, TRUE);
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 : }</span>
+<a name="444"><span class="lineNum">     444 </span>            : </a>
+<span class="lineNum">     445 </span>            : void
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 : http_client_queue_connection_success(struct http_client_queue *queue,</span>
+<span class="lineNum">     447 </span>            :                      struct http_client_peer *peer)
+<span class="lineNum">     448 </span>            : {
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     const struct http_client_peer_addr *addr = &amp;peer-&gt;shared-&gt;addr;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :     struct http_client_host *host = queue-&gt;host;</span>
+<span class="lineNum">     451 </span>            : 
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     if (http_client_host_ready(host) &amp;&amp;</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         queue-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_UNIX) {</span>
+<span class="lineNum">     454 </span>            :         /* we achieved at least one connection the the addr-&gt;ip */
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         if (!http_client_host_get_ip_idx(host,</span>
+<span class="lineNum">     456 </span>            :             &amp;addr-&gt;a.tcp.ip, &amp;queue-&gt;ips_connect_start_idx)) {
+<span class="lineNum">     457 </span>            :             /* list of IPs changed during connect */
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :             queue-&gt;ips_connect_start_idx = 0;</span>
+<span class="lineNum">     459 </span>            :         }
+<span class="lineNum">     460 </span>            :     }
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span>            :     /* reset attempt counter */
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     queue-&gt;connect_attempts = 0;</span>
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span>            :     /* stop soft connect time-out */
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_connect);</span>
+<span class="lineNum">     467 </span>            : 
+<span class="lineNum">     468 </span>            :     /* drop all other attempts to the hport. note that we get here whenever
+<span class="lineNum">     469 </span>            :        a connection is successfully created, so pending_peers array
+<span class="lineNum">     470 </span>            :        may be empty. */
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     if (array_count(&amp;queue-&gt;pending_peers) &gt; 0) {</span>
+<span class="lineNum">     472 </span>            :         struct http_client_peer *const *peer_idx;
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         array_foreach(&amp;queue-&gt;pending_peers, peer_idx) {</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             if (*peer_idx == peer) {</span>
+<span class="lineNum">     476 </span>            :                 /* don't drop any connections to the successfully
+<span class="lineNum">     477 </span>            :                    connected peer, even if some of the connections
+<span class="lineNum">     478 </span>            :                    are pending. they may be intended for urgent
+<span class="lineNum">     479 </span>            :                    requests. */
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :                 i_assert(queue-&gt;cur_peer == NULL);</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :                 queue-&gt;cur_peer = *peer_idx;</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     483 </span>            :             }
+<span class="lineNum">     484 </span>            :             /* unlink this queue from the peer; if this was the last/only queue, the
+<span class="lineNum">     485 </span>            :                peer will be freed, closing all connections.
+<span class="lineNum">     486 </span>            :              */
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :             http_client_peer_unlink_queue(*peer_idx, queue);</span>
+<span class="lineNum">     488 </span>            :         }
+<span class="lineNum">     489 </span>            : 
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :         array_clear(&amp;queue-&gt;pending_peers);</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :         i_assert(queue-&gt;cur_peer != NULL);</span>
+<span class="lineNum">     492 </span>            :     }
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 : }</span>
+<a name="494"><span class="lineNum">     494 </span>            : </a>
+<span class="lineNum">     495 </span>            : void
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 : http_client_queue_connection_failure(struct http_client_queue *queue,</span>
+<span class="lineNum">     497 </span>            :     struct http_client_peer *peer, const char *reason)
+<span class="lineNum">     498 </span>            : {
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set =</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         &amp;queue-&gt;client-&gt;set;</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     const struct http_client_peer_addr *addr = &amp;peer-&gt;shared-&gt;addr;</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :     const char *https_name = http_client_peer_addr_get_https_name(addr);</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     struct http_client_host *host = queue-&gt;host;</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :     unsigned int ips_count = http_client_host_get_ips_count(host);</span>
+<span class="lineNum">     505 </span>            :     struct http_client_peer *const *peer_idx;
+<span class="lineNum">     506 </span>            : 
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event,</span>
+<span class="lineNum">     508 </span>            :         &quot;Failed to set up connection to %s%s: %s &quot;
+<span class="lineNum">     509 </span>            :         &quot;(%u peers pending, %u requests pending)&quot;,
+<span class="lineNum">     510 </span>            :         http_client_peer_addr2str(addr),
+<span class="lineNum">     511 </span>            :         (https_name == NULL ? &quot;&quot; :
+<span class="lineNum">     512 </span>            :             t_strdup_printf(&quot; (SSL=%s)&quot;, https_name)),
+<span class="lineNum">     513 </span>            :         reason, array_count(&amp;queue-&gt;pending_peers),
+<span class="lineNum">     514 </span>            :         array_count(&amp;queue-&gt;requests));
+<span class="lineNum">     515 </span>            : 
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :     if (array_count(&amp;queue-&gt;pending_peers) == 0) {</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :         i_assert(queue-&gt;cur_peer == peer);</span>
+<span class="lineNum">     518 </span>            :     } else {
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :         bool found = FALSE;</span>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         i_assert(queue-&gt;cur_peer == NULL);</span>
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span>            :         /* we're still doing the initial connections to this hport. if
+<span class="lineNum">     524 </span>            :              we're also doing parallel connections with soft timeouts
+<span class="lineNum">     525 </span>            :              (pending_peer_count&gt;1), wait for them to finish
+<span class="lineNum">     526 </span>            :              first. */
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :         array_foreach(&amp;queue-&gt;pending_peers, peer_idx) {</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :             if (*peer_idx == peer) {</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :                 array_delete(&amp;queue-&gt;pending_peers,</span>
+<span class="lineNum">     530 </span>            :                     array_foreach_idx(&amp;queue-&gt;pending_peers, peer_idx), 1);
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :                 found = TRUE;</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     533 </span>            :             }
+<span class="lineNum">     534 </span>            :         }
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :         i_assert(found);</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :         if (array_count(&amp;queue-&gt;pending_peers) &gt; 0) {</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :             e_debug(queue-&gt;event,</span>
+<span class="lineNum">     538 </span>            :                 &quot;Waiting for remaining pending peers.&quot;);
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :             http_client_peer_unlink_queue(peer, queue);</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     541 </span>            :         }
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span>            :         /* one of the connections failed. if we're not using soft timeouts,
+<span class="lineNum">     544 </span>            :            we need to try to connect to the next IP. if we are using soft
+<span class="lineNum">     545 </span>            :            timeouts, we've already tried all of the IPs by now. */
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;queue-&gt;to_connect);</span>
+<span class="lineNum">     547 </span>            : 
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :         if (queue-&gt;addr.type == HTTP_CLIENT_PEER_ADDR_UNIX) {</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :             http_client_peer_unlink_queue(peer, queue);</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :             http_client_queue_fail(queue,</span>
+<span class="lineNum">     551 </span>            :                 HTTP_CLIENT_REQUEST_ERROR_CONNECT_FAILED, reason);
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     553 </span>            :         }
+<span class="lineNum">     554 </span>            :     }
+<span class="lineNum">     555 </span>            : 
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :     if (http_client_queue_is_last_connect_ip(queue)) {</span>
+<span class="lineNum">     557 </span>            :         /* all IPs failed, but retry all of them again if we have more
+<span class="lineNum">     558 </span>            :            connect attempts left or on the next request. */
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :         queue-&gt;ips_connect_idx = queue-&gt;ips_connect_start_idx =</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :             (queue-&gt;ips_connect_idx + 1) % ips_count;</span>
+<span class="lineNum">     561 </span>            : 
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :         if (queue-&gt;cur_peer == NULL &amp;&amp; (set-&gt;max_connect_attempts == 0 ||</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :             queue-&gt;connect_attempts &gt;= set-&gt;max_connect_attempts)) {</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :             e_debug(queue-&gt;event,</span>
+<span class="lineNum">     565 </span>            :                 &quot;Failed to set up any connection; failing all queued requests&quot;);
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :             if (queue-&gt;connect_attempts &gt; 1) {</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :                 unsigned int total_msecs =</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :                     timeval_diff_msecs(&amp;ioloop_timeval, &amp;queue-&gt;first_connect_time);</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :                 reason = t_strdup_printf(&quot;%s (%u attempts in %u.%03u secs)&quot;,</span>
+<span class="lineNum">     570 </span>            :                     reason, queue-&gt;connect_attempts,
+<span class="lineNum">     571 </span>            :                     total_msecs/1000, total_msecs%1000);
+<span class="lineNum">     572 </span>            :             }
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :             queue-&gt;connect_attempts = 0;</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :             http_client_peer_unlink_queue(peer, queue);</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :             http_client_queue_fail(queue,</span>
+<span class="lineNum">     576 </span>            :                 HTTP_CLIENT_REQUEST_ERROR_CONNECT_FAILED, reason);
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     578 </span>            :         }
+<span class="lineNum">     579 </span>            :     } else {
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         queue-&gt;ips_connect_idx = (queue-&gt;ips_connect_idx + 1) % ips_count;</span>
+<span class="lineNum">     581 </span>            :     }
+<span class="lineNum">     582 </span>            :     
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :     if (http_client_queue_connection_attempt(queue) != peer) {</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :         http_client_peer_unlink_queue(peer, queue);</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         queue-&gt;cur_peer = NULL;</span>
+<span class="lineNum">     586 </span>            :     }
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :     return;</span>
+<span class="lineNum">     588 </span>            : }
+<a name="589"><span class="lineNum">     589 </span>            : </a>
+<span class="lineNum">     590 </span>            : void
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 : http_client_queue_peer_disconnected(struct http_client_queue *queue,</span>
+<span class="lineNum">     592 </span>            :     struct http_client_peer *peer)
+<span class="lineNum">     593 </span>            : {
+<span class="lineNum">     594 </span>            :     struct http_client_peer *const *peer_idx;
+<span class="lineNum">     595 </span>            : 
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :     if (queue-&gt;cur_peer == peer) {</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :         queue-&gt;cur_peer = NULL;</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     599 </span>            :     }
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     array_foreach(&amp;queue-&gt;pending_peers, peer_idx) {</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         if (*peer_idx == peer) {</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :             array_delete(&amp;queue-&gt;pending_peers,</span>
+<span class="lineNum">     604 </span>            :                 array_foreach_idx(&amp;queue-&gt;pending_peers, peer_idx), 1);
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     606 </span>            :         }
+<span class="lineNum">     607 </span>            :     }
+<span class="lineNum">     608 </span>            : }
+<span class="lineNum">     609 </span>            : 
+<span class="lineNum">     610 </span>            : /*
+<span class="lineNum">     611 </span>            :  * Main request queue
+<span class="lineNum">     612 </span>            :  */
+<a name="613"><span class="lineNum">     613 </span>            : </a>
+<span class="lineNum">     614 </span>            : void
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 : http_client_queue_drop_request(struct http_client_queue *queue,</span>
+<span class="lineNum">     616 </span>            :     struct http_client_request *req)
+<span class="lineNum">     617 </span>            : {
+<span class="lineNum">     618 </span>            :     struct http_client_request **reqs;
+<span class="lineNum">     619 </span>            :     unsigned int count, i;
+<span class="lineNum">     620 </span>            : 
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event,</span>
+<span class="lineNum">     622 </span>            :         &quot;Dropping request %s&quot;, http_client_request_label(req));
+<span class="lineNum">     623 </span>            : 
+<span class="lineNum">     624 </span>            :     /* drop from queue */
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :     if (req-&gt;urgent) {</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :         reqs = array_get_modifiable(&amp;queue-&gt;queued_urgent_requests, &amp;count);</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :             if (reqs[i] == req) {</span>
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :                 array_delete(&amp;queue-&gt;queued_urgent_requests, i, 1);</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     631 </span>            :             }
+<span class="lineNum">     632 </span>            :         }
+<span class="lineNum">     633 </span>            :     } else {
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :         reqs = array_get_modifiable(&amp;queue-&gt;queued_requests, &amp;count);</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :             if (reqs[i] == req) {</span>
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :                 array_delete(&amp;queue-&gt;queued_requests, i, 1);</span>
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     639 </span>            :             }
+<span class="lineNum">     640 </span>            :         }
+<span class="lineNum">     641 </span>            :     }
+<span class="lineNum">     642 </span>            : 
+<span class="lineNum">     643 </span>            :     /* drop from delay queue */
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :     if (req-&gt;release_time.tv_sec &gt; 0) {</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :         reqs = array_get_modifiable(&amp;queue-&gt;delayed_requests, &amp;count);</span>
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :             if (reqs[i] == req)</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     649 </span>            :         }
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :         if (i &lt; count) {</span>
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :             if (i == 0) {</span>
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :                 if (queue-&gt;to_delayed != NULL) {</span>
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :                     timeout_remove(&amp;queue-&gt;to_delayed);</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :                     if (count &gt; 1) {</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :                         i_assert(reqs[1]-&gt;release_time.tv_sec &gt; 0);</span>
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :                         http_client_queue_set_delay_timer(queue, reqs[1]-&gt;release_time);</span>
+<span class="lineNum">     657 </span>            :                     }
+<span class="lineNum">     658 </span>            :                 }
+<span class="lineNum">     659 </span>            :             }
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :             array_delete(&amp;queue-&gt;delayed_requests, i, 1);</span>
+<span class="lineNum">     661 </span>            :         }
+<span class="lineNum">     662 </span>            :     }
+<span class="lineNum">     663 </span>            : 
+<span class="lineNum">     664 </span>            :     /* drop from main request list */
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :     reqs = array_get_modifiable(&amp;queue-&gt;requests, &amp;count);</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :         if (reqs[i] == req)</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     669 </span>            :     }
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :     i_assert(i &lt; count);</span>
+<span class="lineNum">     671 </span>            : 
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :     if (i == 0) {</span>
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :         if (queue-&gt;to_request != NULL) {</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :             timeout_remove(&amp;queue-&gt;to_request);</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :             if (count &gt; 1 &amp;&amp; reqs[1]-&gt;timeout_time.tv_sec &gt; 0)</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :                 http_client_queue_set_request_timer(queue, &amp;reqs[1]-&gt;timeout_time);</span>
+<span class="lineNum">     677 </span>            :         }
+<span class="lineNum">     678 </span>            :     }
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     req-&gt;queue = NULL;</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :     array_delete(&amp;queue-&gt;requests, i, 1);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :     if (array_count(&amp;queue-&gt;requests) == 0)</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :         http_client_host_check_idle(queue-&gt;host);</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :     return;</span>
+<span class="lineNum">     685 </span>            : }
+<a name="686"><span class="lineNum">     686 </span>            : </a>
+<span class="lineNum">     687 </span>            : static void
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 : http_client_queue_request_timeout(struct http_client_queue *queue)</span>
+<span class="lineNum">     689 </span>            : {
+<span class="lineNum">     690 </span>            :     struct http_client_request *const *reqs;
+<span class="lineNum">     691 </span>            :     ARRAY_TYPE(http_client_request) failed_requests;
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :     struct timeval new_to = { 0, 0 };</span>
+<span class="lineNum">     693 </span>            :     string_t *str;
+<span class="lineNum">     694 </span>            :     size_t prefix_size;
+<span class="lineNum">     695 </span>            :     unsigned int count, i;
+<span class="lineNum">     696 </span>            : 
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event, &quot;Timeout (now: %s.%03lu)&quot;,</span>
+<span class="lineNum">     698 </span>            :         t_strflocaltime(&quot;%Y-%m-%d %H:%M:%S&quot;, ioloop_timeval.tv_sec),
+<span class="lineNum">     699 </span>            :             ((unsigned long)ioloop_timeval.tv_usec)/1000);
+<span class="lineNum">     700 </span>            : 
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_request);</span>
+<span class="lineNum">     702 </span>            : 
+<span class="lineNum">     703 </span>            :     /* collect failed requests */
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :     reqs = array_get(&amp;queue-&gt;requests, &amp;count);</span>
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     i_assert(count &gt; 0);</span>
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :     t_array_init(&amp;failed_requests, count);</span>
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 :         if (reqs[i]-&gt;timeout_time.tv_sec &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :             timeval_cmp_margin(&amp;reqs[i]-&gt;timeout_time,</span>
+<span class="lineNum">     710 </span>            :                 &amp;ioloop_timeval, TIMEOUT_CMP_MARGIN_USECS) &gt; 0) {
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     712 </span>            :         }
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :         array_append(&amp;failed_requests, &amp;reqs[i], 1);</span>
+<span class="lineNum">     714 </span>            :     }
+<span class="lineNum">     715 </span>            : 
+<span class="lineNum">     716 </span>            :     /* update timeout */
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     if (i &lt; count)</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :         new_to = reqs[i]-&gt;timeout_time;</span>
+<span class="lineNum">     719 </span>            : 
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :     str = t_str_new(64);</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :     str_append(str, &quot;Request &quot;);</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :     prefix_size = str_len(str);</span>
+<span class="lineNum">     723 </span>            : 
+<span class="lineNum">     724 </span>            :     /* abort all failed request */
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     reqs = array_get(&amp;failed_requests, &amp;count);</span>
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :     i_assert(count &gt; 0); /* at least one request timed out */</span>
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :         struct http_client_request *req = reqs[i];</span>
+<span class="lineNum">     729 </span>            : 
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :         str_truncate(str, prefix_size);</span>
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :         http_client_request_append_stats_text(req, str);</span>
+<span class="lineNum">     732 </span>            : 
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :         e_debug(queue-&gt;event,</span>
+<span class="lineNum">     734 </span>            :             &quot;Absolute timeout expired for request %s (%s)&quot;,
+<span class="lineNum">     735 </span>            :             http_client_request_label(req), str_c(str));
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         http_client_request_error(&amp;req,</span>
+<span class="lineNum">     737 </span>            :             HTTP_CLIENT_REQUEST_ERROR_TIMED_OUT,
+<span class="lineNum">     738 </span>            :             t_strdup_printf(
+<span class="lineNum">     739 </span>            :                 &quot;Absolute request timeout expired (%s)&quot;,
+<span class="lineNum">     740 </span>            :                 str_c(str)));
+<span class="lineNum">     741 </span>            :     }
+<span class="lineNum">     742 </span>            : 
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :     if (new_to.tv_sec &gt; 0) {</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :         e_debug(queue-&gt;event, &quot;New timeout&quot;);</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :         http_client_queue_set_request_timer(queue, &amp;new_to);</span>
+<span class="lineNum">     746 </span>            :     }
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 : }</span>
+<a name="748"><span class="lineNum">     748 </span>            : </a>
+<span class="lineNum">     749 </span>            : static void
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 : http_client_queue_set_request_timer(struct http_client_queue *queue,</span>
+<span class="lineNum">     751 </span>            :     const struct timeval *time)
+<span class="lineNum">     752 </span>            : {
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :     i_assert(time-&gt;tv_sec &gt; 0);</span>
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_request);  </span>
+<span class="lineNum">     755 </span>            : 
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event,</span>
+<span class="lineNum">     757 </span>            :         &quot;Set request timeout to %s.%03lu (now: %s.%03lu)&quot;,
+<span class="lineNum">     758 </span>            :         t_strflocaltime(&quot;%Y-%m-%d %H:%M:%S&quot;, time-&gt;tv_sec),
+<span class="lineNum">     759 </span>            :         ((unsigned long)time-&gt;tv_usec)/1000,
+<span class="lineNum">     760 </span>            :         t_strflocaltime(&quot;%Y-%m-%d %H:%M:%S&quot;, ioloop_timeval.tv_sec),
+<span class="lineNum">     761 </span>            :         ((unsigned long)ioloop_timeval.tv_usec)/1000);
+<span class="lineNum">     762 </span>            : 
+<span class="lineNum">     763 </span>            :     /* set timer */
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     queue-&gt;to_request = timeout_add_absolute</span>
+<span class="lineNum">     765 </span>            :         (time, http_client_queue_request_timeout, queue);
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 : }</span>
+<a name="767"><span class="lineNum">     767 </span>            : </a>
+<span class="lineNum">     768 </span>            : static int
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 : http_client_queue_request_timeout_cmp(struct http_client_request *const *req1,</span>
+<span class="lineNum">     770 </span>            :     struct http_client_request *const *req2)
+<span class="lineNum">     771 </span>            : {
+<span class="lineNum">     772 </span>            :     int ret;
+<span class="lineNum">     773 </span>            : 
+<span class="lineNum">     774 </span>            :     /* 0 means no timeout */
+<span class="lineNum">     775 </span><span class="lineNoCov">          0 :     if ((*req1)-&gt;timeout_time.tv_sec == 0) {</span>
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :         if ((*req2)-&gt;timeout_time.tv_sec == 0) {</span>
+<span class="lineNum">     777 </span>            :             /* sort by age */
+<span class="lineNum">     778 </span><span class="lineNoCov">          0 :             if ((ret=timeval_cmp(&amp;(*req1)-&gt;submit_time, &amp;(*req2)-&gt;submit_time)) != 0)</span>
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :                 return ret;</span>
+<span class="lineNum">     780 </span>            :                 
+<span class="lineNum">     781 </span>            :         } else {
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :             return 1;</span>
+<span class="lineNum">     783 </span>            :         }
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :     } else if ((*req2)-&gt;timeout_time.tv_sec == 0) {</span>
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     786 </span>            : 
+<span class="lineNum">     787 </span>            :     /* sort by timeout */
+<span class="lineNum">     788 </span>            :     } else if 
+<span class="lineNum">     789 </span><span class="lineNoCov">          0 :         ((ret=timeval_cmp(&amp;(*req1)-&gt;timeout_time, &amp;(*req2)-&gt;timeout_time)) != 0) {</span>
+<span class="lineNum">     790 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     791 </span>            :     }
+<span class="lineNum">     792 </span>            : 
+<span class="lineNum">     793 </span>            :     /* sort by minimum attempts for fairness */
+<span class="lineNum">     794 </span><span class="lineNoCov">          0 :     return ((*req2)-&gt;attempts - (*req1)-&gt;attempts);</span>
+<a name="795"><span class="lineNum">     795 </span>            : }</a>
+<span class="lineNum">     796 </span>            : 
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 : static void http_client_queue_submit_now(struct http_client_queue *queue,</span>
+<span class="lineNum">     798 </span>            :     struct http_client_request *req)
+<span class="lineNum">     799 </span>            : {
+<span class="lineNum">     800 </span>            :     ARRAY_TYPE(http_client_request) *req_queue;
+<span class="lineNum">     801 </span>            : 
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :     req-&gt;release_time.tv_sec = 0;</span>
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :     req-&gt;release_time.tv_usec = 0;</span>
+<span class="lineNum">     804 </span>            : 
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :     if (req-&gt;urgent)</span>
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 :         req_queue = &amp;queue-&gt;queued_urgent_requests;</span>
+<span class="lineNum">     807 </span>            :     else
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :         req_queue = &amp;queue-&gt;queued_requests;</span>
+<span class="lineNum">     809 </span>            : 
+<span class="lineNum">     810 </span>            :     /* enqueue */
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 :     if (req-&gt;timeout_time.tv_sec == 0) {</span>
+<span class="lineNum">     812 </span>            :         /* no timeout; enqueue at end */
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :         array_append(req_queue, &amp;req, 1);</span>
+<span class="lineNum">     814 </span>            : 
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :     } else if (timeval_diff_msecs(&amp;req-&gt;timeout_time, &amp;ioloop_timeval) &lt;= 1) {</span>
+<span class="lineNum">     816 </span>            :         /* pretty much already timed out; don't bother */
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     818 </span>            : 
+<span class="lineNum">     819 </span>            :     } else {
+<span class="lineNum">     820 </span>            :         unsigned int insert_idx;
+<span class="lineNum">     821 </span>            : 
+<span class="lineNum">     822 </span>            :         /* keep transmission queue sorted earliest timeout first */
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :         (void)array_bsearch_insert_pos(req_queue,</span>
+<span class="lineNum">     824 </span>            :             &amp;req, http_client_queue_request_timeout_cmp, &amp;insert_idx);
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :         array_insert(req_queue, insert_idx, &amp;req, 1);</span>
+<span class="lineNum">     826 </span>            :     }
+<span class="lineNum">     827 </span>            : 
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :     http_client_queue_connection_setup(queue);</span>
+<span class="lineNum">     829 </span>            : }
+<span class="lineNum">     830 </span>            : 
+<span class="lineNum">     831 </span>            : /*
+<span class="lineNum">     832 </span>            :  * Delayed request queue
+<span class="lineNum">     833 </span>            :  */
+<a name="834"><span class="lineNum">     834 </span>            : </a>
+<span class="lineNum">     835 </span>            : static void
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 : http_client_queue_delay_timeout(struct http_client_queue *queue)</span>
+<span class="lineNum">     837 </span>            : {
+<span class="lineNum">     838 </span>            :     struct http_client_request *const *reqs;
+<span class="lineNum">     839 </span>            :     unsigned int count, i, finished;
+<span class="lineNum">     840 </span>            : 
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_delayed);</span>
+<span class="lineNum">     842 </span><span class="lineNoCov">          0 :     io_loop_time_refresh();</span>
+<span class="lineNum">     843 </span>            : 
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :     finished = 0;</span>
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :     reqs = array_get(&amp;queue-&gt;delayed_requests, &amp;count);</span>
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     847 </span><span class="lineNoCov">          0 :         if (timeval_cmp_margin(&amp;reqs[i]-&gt;release_time,</span>
+<span class="lineNum">     848 </span>            :             &amp;ioloop_timeval, TIMEOUT_CMP_MARGIN_USECS) &gt; 0) {
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     850 </span>            :         }
+<span class="lineNum">     851 </span>            : 
+<span class="lineNum">     852 </span><span class="lineNoCov">          0 :         e_debug(queue-&gt;event, &quot;Activated delayed request %s%s&quot;,</span>
+<span class="lineNum">     853 </span>            :             http_client_request_label(reqs[i]),
+<span class="lineNum">     854 </span>            :             (reqs[i]-&gt;urgent ? &quot; (urgent)&quot; : &quot;&quot;));
+<span class="lineNum">     855 </span><span class="lineNoCov">          0 :         http_client_queue_submit_now(queue, reqs[i]);</span>
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 :         finished++;</span>
+<span class="lineNum">     857 </span>            :     }
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :     if (i &lt; count) {</span>
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :         http_client_queue_set_delay_timer(queue, reqs[i]-&gt;release_time);</span>
+<span class="lineNum">     860 </span>            :     }
+<span class="lineNum">     861 </span><span class="lineNoCov">          0 :     array_delete(&amp;queue-&gt;delayed_requests, 0, finished);</span>
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 : }</span>
+<a name="863"><span class="lineNum">     863 </span>            : </a>
+<span class="lineNum">     864 </span>            : static void
+<span class="lineNum">     865 </span><span class="lineNoCov">          0 : http_client_queue_set_delay_timer(struct http_client_queue *queue,</span>
+<span class="lineNum">     866 </span>            :     struct timeval time)
+<span class="lineNum">     867 </span>            : {
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :     int usecs = timeval_diff_usecs(&amp;time, &amp;ioloop_timeval);</span>
+<span class="lineNum">     869 </span>            :     int msecs;
+<span class="lineNum">     870 </span>            : 
+<span class="lineNum">     871 </span>            :     /* round up to nearest microsecond */
+<span class="lineNum">     872 </span><span class="lineNoCov">          0 :     msecs = (usecs + 999) / 1000;</span>
+<span class="lineNum">     873 </span>            : 
+<span class="lineNum">     874 </span>            :     /* set timer */
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;queue-&gt;to_delayed);  </span>
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 :     queue-&gt;to_delayed = timeout_add</span>
+<span class="lineNum">     877 </span>            :         (msecs, http_client_queue_delay_timeout, queue);
+<span class="lineNum">     878 </span><span class="lineNoCov">          0 : }</span>
+<a name="879"><span class="lineNum">     879 </span>            : </a>
+<span class="lineNum">     880 </span>            : static int
+<span class="lineNum">     881 </span><span class="lineNoCov">          0 : http_client_queue_delayed_cmp(struct http_client_request *const *req1,</span>
+<span class="lineNum">     882 </span>            :     struct http_client_request *const *req2)
+<span class="lineNum">     883 </span>            : {
+<span class="lineNum">     884 </span><span class="lineNoCov">          0 :     return timeval_cmp(&amp;(*req1)-&gt;release_time, &amp;(*req2)-&gt;release_time);</span>
+<span class="lineNum">     885 </span>            : }
+<span class="lineNum">     886 </span>            : 
+<span class="lineNum">     887 </span>            : /*
+<span class="lineNum">     888 </span>            :  * Request submission
+<a name="889"><span class="lineNum">     889 </span>            :  */</a>
+<span class="lineNum">     890 </span>            : 
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 : void http_client_queue_submit_request(struct http_client_queue *queue,</span>
+<span class="lineNum">     892 </span>            :     struct http_client_request *req)
+<span class="lineNum">     893 </span>            : {
+<span class="lineNum">     894 </span>            :     unsigned int insert_idx;
+<span class="lineNum">     895 </span>            : 
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :     if (req-&gt;queue != NULL)</span>
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 :         http_client_queue_drop_request(req-&gt;queue, req);</span>
+<span class="lineNum">     898 </span><span class="lineNoCov">          0 :     req-&gt;queue = queue;</span>
+<span class="lineNum">     899 </span>            : 
+<span class="lineNum">     900 </span>            :     /* check delay vs timeout */
+<span class="lineNum">     901 </span><span class="lineNoCov">          0 :     if (req-&gt;release_time.tv_sec &gt; 0 &amp;&amp; req-&gt;timeout_time.tv_sec &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :         timeval_cmp_margin(&amp;req-&gt;release_time,</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :             &amp;req-&gt;timeout_time, TIMEOUT_CMP_MARGIN_USECS) &gt;= 0) {</span>
+<span class="lineNum">     904 </span>            :         /* release time is later than absolute timeout */
+<span class="lineNum">     905 </span><span class="lineNoCov">          0 :         req-&gt;release_time.tv_sec = 0;</span>
+<span class="lineNum">     906 </span><span class="lineNoCov">          0 :         req-&gt;release_time.tv_usec = 0;</span>
+<span class="lineNum">     907 </span>            : 
+<span class="lineNum">     908 </span>            :         /* timeout rightaway */
+<span class="lineNum">     909 </span><span class="lineNoCov">          0 :         req-&gt;timeout_time = ioloop_timeval;</span>
+<span class="lineNum">     910 </span>            : 
+<span class="lineNum">     911 </span><span class="lineNoCov">          0 :         e_debug(queue-&gt;event,</span>
+<span class="lineNum">     912 </span>            :             &quot;Delayed request %s%s already timed out&quot;,
+<span class="lineNum">     913 </span>            :             http_client_request_label(req),
+<span class="lineNum">     914 </span>            :             (req-&gt;urgent ? &quot; (urgent)&quot; : &quot;&quot;));
+<span class="lineNum">     915 </span>            :     }
+<span class="lineNum">     916 </span>            : 
+<span class="lineNum">     917 </span>            :     /* add to main request list */
+<span class="lineNum">     918 </span><span class="lineNoCov">          0 :     if (req-&gt;timeout_time.tv_sec == 0) {</span>
+<span class="lineNum">     919 </span>            :         /* no timeout; just append */
+<span class="lineNum">     920 </span><span class="lineNoCov">          0 :         array_append(&amp;queue-&gt;requests, &amp;req, 1);</span>
+<span class="lineNum">     921 </span>            : 
+<span class="lineNum">     922 </span>            :     } else {
+<span class="lineNum">     923 </span>            :         unsigned int insert_idx;
+<span class="lineNum">     924 </span>            : 
+<span class="lineNum">     925 </span>            :         /* keep main request list sorted earliest timeout first */
+<span class="lineNum">     926 </span><span class="lineNoCov">          0 :         (void)array_bsearch_insert_pos(&amp;queue-&gt;requests,</span>
+<span class="lineNum">     927 </span>            :             &amp;req, http_client_queue_request_timeout_cmp, &amp;insert_idx);
+<span class="lineNum">     928 </span><span class="lineNoCov">          0 :         array_insert(&amp;queue-&gt;requests, insert_idx, &amp;req, 1);</span>
+<span class="lineNum">     929 </span>            : 
+<span class="lineNum">     930 </span>            :         /* now first in queue; update timer */
+<span class="lineNum">     931 </span><span class="lineNoCov">          0 :         if (insert_idx == 0)</span>
+<span class="lineNum">     932 </span><span class="lineNoCov">          0 :             http_client_queue_set_request_timer(queue, &amp;req-&gt;timeout_time);</span>
+<span class="lineNum">     933 </span>            :     }
+<span class="lineNum">     934 </span>            : 
+<span class="lineNum">     935 </span>            :     /* handle delay */
+<span class="lineNum">     936 </span><span class="lineNoCov">          0 :     if (req-&gt;release_time.tv_sec &gt; 0) {</span>
+<span class="lineNum">     937 </span><span class="lineNoCov">          0 :         io_loop_time_refresh();</span>
+<span class="lineNum">     938 </span>            : 
+<span class="lineNum">     939 </span><span class="lineNoCov">          0 :         if (timeval_cmp_margin(&amp;req-&gt;release_time,</span>
+<span class="lineNum">     940 </span>            :             &amp;ioloop_timeval, TIMEOUT_CMP_MARGIN_USECS) &gt; 0) {
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :             e_debug(queue-&gt;event,</span>
+<span class="lineNum">     942 </span>            :                 &quot;Delayed request %s%s submitted (time remaining: %d msecs)&quot;,
+<span class="lineNum">     943 </span>            :                 http_client_request_label(req),
+<span class="lineNum">     944 </span>            :                 (req-&gt;urgent ? &quot; (urgent)&quot; : &quot;&quot;),
+<span class="lineNum">     945 </span>            :                 timeval_diff_msecs(&amp;req-&gt;release_time, &amp;ioloop_timeval));
+<span class="lineNum">     946 </span>            : 
+<span class="lineNum">     947 </span><span class="lineNoCov">          0 :             (void)array_bsearch_insert_pos(&amp;queue-&gt;delayed_requests,</span>
+<span class="lineNum">     948 </span>            :                     &amp;req, http_client_queue_delayed_cmp, &amp;insert_idx);
+<span class="lineNum">     949 </span><span class="lineNoCov">          0 :             array_insert(&amp;queue-&gt;delayed_requests, insert_idx, &amp;req, 1);</span>
+<span class="lineNum">     950 </span><span class="lineNoCov">          0 :             if (insert_idx == 0)</span>
+<span class="lineNum">     951 </span><span class="lineNoCov">          0 :                 http_client_queue_set_delay_timer(queue, req-&gt;release_time);</span>
+<span class="lineNum">     952 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     953 </span>            :         }
+<span class="lineNum">     954 </span>            :     }
+<span class="lineNum">     955 </span>            : 
+<span class="lineNum">     956 </span><span class="lineNoCov">          0 :     http_client_queue_submit_now(queue, req);</span>
+<span class="lineNum">     957 </span>            : }
+<span class="lineNum">     958 </span>            : 
+<span class="lineNum">     959 </span>            : /*
+<span class="lineNum">     960 </span>            :  * Request retrieval
+<span class="lineNum">     961 </span>            :  */
+<a name="962"><span class="lineNum">     962 </span>            : </a>
+<span class="lineNum">     963 </span>            : struct http_client_request *
+<span class="lineNum">     964 </span><span class="lineNoCov">          0 : http_client_queue_claim_request(struct http_client_queue *queue,</span>
+<span class="lineNum">     965 </span>            :     const struct http_client_peer_addr *addr, bool no_urgent)
+<span class="lineNum">     966 </span>            : {
+<span class="lineNum">     967 </span>            :     struct http_client_request *const *requests;
+<span class="lineNum">     968 </span>            :     struct http_client_request *req;
+<span class="lineNum">     969 </span>            :     unsigned int i, count;
+<span class="lineNum">     970 </span>            : 
+<span class="lineNum">     971 </span><span class="lineNoCov">          0 :     count = 0;</span>
+<span class="lineNum">     972 </span><span class="lineNoCov">          0 :     if (!no_urgent)</span>
+<span class="lineNum">     973 </span><span class="lineNoCov">          0 :         requests = array_get(&amp;queue-&gt;queued_urgent_requests, &amp;count);</span>
+<span class="lineNum">     974 </span>            : 
+<span class="lineNum">     975 </span><span class="lineNoCov">          0 :     if (count == 0)</span>
+<span class="lineNum">     976 </span><span class="lineNoCov">          0 :         requests = array_get(&amp;queue-&gt;queued_requests, &amp;count);</span>
+<span class="lineNum">     977 </span><span class="lineNoCov">          0 :     if (count == 0)</span>
+<span class="lineNum">     978 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     979 </span><span class="lineNoCov">          0 :     i = 0;</span>
+<span class="lineNum">     980 </span><span class="lineNoCov">          0 :     req = requests[i];</span>
+<span class="lineNum">     981 </span><span class="lineNoCov">          0 :     if (req-&gt;urgent)</span>
+<span class="lineNum">     982 </span><span class="lineNoCov">          0 :         array_delete(&amp;queue-&gt;queued_urgent_requests, i, 1);</span>
+<span class="lineNum">     983 </span>            :     else
+<span class="lineNum">     984 </span><span class="lineNoCov">          0 :         array_delete(&amp;queue-&gt;queued_requests, i, 1);</span>
+<span class="lineNum">     985 </span>            : 
+<span class="lineNum">     986 </span><span class="lineNoCov">          0 :     e_debug(queue-&gt;event,</span>
+<span class="lineNum">     987 </span>            :         &quot;Connection to peer %s claimed request %s %s&quot;,
+<span class="lineNum">     988 </span>            :         http_client_peer_addr2str(addr), http_client_request_label(req),
+<span class="lineNum">     989 </span>            :         (req-&gt;urgent ? &quot;(urgent)&quot; : &quot;&quot;));
+<span class="lineNum">     990 </span>            : 
+<span class="lineNum">     991 </span><span class="lineNoCov">          0 :     return req;</span>
+<span class="lineNum">     992 </span>            : }
+<a name="993"><span class="lineNum">     993 </span>            : </a>
+<span class="lineNum">     994 </span>            : unsigned int
+<span class="lineNum">     995 </span><span class="lineNoCov">          0 : http_client_queue_requests_pending(struct http_client_queue *queue,</span>
+<span class="lineNum">     996 </span>            :     unsigned int *num_urgent_r)
+<span class="lineNum">     997 </span>            : {
+<span class="lineNum">     998 </span><span class="lineNoCov">          0 :     unsigned int urg_count = array_count(&amp;queue-&gt;queued_urgent_requests); </span>
+<span class="lineNum">     999 </span>            : 
+<span class="lineNum">    1000 </span><span class="lineNoCov">          0 :     if (num_urgent_r != NULL)</span>
+<span class="lineNum">    1001 </span><span class="lineNoCov">          0 :         *num_urgent_r = urg_count;</span>
+<span class="lineNum">    1002 </span><span class="lineNoCov">          0 :     return array_count(&amp;queue-&gt;queued_requests) + urg_count;</span>
+<span class="lineNum">    1003 </span>            : }
+<a name="1004"><span class="lineNum">    1004 </span>            : </a>
+<span class="lineNum">    1005 </span>            : unsigned int
+<span class="lineNum">    1006 </span><span class="lineNoCov">          0 : http_client_queue_requests_active(struct http_client_queue *queue)</span>
+<span class="lineNum">    1007 </span>            : {
+<span class="lineNum">    1008 </span><span class="lineNoCov">          0 :     return array_count(&amp;queue-&gt;requests);</span>
+<span class="lineNum">    1009 </span>            : }
+<span class="lineNum">    1010 </span>            : 
+<span class="lineNum">    1011 </span>            : /*
+<span class="lineNum">    1012 </span>            :  * ioloop
+<a name="1013"><span class="lineNum">    1013 </span>            :  */</a>
+<span class="lineNum">    1014 </span>            : 
+<span class="lineNum">    1015 </span><span class="lineNoCov">          0 : void http_client_queue_switch_ioloop(struct http_client_queue *queue)</span>
+<span class="lineNum">    1016 </span>            : {
+<span class="lineNum">    1017 </span><span class="lineNoCov">          0 :     if (queue-&gt;to_connect != NULL)</span>
+<span class="lineNum">    1018 </span><span class="lineNoCov">          0 :         queue-&gt;to_connect = io_loop_move_timeout(&amp;queue-&gt;to_connect);</span>
+<span class="lineNum">    1019 </span><span class="lineNoCov">          0 :     if (queue-&gt;to_request != NULL)</span>
+<span class="lineNum">    1020 </span><span class="lineNoCov">          0 :         queue-&gt;to_request = io_loop_move_timeout(&amp;queue-&gt;to_request);</span>
+<span class="lineNum">    1021 </span><span class="lineNoCov">          0 :     if (queue-&gt;to_delayed != NULL)</span>
+<span class="lineNum">    1022 </span><span class="lineNoCov">          0 :         queue-&gt;to_delayed = io_loop_move_timeout(&amp;queue-&gt;to_delayed);</span>
+<span class="lineNum">    1023 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

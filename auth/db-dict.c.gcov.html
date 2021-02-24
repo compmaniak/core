@@ -1,0 +1,734 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - auth/db-dict.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">auth</a> - db-dict.c<span style="font-size: 80%;"> (source / <a href="db-dict.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">315</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;auth-common.h&quot;
+<span class="lineNum">       4 </span>            : 
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;json-parser.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;settings.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;dict.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;auth-request.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;auth-worker-client.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;db-dict.h&quot;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #include &lt;stddef.h&gt;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : enum dict_settings_section {
+<span class="lineNum">      18 </span>            :     DICT_SETTINGS_SECTION_ROOT = 0,
+<span class="lineNum">      19 </span>            :     DICT_SETTINGS_SECTION_KEY,
+<span class="lineNum">      20 </span>            :     DICT_SETTINGS_SECTION_PASSDB,
+<span class="lineNum">      21 </span>            :     DICT_SETTINGS_SECTION_USERDB
+<span class="lineNum">      22 </span>            : };
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : struct dict_settings_parser_ctx {
+<span class="lineNum">      25 </span>            :     struct dict_connection *conn;
+<span class="lineNum">      26 </span>            :     enum dict_settings_section section;
+<span class="lineNum">      27 </span>            :     struct db_dict_key *cur_key;
+<span class="lineNum">      28 </span>            : };
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : struct db_dict_iter_key {
+<span class="lineNum">      31 </span>            :     const struct db_dict_key *key;
+<span class="lineNum">      32 </span>            :     bool used;
+<span class="lineNum">      33 </span>            :     const char *value;
+<span class="lineNum">      34 </span>            : };
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : struct db_dict_value_iter {
+<span class="lineNum">      37 </span>            :     pool_t pool;
+<span class="lineNum">      38 </span>            :     struct auth_request *auth_request;
+<span class="lineNum">      39 </span>            :     struct dict_connection *conn;
+<span class="lineNum">      40 </span>            :     const struct var_expand_table *var_expand_table;
+<span class="lineNum">      41 </span>            :     ARRAY(struct db_dict_iter_key) keys;
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            :     const ARRAY_TYPE(db_dict_field) *fields;
+<span class="lineNum">      44 </span>            :     const ARRAY_TYPE(db_dict_key_p) *objects;
+<span class="lineNum">      45 </span>            :     unsigned int field_idx;
+<span class="lineNum">      46 </span>            :     unsigned int object_idx;
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span>            :     struct json_parser *json_parser;
+<span class="lineNum">      49 </span>            :     string_t *tmpstr;
+<span class="lineNum">      50 </span>            :     const char *error;
+<span class="lineNum">      51 </span>            : };
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span>            : #define DEF_STR(name) DEF_STRUCT_STR(name, db_dict_settings)
+<span class="lineNum">      54 </span>            : #define DEF_BOOL(name) DEF_STRUCT_BOOL(name, db_dict_settings)
+<span class="lineNum">      55 </span>            : static struct setting_def setting_defs[] = {
+<span class="lineNum">      56 </span>            :     DEF_STR(uri),
+<span class="lineNum">      57 </span>            :     DEF_STR(default_pass_scheme),
+<span class="lineNum">      58 </span>            :     DEF_STR(iterate_prefix),
+<span class="lineNum">      59 </span>            :     DEF_BOOL(iterate_disable),
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            :     DEF_STR(passdb_objects),
+<span class="lineNum">      62 </span>            :     DEF_STR(userdb_objects),
+<span class="lineNum">      63 </span>            :     { 0, NULL, 0 }
+<span class="lineNum">      64 </span>            : };
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span>            : static struct db_dict_settings default_dict_settings = {
+<span class="lineNum">      67 </span>            :     .uri = NULL,
+<span class="lineNum">      68 </span>            :     .default_pass_scheme = &quot;MD5&quot;,
+<span class="lineNum">      69 </span>            :     .iterate_prefix = &quot;&quot;,
+<span class="lineNum">      70 </span>            :     .iterate_disable = FALSE,
+<span class="lineNum">      71 </span>            :     .passdb_objects = &quot;&quot;,
+<span class="lineNum">      72 </span>            :     .userdb_objects = &quot;&quot;
+<span class="lineNum">      73 </span>            : };
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span>            : #undef DEF_STR
+<span class="lineNum">      76 </span>            : #define DEF_STR(name) DEF_STRUCT_STR(name, db_dict_key)
+<span class="lineNum">      77 </span>            : static struct setting_def key_setting_defs[] = {
+<span class="lineNum">      78 </span>            :     DEF_STR(name),
+<span class="lineNum">      79 </span>            :     DEF_STR(key),
+<span class="lineNum">      80 </span>            :     DEF_STR(format),
+<span class="lineNum">      81 </span>            :     DEF_STR(default_value),
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            :     { 0, NULL, 0 }
+<span class="lineNum">      84 </span>            : };
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            : static struct db_dict_key default_key_settings = {
+<span class="lineNum">      87 </span>            :     .name = NULL,
+<span class="lineNum">      88 </span>            :     .key = &quot;&quot;,
+<span class="lineNum">      89 </span>            :     .format = &quot;value&quot;,
+<span class="lineNum">      90 </span>            :     .default_value = NULL
+<span class="lineNum">      91 </span>            : };
+<span class="lineNum">      92 </span>            : 
+<a name="93"><span class="lineNum">      93 </span>            : static struct dict_connection *connections = NULL;</a>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 : static struct dict_connection *dict_conn_find(const char *config_path)</span>
+<span class="lineNum">      96 </span>            : {
+<span class="lineNum">      97 </span>            :     struct dict_connection *conn;
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     for (conn = connections; conn != NULL; conn = conn-&gt;next) {</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         if (strcmp(conn-&gt;config_path, config_path) == 0)</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :             return conn;</span>
+<span class="lineNum">     102 </span>            :     }
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">     105 </span>            : }
+<a name="106"><span class="lineNum">     106 </span>            : </a>
+<span class="lineNum">     107 </span>            : static bool
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 : parse_obsolete_setting(const char *key, const char *value,</span>
+<span class="lineNum">     109 </span>            :                struct dict_settings_parser_ctx *ctx,
+<span class="lineNum">     110 </span>            :                const char **error_r)
+<span class="lineNum">     111 </span>            : {
+<span class="lineNum">     112 </span>            :     const struct db_dict_key *dbkey;
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     if (strcmp(key, &quot;password_key&quot;) == 0) {</span>
+<span class="lineNum">     115 </span>            :         /* key passdb { key=&lt;value&gt; format=json }
+<span class="lineNum">     116 </span>            :            passdb_objects = passdb */
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key = array_append_space(&amp;ctx-&gt;conn-&gt;set.keys);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :         *ctx-&gt;cur_key = default_key_settings;</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;name = &quot;passdb&quot;;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;format = &quot;json&quot;;</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;parsed_format = DB_DICT_VALUE_FORMAT_JSON;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;key = p_strdup(ctx-&gt;conn-&gt;pool, value);</span>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         dbkey = ctx-&gt;cur_key;</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         array_append(&amp;ctx-&gt;conn-&gt;set.parsed_passdb_objects, &amp;dbkey, 1);</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     127 </span>            :     }
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (strcmp(key, &quot;user_key&quot;) == 0) {</span>
+<span class="lineNum">     129 </span>            :         /* key userdb { key=&lt;value&gt; format=json }
+<span class="lineNum">     130 </span>            :            userdb_objects = userdb */
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key = array_append_space(&amp;ctx-&gt;conn-&gt;set.keys);</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         *ctx-&gt;cur_key = default_key_settings;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;name = &quot;userdb&quot;;</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;format = &quot;json&quot;;</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;parsed_format = DB_DICT_VALUE_FORMAT_JSON;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;key = p_strdup(ctx-&gt;conn-&gt;pool, value);</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         dbkey = ctx-&gt;cur_key;</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         array_append(&amp;ctx-&gt;conn-&gt;set.parsed_userdb_objects, &amp;dbkey, 1);</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     141 </span>            :     }
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :     if (strcmp(key, &quot;value_format&quot;) == 0) {</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         if (strcmp(value, &quot;json&quot;) == 0)</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         *error_r = &quot;Deprecated value_format must be 'json'&quot;;</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     147 </span>            :     }
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="149"><span class="lineNum">     149 </span>            : }</a>
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 : static const char *parse_setting(const char *key, const char *value,</span>
+<span class="lineNum">     152 </span>            :                  struct dict_settings_parser_ctx *ctx)
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span>            :     struct db_dict_field *field;
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     const char *error = NULL;</span>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     switch (ctx-&gt;section) {</span>
+<span class="lineNum">     158 </span>            :     case DICT_SETTINGS_SECTION_ROOT:
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :         if (parse_obsolete_setting(key, value, ctx, &amp;error))</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :             return NULL;</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         if (error != NULL)</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :             return error;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         return parse_setting_from_defs(ctx-&gt;conn-&gt;pool, setting_defs,</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :                            &amp;ctx-&gt;conn-&gt;set, key, value);</span>
+<span class="lineNum">     165 </span>            :     case DICT_SETTINGS_SECTION_KEY:
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :         return parse_setting_from_defs(ctx-&gt;conn-&gt;pool, key_setting_defs,</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :                            ctx-&gt;cur_key, key, value);</span>
+<span class="lineNum">     168 </span>            :     case DICT_SETTINGS_SECTION_PASSDB:
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         field = array_append_space(&amp;ctx-&gt;conn-&gt;set.passdb_fields);</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         field-&gt;name = p_strdup(ctx-&gt;conn-&gt;pool, key);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         field-&gt;value = p_strdup(ctx-&gt;conn-&gt;pool, value);</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     173 </span>            :     case DICT_SETTINGS_SECTION_USERDB:
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         field = array_append_space(&amp;ctx-&gt;conn-&gt;set.userdb_fields);</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         field-&gt;name = p_strdup(ctx-&gt;conn-&gt;pool, key);</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :         field-&gt;value = p_strdup(ctx-&gt;conn-&gt;pool, value);</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     178 </span>            :     }
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<a name="180"><span class="lineNum">     180 </span>            : }</a>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 : static bool parse_section(const char *type, const char *name,</span>
+<span class="lineNum">     183 </span>            :               struct dict_settings_parser_ctx *ctx,
+<span class="lineNum">     184 </span>            :               const char **errormsg)
+<span class="lineNum">     185 </span>            : {
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     if (type == NULL) {</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :         ctx-&gt;section = DICT_SETTINGS_SECTION_ROOT;</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         if (ctx-&gt;cur_key != NULL) {</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :             if (strcmp(ctx-&gt;cur_key-&gt;format, &quot;value&quot;) == 0) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :                 ctx-&gt;cur_key-&gt;parsed_format =</span>
+<span class="lineNum">     191 </span>            :                     DB_DICT_VALUE_FORMAT_VALUE;
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :             } else if (strcmp(ctx-&gt;cur_key-&gt;format, &quot;json&quot;) == 0) {</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :                 ctx-&gt;cur_key-&gt;parsed_format =</span>
+<span class="lineNum">     194 </span>            :                     DB_DICT_VALUE_FORMAT_JSON;
+<span class="lineNum">     195 </span>            :             } else {
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :                 *errormsg = t_strconcat(&quot;Unknown key format: &quot;,</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :                     ctx-&gt;cur_key-&gt;format, NULL);</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     199 </span>            :             }
+<span class="lineNum">     200 </span>            :         }
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key = NULL;</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     if (ctx-&gt;section != DICT_SETTINGS_SECTION_ROOT) {</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :         *errormsg = &quot;Nested sections not supported&quot;;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     207 </span>            :     }
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     if (strcmp(type, &quot;key&quot;) == 0) {</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         if (name == NULL) {</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :             *errormsg = &quot;Key section is missing name&quot;;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     212 </span>            :         }
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         if (strchr(name, '.') != NULL) {</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :             *errormsg = &quot;Key section names must not contain '.'&quot;;</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     216 </span>            :         }
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         ctx-&gt;section = DICT_SETTINGS_SECTION_KEY;</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key = array_append_space(&amp;ctx-&gt;conn-&gt;set.keys);</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :         *ctx-&gt;cur_key = default_key_settings;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_key-&gt;name = p_strdup(ctx-&gt;conn-&gt;pool, name);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     222 </span>            :     }
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     if (strcmp(type, &quot;passdb_fields&quot;) == 0) {</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :         ctx-&gt;section = DICT_SETTINGS_SECTION_PASSDB;</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     226 </span>            :     }
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     if (strcmp(type, &quot;userdb_fields&quot;) == 0) {</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         ctx-&gt;section = DICT_SETTINGS_SECTION_USERDB;</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     230 </span>            :     }
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     *errormsg = &quot;Unknown section&quot;;</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     233 </span>            : }
+<a name="234"><span class="lineNum">     234 </span>            : </a>
+<span class="lineNum">     235 </span>            : static void
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 : db_dict_settings_parse(struct db_dict_settings *set)</span>
+<span class="lineNum">     237 </span>            : {
+<span class="lineNum">     238 </span>            :     const struct db_dict_key *key;
+<span class="lineNum">     239 </span>            :     const char *const *tmp;
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     tmp = t_strsplit_spaces(set-&gt;passdb_objects, &quot; &quot;);</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     for (; *tmp != NULL; tmp++) {</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :         key = db_dict_set_key_find(&amp;set-&gt;keys, *tmp);</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         if (key == NULL) {</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :             i_fatal(&quot;dict: passdb_objects refers to key %s, &quot;</span>
+<span class="lineNum">     246 </span>            :                 &quot;which doesn't exist&quot;, *tmp);
+<span class="lineNum">     247 </span>            :         }
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         if (key-&gt;parsed_format == DB_DICT_VALUE_FORMAT_VALUE) {</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :             i_fatal(&quot;dict: passdb_objects refers to key %s, &quot;</span>
+<span class="lineNum">     250 </span>            :                 &quot;but it's in value-only format&quot;, *tmp);
+<span class="lineNum">     251 </span>            :         }
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         array_append(&amp;set-&gt;parsed_passdb_objects, &amp;key, 1);</span>
+<span class="lineNum">     253 </span>            :     }
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :     tmp = t_strsplit_spaces(set-&gt;userdb_objects, &quot; &quot;);</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     for (; *tmp != NULL; tmp++) {</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         key = db_dict_set_key_find(&amp;set-&gt;keys, *tmp);</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         if (key == NULL) {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :             i_fatal(&quot;dict: userdb_objects refers to key %s, &quot;</span>
+<span class="lineNum">     260 </span>            :                 &quot;which doesn't exist&quot;, *tmp);
+<span class="lineNum">     261 </span>            :         }
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         if (key-&gt;parsed_format == DB_DICT_VALUE_FORMAT_VALUE) {</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :             i_fatal(&quot;dict: userdb_objects refers to key %s, &quot;</span>
+<span class="lineNum">     264 </span>            :                 &quot;but it's in value-only format&quot;, *tmp);
+<span class="lineNum">     265 </span>            :         }
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         array_append(&amp;set-&gt;parsed_userdb_objects, &amp;key, 1);</span>
+<span class="lineNum">     267 </span>            :     }
+<a name="268"><span class="lineNum">     268 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 : struct dict_connection *db_dict_init(const char *config_path)</span>
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span>            :     struct dict_settings dict_set;
+<span class="lineNum">     273 </span>            :     struct dict_settings_parser_ctx ctx;
+<span class="lineNum">     274 </span>            :     struct dict_connection *conn;
+<span class="lineNum">     275 </span>            :     const char *error;
+<span class="lineNum">     276 </span>            :     pool_t pool;
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     conn = dict_conn_find(config_path);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     if (conn != NULL) {</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         conn-&gt;refcount++;</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         return conn;</span>
+<span class="lineNum">     282 </span>            :     }
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     if (*config_path == '\0')</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         i_fatal(&quot;dict: Configuration file path not given&quot;);</span>
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;dict_connection&quot;, 1024);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     conn = p_new(pool, struct dict_connection, 1);</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     conn-&gt;pool = pool;</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     conn-&gt;refcount = 1;</span>
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     conn-&gt;config_path = p_strdup(pool, config_path);</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     conn-&gt;set = default_dict_settings;</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     p_array_init(&amp;conn-&gt;set.keys, pool, 8);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     p_array_init(&amp;conn-&gt;set.passdb_fields, pool, 8);</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     p_array_init(&amp;conn-&gt;set.userdb_fields, pool, 8);</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     p_array_init(&amp;conn-&gt;set.parsed_passdb_objects, pool, 2);</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     p_array_init(&amp;conn-&gt;set.parsed_userdb_objects, pool, 2);</span>
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     ctx.conn = conn;</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     if (!settings_read(config_path, NULL, parse_setting,</span>
+<span class="lineNum">     304 </span>            :                parse_section, &amp;ctx, &amp;error))
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         i_fatal(&quot;dict %s: %s&quot;, config_path, error);</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     db_dict_settings_parse(&amp;conn-&gt;set);</span>
+<span class="lineNum">     307 </span>            : 
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     if (conn-&gt;set.uri == NULL)</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         i_fatal(&quot;dict %s: Empty uri setting&quot;, config_path);</span>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :     i_zero(&amp;dict_set);</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     dict_set.username = &quot;&quot;;</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     dict_set.base_dir = global_auth_settings-&gt;base_dir;</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     if (dict_init(conn-&gt;set.uri, &amp;dict_set, &amp;conn-&gt;dict, &amp;error) &lt; 0)</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         i_fatal(&quot;dict %s: Failed to init dict: %s&quot;, config_path, error);</span>
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     conn-&gt;next = connections;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     connections = conn;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     return conn;</span>
+<a name="320"><span class="lineNum">     320 </span>            : }</a>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 : void db_dict_unref(struct dict_connection **_conn)</span>
+<span class="lineNum">     323 </span>            : {
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     struct dict_connection *conn = *_conn;</span>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :     *_conn = NULL;</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :     if (--conn-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     dict_deinit(&amp;conn-&gt;dict);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     pool_unref(&amp;conn-&gt;pool);</span>
+<span class="lineNum">     332 </span>            : }
+<a name="333"><span class="lineNum">     333 </span>            : </a>
+<span class="lineNum">     334 </span>            : static struct db_dict_iter_key *
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 : db_dict_iter_find_key(struct db_dict_value_iter *iter, const char *name)</span>
+<span class="lineNum">     336 </span>            : {
+<span class="lineNum">     337 </span>            :     struct db_dict_iter_key *key;
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;iter-&gt;keys, key) {</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         if (strcmp(key-&gt;key-&gt;name, name) == 0)</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :             return key;</span>
+<span class="lineNum">     342 </span>            :     }
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<a name="344"><span class="lineNum">     344 </span>            : }</a>
+<span class="lineNum">     345 </span>            : 
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 : static void db_dict_iter_find_used_keys(struct db_dict_value_iter *iter)</span>
+<span class="lineNum">     347 </span>            : {
+<span class="lineNum">     348 </span>            :     const struct db_dict_field *field;
+<span class="lineNum">     349 </span>            :     struct db_dict_iter_key *key;
+<span class="lineNum">     350 </span>            :     const char *p, *name;
+<span class="lineNum">     351 </span>            :     unsigned int idx, size;
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     array_foreach(iter-&gt;fields, field) {</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         for (p = field-&gt;value; *p != '\0'; ) {</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :             if (*p != '%') {</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :                 p++;</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     358 </span>            :             }
+<span class="lineNum">     359 </span>            : 
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :             var_get_key_range(++p, &amp;idx, &amp;size);</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :             if (size == 0) {</span>
+<span class="lineNum">     362 </span>            :                 /* broken %variable ending too early */
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     364 </span>            :             }
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :             p += idx;</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :             if (size &gt; 5 &amp;&amp; memcmp(p, &quot;dict:&quot;, 5) == 0) {</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :                 name = t_strcut(t_strndup(p+5, size-5), ':');</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :                 key = db_dict_iter_find_key(iter, name);</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :                 if (key != NULL)</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :                     key-&gt;used = TRUE;</span>
+<span class="lineNum">     371 </span>            :             }
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :             p += size;</span>
+<span class="lineNum">     373 </span>            :         }
+<span class="lineNum">     374 </span>            :     }
+<a name="375"><span class="lineNum">     375 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 : static void db_dict_iter_find_used_objects(struct db_dict_value_iter *iter)</span>
+<span class="lineNum">     378 </span>            : {
+<span class="lineNum">     379 </span>            :     const struct db_dict_key *const *keyp;
+<span class="lineNum">     380 </span>            :     struct db_dict_iter_key *key;
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     array_foreach(iter-&gt;objects, keyp) {</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         key = db_dict_iter_find_key(iter, (*keyp)-&gt;name);</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         i_assert(key != NULL); /* checked at init */</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :         i_assert(key-&gt;key-&gt;parsed_format != DB_DICT_VALUE_FORMAT_VALUE);</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         key-&gt;used = TRUE;</span>
+<span class="lineNum">     387 </span>            :     }
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 : }</span>
+<a name="389"><span class="lineNum">     389 </span>            : </a>
+<span class="lineNum">     390 </span>            : static int
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 : db_dict_iter_key_cmp(const struct db_dict_iter_key *k1,</span>
+<span class="lineNum">     392 </span>            :              const struct db_dict_iter_key *k2)
+<span class="lineNum">     393 </span>            : {
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     return null_strcmp(k1-&gt;key-&gt;default_value, k2-&gt;key-&gt;default_value);</span>
+<a name="395"><span class="lineNum">     395 </span>            : }</a>
+<span class="lineNum">     396 </span>            : 
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 : static int db_dict_iter_lookup_key_values(struct db_dict_value_iter *iter)</span>
+<span class="lineNum">     398 </span>            : {
+<span class="lineNum">     399 </span>            :     struct db_dict_iter_key *key;
+<span class="lineNum">     400 </span>            :     string_t *path;
+<span class="lineNum">     401 </span>            :     const char *error;
+<span class="lineNum">     402 </span>            :     int ret;
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span>            :     /* sort the keys so that we'll first lookup the keys without
+<span class="lineNum">     405 </span>            :        default value. if their lookup fails, the user doesn't exist. */
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     array_sort(&amp;iter-&gt;keys, db_dict_iter_key_cmp);</span>
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     path = t_str_new(128);</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     str_append(path, DICT_PATH_SHARED);</span>
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;iter-&gt;keys, key) {</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :         if (!key-&gt;used)</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         str_truncate(path, strlen(DICT_PATH_SHARED));</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         str_append(path, key-&gt;key-&gt;key);</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         ret = dict_lookup(iter-&gt;conn-&gt;dict, iter-&gt;pool,</span>
+<span class="lineNum">     418 </span>            :                   str_c(path), &amp;key-&gt;value, &amp;error);
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :         if (ret &gt; 0) {</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :             auth_request_log_debug(iter-&gt;auth_request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     421 </span>            :                            &quot;Lookup: %s = %s&quot;, str_c(path),
+<span class="lineNum">     422 </span>            :                            key-&gt;value);
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :         } else if (ret &lt; 0) {</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :             auth_request_log_error(iter-&gt;auth_request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     425 </span>            :                 &quot;Failed to lookup key %s: %s&quot;, str_c(path), error);
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :         } else if (key-&gt;key-&gt;default_value != NULL) {</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :             auth_request_log_debug(iter-&gt;auth_request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     429 </span>            :                 &quot;Lookup: %s not found, using default value %s&quot;,
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :                 str_c(path), key-&gt;key-&gt;default_value);</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :             key-&gt;value = key-&gt;key-&gt;default_value;</span>
+<span class="lineNum">     432 </span>            :         } else {
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     434 </span>            :         }
+<span class="lineNum">     435 </span>            :     }
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="437"><span class="lineNum">     437 </span>            : }</a>
+<span class="lineNum">     438 </span>            : 
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 : int db_dict_value_iter_init(struct dict_connection *conn,</span>
+<span class="lineNum">     440 </span>            :                 struct auth_request *auth_request,
+<span class="lineNum">     441 </span>            :                 const ARRAY_TYPE(db_dict_field) *fields,
+<span class="lineNum">     442 </span>            :                 const ARRAY_TYPE(db_dict_key_p) *objects,
+<span class="lineNum">     443 </span>            :                 struct db_dict_value_iter **iter_r)
+<span class="lineNum">     444 </span>            : {
+<span class="lineNum">     445 </span>            :     struct db_dict_value_iter *iter;
+<span class="lineNum">     446 </span>            :     struct db_dict_iter_key *iterkey;
+<span class="lineNum">     447 </span>            :     const struct db_dict_key *key;
+<span class="lineNum">     448 </span>            :     pool_t pool;
+<span class="lineNum">     449 </span>            :     int ret;
+<span class="lineNum">     450 </span>            : 
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;auth dict lookup&quot;, 1024);</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     iter = p_new(pool, struct db_dict_value_iter, 1);</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :     iter-&gt;pool = pool;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :     iter-&gt;conn = conn;</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :     iter-&gt;fields = fields;</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :     iter-&gt;objects = objects;</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :     iter-&gt;tmpstr = str_new(pool, 128);</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     iter-&gt;auth_request = auth_request;</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :     iter-&gt;var_expand_table = auth_request_get_var_expand_table(auth_request, NULL);</span>
+<span class="lineNum">     460 </span>            : 
+<span class="lineNum">     461 </span>            :     /* figure out what keys we need to lookup, and lookup them */
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     p_array_init(&amp;iter-&gt;keys, pool, array_count(&amp;conn-&gt;set.keys));</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     array_foreach(&amp;conn-&gt;set.keys, key) {</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         iterkey = array_append_space(&amp;iter-&gt;keys);</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         struct db_dict_key *new_key = p_new(iter-&gt;pool, struct db_dict_key, 1);</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :         memcpy(new_key, key, sizeof(struct db_dict_key));</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         string_t *expanded_key = str_new(iter-&gt;pool, strlen(key-&gt;key));</span>
+<span class="lineNum">     468 </span>            :         const char *error;
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         if (auth_request_var_expand_with_table(expanded_key, key-&gt;key, auth_request,</span>
+<span class="lineNum">     470 </span>            :                                iter-&gt;var_expand_table,
+<span class="lineNum">     471 </span>            :                                NULL, &amp;error) &lt;= 0) {
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :             auth_request_log_error(iter-&gt;auth_request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     473 </span>            :                 &quot;Failed to expand key %s: %s&quot;, key-&gt;key, error);
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :             pool_unref(&amp;pool);</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     476 </span>            :         }
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         new_key-&gt;key = str_c(expanded_key);</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         iterkey-&gt;key = new_key;</span>
+<span class="lineNum">     479 </span>            :     }
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         db_dict_iter_find_used_keys(iter);</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         db_dict_iter_find_used_objects(iter);</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         ret = db_dict_iter_lookup_key_values(iter);</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         pool_unref(&amp;pool);</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     488 </span>            :     }
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :     *iter_r = iter;</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     491 </span>            : }
+<a name="492"><span class="lineNum">     492 </span>            : </a>
+<span class="lineNum">     493 </span>            : static bool
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 : db_dict_value_iter_json_next(struct db_dict_value_iter *iter,</span>
+<span class="lineNum">     495 </span>            :                  string_t *tmpstr,
+<span class="lineNum">     496 </span>            :                  const char **key_r, const char **value_r)
+<span class="lineNum">     497 </span>            : {
+<span class="lineNum">     498 </span>            :     enum json_type type;
+<span class="lineNum">     499 </span>            :     const char *value;
+<span class="lineNum">     500 </span>            : 
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     if (json_parse_next(iter-&gt;json_parser, &amp;type, &amp;value) &lt; 0)</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     if (type != JSON_TYPE_OBJECT_KEY) {</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         iter-&gt;error = &quot;Object expected&quot;;</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     506 </span>            :     }
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     if (*value == '\0') {</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :         iter-&gt;error = &quot;Empty object key&quot;;</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     510 </span>            :     }
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     str_truncate(tmpstr, 0);</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :     str_append(tmpstr, value);</span>
+<span class="lineNum">     513 </span>            : 
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :     if (json_parse_next(iter-&gt;json_parser, &amp;type, &amp;value) &lt; 0) {</span>
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :         iter-&gt;error = &quot;Missing value&quot;;</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     517 </span>            :     }
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :     if (type == JSON_TYPE_OBJECT) {</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :         iter-&gt;error = &quot;Nested objects not supported&quot;;</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     521 </span>            :     }
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :     *key_r = str_c(tmpstr);</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :     *value_r = value;</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     525 </span>            : }
+<a name="526"><span class="lineNum">     526 </span>            : </a>
+<span class="lineNum">     527 </span>            : static void
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 : db_dict_value_iter_json_init(struct db_dict_value_iter *iter, const char *data)</span>
+<span class="lineNum">     529 </span>            : {
+<span class="lineNum">     530 </span>            :     struct istream *input;
+<span class="lineNum">     531 </span>            : 
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :     i_assert(iter-&gt;json_parser == NULL);</span>
+<span class="lineNum">     533 </span>            : 
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :     input = i_stream_create_from_data(data, strlen(data));</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     iter-&gt;json_parser = json_parser_init(input);</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 : }</span>
+<a name="538"><span class="lineNum">     538 </span>            : </a>
+<span class="lineNum">     539 </span>            : static bool
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 : db_dict_value_iter_object_next(struct db_dict_value_iter *iter,</span>
+<span class="lineNum">     541 </span>            :                    const char **key_r, const char **value_r)
+<span class="lineNum">     542 </span>            : {
+<span class="lineNum">     543 </span>            :     const struct db_dict_key *const *keyp;
+<span class="lineNum">     544 </span>            :     struct db_dict_iter_key *key;
+<span class="lineNum">     545 </span>            : 
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :     if (iter-&gt;json_parser != NULL)</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :         return db_dict_value_iter_json_next(iter, iter-&gt;tmpstr, key_r, value_r);</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :     if (iter-&gt;object_idx == array_count(iter-&gt;objects))</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :     keyp = array_idx(iter-&gt;objects, iter-&gt;object_idx);</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :     key = db_dict_iter_find_key(iter, (*keyp)-&gt;name);</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :     i_assert(key != NULL); /* checked at init */</span>
+<span class="lineNum">     554 </span>            : 
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :     switch (key-&gt;key-&gt;parsed_format) {</span>
+<span class="lineNum">     556 </span>            :     case DB_DICT_VALUE_FORMAT_VALUE:
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     558 </span>            :     case DB_DICT_VALUE_FORMAT_JSON:
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :         db_dict_value_iter_json_init(iter, key-&gt;value);</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         return db_dict_value_iter_json_next(iter, iter-&gt;tmpstr, key_r, value_r);</span>
+<span class="lineNum">     561 </span>            :     }
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<span class="lineNum">     563 </span>            : }
+<a name="564"><span class="lineNum">     564 </span>            : </a>
+<span class="lineNum">     565 </span>            : static int
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 : db_dict_field_find(const char *data, void *context,</span>
+<span class="lineNum">     567 </span>            :            const char **value_r,
+<span class="lineNum">     568 </span>            :            const char **error_r ATTR_UNUSED)
+<span class="lineNum">     569 </span>            : {
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :     struct db_dict_value_iter *iter = context;</span>
+<span class="lineNum">     571 </span>            :     struct db_dict_iter_key *key;
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :     const char *name, *value, *dotname = strchr(data, '.');</span>
+<span class="lineNum">     573 </span>            :     string_t *tmpstr;
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     *value_r = NULL;</span>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     if (dotname != NULL)</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :         data = t_strdup_until(data, dotname++);</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     key = db_dict_iter_find_key(iter, data);</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :     if (key == NULL)</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     582 </span>            : 
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :     switch (key-&gt;key-&gt;parsed_format) {</span>
+<span class="lineNum">     584 </span>            :     case DB_DICT_VALUE_FORMAT_VALUE:
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         *value_r = dotname != NULL ? NULL :</span>
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :             (key-&gt;value == NULL ? &quot;&quot; : key-&gt;value);</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     588 </span>            :     case DB_DICT_VALUE_FORMAT_JSON:
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :         if (dotname == NULL)</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :             return 1;</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         db_dict_value_iter_json_init(iter, key-&gt;value);</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :         *value_r = &quot;&quot;;</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :         tmpstr = t_str_new(64);</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         while (db_dict_value_iter_json_next(iter, tmpstr, &amp;name, &amp;value)) {</span>
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :             if (strcmp(name, dotname) == 0) {</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :                 *value_r = t_strdup(value);</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     598 </span>            :             }
+<span class="lineNum">     599 </span>            :         }
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :         (void)json_parser_deinit(&amp;iter-&gt;json_parser, &amp;iter-&gt;error);</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     602 </span>            :     }
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<a name="604"><span class="lineNum">     604 </span>            : }</a>
+<span class="lineNum">     605 </span>            : 
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 : bool db_dict_value_iter_next(struct db_dict_value_iter *iter,</span>
+<span class="lineNum">     607 </span>            :                  const char **key_r, const char **value_r)
+<span class="lineNum">     608 </span>            : {
+<span class="lineNum">     609 </span>            :     static struct var_expand_func_table var_funcs_table[] = {
+<span class="lineNum">     610 </span>            :         { &quot;dict&quot;, db_dict_field_find },
+<span class="lineNum">     611 </span>            :         { NULL, NULL }
+<span class="lineNum">     612 </span>            :     };
+<span class="lineNum">     613 </span>            :     const struct db_dict_field *field;
+<span class="lineNum">     614 </span>            :     const char *error;
+<span class="lineNum">     615 </span>            : 
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :     if (iter-&gt;field_idx == array_count(iter-&gt;fields))</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :         return db_dict_value_iter_object_next(iter, key_r, value_r);</span>
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :     field = array_idx(iter-&gt;fields, iter-&gt;field_idx++);</span>
+<span class="lineNum">     619 </span>            : 
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :     str_truncate(iter-&gt;tmpstr, 0);</span>
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :     if (var_expand_with_funcs(iter-&gt;tmpstr, field-&gt;value,</span>
+<span class="lineNum">     622 </span>            :                   iter-&gt;var_expand_table, var_funcs_table,
+<span class="lineNum">     623 </span>            :                   iter, &amp;error) &lt;= 0) {
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :         iter-&gt;error = p_strdup_printf(iter-&gt;pool,</span>
+<span class="lineNum">     625 </span>            :             &quot;Failed to expand %s=%s: %s&quot;,
+<span class="lineNum">     626 </span>            :             field-&gt;name, field-&gt;value, error);
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     628 </span>            :     }
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :     *key_r = field-&gt;name;</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :     *value_r = str_c(iter-&gt;tmpstr);</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="632"><span class="lineNum">     632 </span>            : }</a>
+<span class="lineNum">     633 </span>            : 
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 : int db_dict_value_iter_deinit(struct db_dict_value_iter **_iter,</span>
+<span class="lineNum">     635 </span>            :                   const char **error_r)
+<span class="lineNum">     636 </span>            : {
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :     struct db_dict_value_iter *iter = *_iter;</span>
+<span class="lineNum">     638 </span>            : 
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :     *_iter = NULL;</span>
+<span class="lineNum">     640 </span>            : 
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :     *error_r = iter-&gt;error;</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :     if (iter-&gt;json_parser != NULL) {</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :         if (json_parser_deinit(&amp;iter-&gt;json_parser, &amp;iter-&gt;error) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :             *error_r == NULL)</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :             *error_r = iter-&gt;error;</span>
+<span class="lineNum">     646 </span>            :     }
+<span class="lineNum">     647 </span>            : 
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     pool_unref(&amp;iter-&gt;pool);</span>
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :     return *error_r != NULL ? -1 : 0;</span>
+<span class="lineNum">     650 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

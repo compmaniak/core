@@ -1,0 +1,353 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-mail/message-part-serialize.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-mail</a> - message-part-serialize.c<span style="font-size: 80%;"> (source / <a href="message-part-serialize.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">114</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;message-part-serialize.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : /*
+<span class="lineNum">       9 </span>            :    root part
+<span class="lineNum">      10 </span>            :      root's first children
+<span class="lineNum">      11 </span>            :        children's first children
+<span class="lineNum">      12 </span>            :        ...
+<span class="lineNum">      13 </span>            :      root's next children
+<span class="lineNum">      14 </span>            :      ...
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            :    part
+<span class="lineNum">      17 </span>            :      unsigned int flags
+<span class="lineNum">      18 </span>            :      (not root part)
+<span class="lineNum">      19 </span>            :        uoff_t physical_pos
+<span class="lineNum">      20 </span>            :      uoff_t header_physical_size
+<span class="lineNum">      21 </span>            :      uoff_t header_virtual_size
+<span class="lineNum">      22 </span>            :      uoff_t body_physical_size
+<span class="lineNum">      23 </span>            :      uoff_t body_virtual_size
+<span class="lineNum">      24 </span>            :      (flags &amp; (MESSAGE_PART_FLAG_TEXT | MESSAGE_PART_FLAG_MESSAGE_RFC822))
+<span class="lineNum">      25 </span>            :        unsigned int body_lines
+<span class="lineNum">      26 </span>            :      (flags &amp; (MESSAGE_PART_FLAG_MULTIPART | MESSAGE_PART_FLAG_MESSAGE_RFC822))
+<span class="lineNum">      27 </span>            :        unsigned int children_count
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : */
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : #define MINIMUM_SERIALIZED_SIZE \
+<span class="lineNum">      32 </span>            :     (sizeof(unsigned int) + sizeof(uoff_t) * 4)
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            : struct deserialize_context {
+<span class="lineNum">      35 </span>            :     pool_t pool;
+<span class="lineNum">      36 </span>            :     const unsigned char *data, *end;
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :     uoff_t pos;
+<span class="lineNum">      39 </span>            :     const char *error;
+<a name="40"><span class="lineNum">      40 </span>            : };</a>
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 : static void part_serialize(struct message_part *part, buffer_t *dest,</span>
+<span class="lineNum">      43 </span>            :                unsigned int *children_count_r)
+<span class="lineNum">      44 </span>            : {
+<span class="lineNum">      45 </span>            :     unsigned int count, children_count;
+<span class="lineNum">      46 </span>            :     size_t children_offset;
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     bool root = part-&gt;parent == NULL;</span>
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :     count = 0;</span>
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     while (part != NULL) {</span>
+<span class="lineNum">      51 </span>            :         /* create serialized part */
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :         buffer_append(dest, &amp;part-&gt;flags, sizeof(part-&gt;flags));</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         if (root)</span>
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :             root = FALSE;</span>
+<span class="lineNum">      55 </span>            :         else {
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :             buffer_append(dest, &amp;part-&gt;physical_pos,</span>
+<span class="lineNum">      57 </span>            :                       sizeof(part-&gt;physical_pos));
+<span class="lineNum">      58 </span>            :         }
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :         buffer_append(dest, &amp;part-&gt;header_size.physical_size,</span>
+<span class="lineNum">      60 </span>            :                   sizeof(part-&gt;header_size.physical_size));
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :         buffer_append(dest, &amp;part-&gt;header_size.virtual_size,</span>
+<span class="lineNum">      62 </span>            :                   sizeof(part-&gt;header_size.virtual_size));
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         buffer_append(dest, &amp;part-&gt;body_size.physical_size,</span>
+<span class="lineNum">      64 </span>            :                   sizeof(part-&gt;body_size.physical_size));
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :         buffer_append(dest, &amp;part-&gt;body_size.virtual_size,</span>
+<span class="lineNum">      66 </span>            :                   sizeof(part-&gt;body_size.virtual_size));
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; (MESSAGE_PART_FLAG_TEXT |</span>
+<span class="lineNum">      69 </span>            :                     MESSAGE_PART_FLAG_MESSAGE_RFC822)) != 0) {
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :             buffer_append(dest, &amp;part-&gt;body_size.lines,</span>
+<span class="lineNum">      71 </span>            :                       sizeof(part-&gt;body_size.lines));
+<span class="lineNum">      72 </span>            :         }
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; (MESSAGE_PART_FLAG_MULTIPART |</span>
+<span class="lineNum">      75 </span>            :                     MESSAGE_PART_FLAG_MESSAGE_RFC822)) != 0) {
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :             children_offset = dest-&gt;used;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :             children_count = 0;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :             buffer_append(dest, &amp;children_count,</span>
+<span class="lineNum">      79 </span>            :                       sizeof(children_count));
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :             if (part-&gt;children != NULL) {</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :                 part_serialize(part-&gt;children, dest,</span>
+<span class="lineNum">      83 </span>            :                            &amp;children_count);
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :                 buffer_write(dest, children_offset,</span>
+<span class="lineNum">      86 </span>            :                          &amp;children_count,
+<span class="lineNum">      87 </span>            :                          sizeof(children_count));
+<span class="lineNum">      88 </span>            :             }
+<span class="lineNum">      89 </span>            :         } else {
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :             i_assert(part-&gt;children == NULL);</span>
+<span class="lineNum">      91 </span>            :         }
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         count++;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         part = part-&gt;next;</span>
+<span class="lineNum">      95 </span>            :     }
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     *children_count_r = count;</span>
+<a name="98"><span class="lineNum">      98 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 : void message_part_serialize(struct message_part *part, buffer_t *dest)</span>
+<span class="lineNum">     101 </span>            : {
+<span class="lineNum">     102 </span>            :     unsigned int children_count;
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     part_serialize(part, dest, &amp;children_count);</span>
+<a name="105"><span class="lineNum">     105 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 : static bool read_next(struct deserialize_context *ctx,</span>
+<span class="lineNum">     108 </span>            :               void *buffer, size_t buffer_size)
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (ctx-&gt;data + buffer_size &gt; ctx-&gt;end) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         ctx-&gt;error = &quot;Not enough data&quot;;</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     113 </span>            :     }
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     memcpy(buffer, ctx-&gt;data, buffer_size);</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     ctx-&gt;data += buffer_size;</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     118 </span>            : }
+<a name="119"><span class="lineNum">     119 </span>            : </a>
+<span class="lineNum">     120 </span>            : static bool ATTR_NULL(2)
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 : message_part_deserialize_part(struct deserialize_context *ctx,</span>
+<span class="lineNum">     122 </span>            :                   struct message_part *parent,
+<span class="lineNum">     123 </span>            :                   unsigned int siblings,
+<span class="lineNum">     124 </span>            :                   struct message_part **part_r)
+<span class="lineNum">     125 </span>            : {
+<span class="lineNum">     126 </span>            :     struct message_part *p, *part, *first_part, **next_part;
+<span class="lineNum">     127 </span>            :     unsigned int children_count;
+<span class="lineNum">     128 </span>            :     uoff_t pos;
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     bool root = parent == NULL;</span>
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     first_part = NULL;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     next_part = NULL;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     while (siblings &gt; 0) {</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         siblings--;</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         part = p_new(ctx-&gt;pool, struct message_part, 1);</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         part-&gt;parent = parent;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         for (p = parent; p != NULL; p = p-&gt;parent)</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :             p-&gt;children_count++;</span>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         if (!read_next(ctx, &amp;part-&gt;flags, sizeof(part-&gt;flags)))</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         if (root)</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :             root = FALSE;</span>
+<span class="lineNum">     146 </span>            :         else {
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :             if (!read_next(ctx, &amp;part-&gt;physical_pos,</span>
+<span class="lineNum">     148 </span>            :                        sizeof(part-&gt;physical_pos)))
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     150 </span>            :         }
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         if (part-&gt;physical_pos &lt; ctx-&gt;pos) {</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :             ctx-&gt;error = &quot;physical_pos less than expected&quot;;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     155 </span>            :         }
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         if (!read_next(ctx, &amp;part-&gt;header_size.physical_size,</span>
+<span class="lineNum">     158 </span>            :                    sizeof(part-&gt;header_size.physical_size)))
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         if (!read_next(ctx, &amp;part-&gt;header_size.virtual_size,</span>
+<span class="lineNum">     162 </span>            :                    sizeof(part-&gt;header_size.virtual_size)))
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :         if (part-&gt;header_size.virtual_size &lt;</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :             part-&gt;header_size.physical_size) {</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :             ctx-&gt;error = &quot;header_size.virtual_size too small&quot;;</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     169 </span>            :         }
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         if (!read_next(ctx, &amp;part-&gt;body_size.physical_size,</span>
+<span class="lineNum">     172 </span>            :                    sizeof(part-&gt;body_size.physical_size)))
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         if (!read_next(ctx, &amp;part-&gt;body_size.virtual_size,</span>
+<span class="lineNum">     176 </span>            :                    sizeof(part-&gt;body_size.virtual_size)))
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; (MESSAGE_PART_FLAG_TEXT |</span>
+<span class="lineNum">     180 </span>            :                     MESSAGE_PART_FLAG_MESSAGE_RFC822)) != 0) {
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             if (!read_next(ctx, &amp;part-&gt;body_size.lines,</span>
+<span class="lineNum">     182 </span>            :                        sizeof(part-&gt;body_size.lines)))
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     184 </span>            :         }
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :         if (part-&gt;body_size.virtual_size &lt;</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :             part-&gt;body_size.physical_size) {</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :             ctx-&gt;error = &quot;body_size.virtual_size too small&quot;;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     190 </span>            :         }
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; (MESSAGE_PART_FLAG_MULTIPART |</span>
+<span class="lineNum">     193 </span>            :                     MESSAGE_PART_FLAG_MESSAGE_RFC822)) != 0) {
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :             if (!read_next(ctx, &amp;children_count,</span>
+<span class="lineNum">     195 </span>            :                        sizeof(children_count)))
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     197 </span>            :         } else {
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :                         children_count = 0;</span>
+<span class="lineNum">     199 </span>            :         }
+<span class="lineNum">     200 </span>            : 
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) != 0) {</span>
+<span class="lineNum">     202 </span>            :             /* Only one child is possible */
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :             if (children_count == 0) {</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :                 ctx-&gt;error =</span>
+<span class="lineNum">     205 </span>            :                     &quot;message/rfc822 part has no children&quot;;
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     207 </span>            :             }
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :             if (children_count != 1) {</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :                 ctx-&gt;error = &quot;message/rfc822 part &quot;</span>
+<span class="lineNum">     210 </span>            :                     &quot;has multiple children&quot;;
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     212 </span>            :             }
+<span class="lineNum">     213 </span>            :         }
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         if (children_count &gt; 0) {</span>
+<span class="lineNum">     216 </span>            :             /* our children must be after our physical_pos+header
+<span class="lineNum">     217 </span>            :                and the last child must be within our size. */
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             ctx-&gt;pos = part-&gt;physical_pos +</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :                 part-&gt;header_size.physical_size;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :             pos = ctx-&gt;pos + part-&gt;body_size.physical_size;</span>
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             if (!message_part_deserialize_part(ctx, part,</span>
+<span class="lineNum">     223 </span>            :                                children_count,
+<span class="lineNum">     224 </span>            :                                &amp;part-&gt;children))
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :             if (ctx-&gt;pos &gt; pos) {</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :                 ctx-&gt;error =</span>
+<span class="lineNum">     229 </span>            :                     &quot;child part location exceeds our size&quot;;
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     231 </span>            :             }
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :             ctx-&gt;pos = pos; /* save it for above check for parent */</span>
+<span class="lineNum">     233 </span>            :         }
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         if (first_part == NULL)</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :             first_part = part;</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         if (next_part != NULL)</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :             *next_part = part;</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         next_part = &amp;part-&gt;next;</span>
+<span class="lineNum">     240 </span>            :     }
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     *part_r = first_part;</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     244 </span>            : }
+<a name="245"><span class="lineNum">     245 </span>            : </a>
+<span class="lineNum">     246 </span>            : struct message_part *
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 : message_part_deserialize(pool_t pool, const void *data, size_t size,</span>
+<span class="lineNum">     248 </span>            :              const char **error_r)
+<span class="lineNum">     249 </span>            : {
+<span class="lineNum">     250 </span>            :     struct deserialize_context ctx;
+<span class="lineNum">     251 </span>            :         struct message_part *part;
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     ctx.pool = pool;</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :     ctx.data = data;</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     ctx.end = ctx.data + size;</span>
+<span class="lineNum">     257 </span>            : 
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     if (!message_part_deserialize_part(&amp;ctx, NULL, 1, &amp;part)) {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         *error_r = ctx.error;</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     261 </span>            :     }
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :     if (ctx.data != ctx.end) {</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :         *error_r = &quot;Too much data&quot;;</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     266 </span>            :     }
+<span class="lineNum">     267 </span>            : 
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     return part;</span>
+<span class="lineNum">     269 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

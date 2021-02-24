@@ -1,0 +1,1007 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-imap/imap-parser.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-imap</a> - imap-parser.c<span style="font-size: 80%;"> (source / <a href="imap-parser.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">259</td>
+            <td class="headerCovTableEntry">464</td>
+            <td class="headerCovTableEntryLo">55.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">23</td>
+            <td class="headerCovTableEntry">30</td>
+            <td class="headerCovTableEntryMed">76.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;imap-parser.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : /* We use this macro to read atoms from input. It should probably contain
+<span class="lineNum">      10 </span>            :    everything some day, but for now we can't handle some input otherwise:
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            :    ']' is required for parsing section (FETCH BODY[])
+<span class="lineNum">      13 </span>            :    '%', '*' and ']' are valid list-chars for LIST patterns
+<span class="lineNum">      14 </span>            :    '\' is used in flags */
+<span class="lineNum">      15 </span>            : #define IS_ATOM_PARSER_INPUT(c) \
+<span class="lineNum">      16 </span>            :     ((c) == '(' || (c) == ')' || (c) == '{' || \
+<span class="lineNum">      17 </span>            :      (c) == '&quot;' || (c) &lt;= 32 || (c) == 0x7f)
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define is_linebreak(c) \
+<span class="lineNum">      20 </span>            :     ((c) == '\r' || (c) == '\n')
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : #define LIST_INIT_COUNT 7
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : enum arg_parse_type {
+<span class="lineNum">      25 </span>            :     ARG_PARSE_NONE = 0,
+<span class="lineNum">      26 </span>            :     ARG_PARSE_ATOM,
+<span class="lineNum">      27 </span>            :     ARG_PARSE_STRING,
+<span class="lineNum">      28 </span>            :     ARG_PARSE_LITERAL,
+<span class="lineNum">      29 </span>            :     ARG_PARSE_LITERAL8,
+<span class="lineNum">      30 </span>            :     ARG_PARSE_LITERAL_DATA,
+<span class="lineNum">      31 </span>            :     ARG_PARSE_LITERAL_DATA_FORCED,
+<span class="lineNum">      32 </span>            :     ARG_PARSE_TEXT
+<span class="lineNum">      33 </span>            : };
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : struct imap_parser {
+<span class="lineNum">      36 </span>            :     /* permanent */
+<span class="lineNum">      37 </span>            :     int refcount;
+<span class="lineNum">      38 </span>            :     pool_t pool;
+<span class="lineNum">      39 </span>            :     struct istream *input;
+<span class="lineNum">      40 </span>            :     struct ostream *output;
+<span class="lineNum">      41 </span>            :     size_t max_line_size;
+<span class="lineNum">      42 </span>            :         enum imap_parser_flags flags;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     /* reset by imap_parser_reset(): */
+<span class="lineNum">      45 </span>            :     size_t line_size;
+<span class="lineNum">      46 </span>            :     ARRAY_TYPE(imap_arg_list) root_list;
+<span class="lineNum">      47 </span>            :         ARRAY_TYPE(imap_arg_list) *cur_list;
+<span class="lineNum">      48 </span>            :     struct imap_arg *list_arg;
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span>            :     enum arg_parse_type cur_type;
+<span class="lineNum">      51 </span>            :     size_t cur_pos; /* parser position in input buffer */
+<span class="lineNum">      52 </span>            :     bool cur_resp_text; /* we're parsing [resp-text-code] */
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :     int str_first_escape; /* ARG_PARSE_STRING: index to first '\' */
+<span class="lineNum">      55 </span>            :     uoff_t literal_size; /* ARG_PARSE_LITERAL: string size */
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span>            :     enum imap_parser_error error;
+<span class="lineNum">      58 </span>            :     const char *error_msg;
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span>            :     bool literal_minus:1;
+<span class="lineNum">      61 </span>            :     bool literal_skip_crlf:1;
+<span class="lineNum">      62 </span>            :     bool literal_nonsync:1;
+<span class="lineNum">      63 </span>            :     bool literal8:1;
+<span class="lineNum">      64 </span>            :     bool literal_size_return:1;
+<span class="lineNum">      65 </span>            :     bool eol:1;
+<span class="lineNum">      66 </span>            :     bool args_added_extra_eol:1;
+<span class="lineNum">      67 </span>            :     bool fatal_error:1;
+<span class="lineNum">      68 </span>            : };
+<a name="69"><span class="lineNum">      69 </span>            : </a>
+<span class="lineNum">      70 </span>            : struct imap_parser *
+<span class="lineNum">      71 </span><span class="lineCov">         57 : imap_parser_create(struct istream *input, struct ostream *output,</span>
+<span class="lineNum">      72 </span>            :            size_t max_line_size)
+<span class="lineNum">      73 </span>            : {
+<span class="lineNum">      74 </span>            :     struct imap_parser *parser;
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineCov">         57 :     parser = i_new(struct imap_parser, 1);</span>
+<span class="lineNum">      77 </span><span class="lineCov">         57 :     parser-&gt;refcount = 1;</span>
+<span class="lineNum">      78 </span><span class="lineCov">         57 :     parser-&gt;pool = pool_alloconly_create(MEMPOOL_GROWING&quot;IMAP parser&quot;,</span>
+<span class="lineNum">      79 </span>            :                          1024);
+<span class="lineNum">      80 </span><span class="lineCov">         57 :     parser-&gt;input = input;</span>
+<span class="lineNum">      81 </span><span class="lineCov">         57 :     parser-&gt;output = output;</span>
+<span class="lineNum">      82 </span><span class="lineCov">         57 :     parser-&gt;max_line_size = max_line_size;</span>
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineCov">         57 :     p_array_init(&amp;parser-&gt;root_list, parser-&gt;pool, LIST_INIT_COUNT);</span>
+<span class="lineNum">      85 </span><span class="lineCov">         57 :     parser-&gt;cur_list = &amp;parser-&gt;root_list;</span>
+<span class="lineNum">      86 </span><span class="lineCov">         57 :     return parser;</span>
+<a name="87"><span class="lineNum">      87 </span>            : }</a>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 : void imap_parser_ref(struct imap_parser *parser)</span>
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     i_assert(parser-&gt;refcount &gt; 0);</span>
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     parser-&gt;refcount++;</span>
+<a name="94"><span class="lineNum">      94 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span><span class="lineCov">         57 : void imap_parser_unref(struct imap_parser **_parser)</span>
+<span class="lineNum">      97 </span>            : {
+<span class="lineNum">      98 </span><span class="lineCov">         57 :     struct imap_parser *parser = *_parser;</span>
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineCov">         57 :     *_parser = NULL;</span>
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineCov">         57 :     i_assert(parser-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     103 </span><span class="lineCov">         57 :     if (--parser-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     104 </span><span class="lineCov">         57 :         return;</span>
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineCov">         57 :     pool_unref(&amp;parser-&gt;pool);</span>
+<span class="lineNum">     107 </span><span class="lineCov">         57 :     i_free(parser);</span>
+<a name="108"><span class="lineNum">     108 </span>            : }</a>
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 : void imap_parser_enable_literal_minus(struct imap_parser *parser)</span>
+<span class="lineNum">     111 </span>            : {
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     parser-&gt;literal_minus = TRUE;</span>
+<a name="113"><span class="lineNum">     113 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineCov">         29 : void imap_parser_reset(struct imap_parser *parser)</span>
+<span class="lineNum">     116 </span>            : {
+<span class="lineNum">     117 </span><span class="lineCov">         29 :     p_clear(parser-&gt;pool);</span>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineCov">         29 :     parser-&gt;line_size = 0;</span>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineCov">         29 :     p_array_init(&amp;parser-&gt;root_list, parser-&gt;pool, LIST_INIT_COUNT);</span>
+<span class="lineNum">     122 </span><span class="lineCov">         29 :     parser-&gt;cur_list = &amp;parser-&gt;root_list;</span>
+<span class="lineNum">     123 </span><span class="lineCov">         29 :     parser-&gt;list_arg = NULL;</span>
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineCov">         29 :     parser-&gt;cur_type = ARG_PARSE_NONE;</span>
+<span class="lineNum">     126 </span><span class="lineCov">         29 :     parser-&gt;cur_pos = 0;</span>
+<span class="lineNum">     127 </span><span class="lineCov">         29 :     parser-&gt;cur_resp_text = FALSE;</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">         29 :     parser-&gt;str_first_escape = 0;</span>
+<span class="lineNum">     130 </span><span class="lineCov">         29 :     parser-&gt;literal_size = 0;</span>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineCov">         29 :     parser-&gt;error = IMAP_PARSE_ERROR_NONE;</span>
+<span class="lineNum">     133 </span><span class="lineCov">         29 :     parser-&gt;error_msg = NULL;</span>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineCov">         29 :     parser-&gt;literal_skip_crlf = FALSE;</span>
+<span class="lineNum">     136 </span><span class="lineCov">         29 :     parser-&gt;eol = FALSE;</span>
+<span class="lineNum">     137 </span><span class="lineCov">         29 :     parser-&gt;args_added_extra_eol = FALSE;</span>
+<span class="lineNum">     138 </span><span class="lineCov">         29 :     parser-&gt;literal_size_return = FALSE;</span>
+<a name="139"><span class="lineNum">     139 </span><span class="lineCov">         29 : }</span></a>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 : void imap_parser_set_streams(struct imap_parser *parser, struct istream *input,</span>
+<span class="lineNum">     142 </span>            :                  struct ostream *output)
+<span class="lineNum">     143 </span>            : {
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     parser-&gt;input = input;</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     parser-&gt;output = output;</span>
+<a name="146"><span class="lineNum">     146 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineCov">          1 : const char *imap_parser_get_error(struct imap_parser *parser,</span>
+<span class="lineNum">     149 </span>            :     enum imap_parser_error *error_r)
+<span class="lineNum">     150 </span>            : {
+<span class="lineNum">     151 </span><span class="lineCov">          1 :     if (error_r != NULL)</span>
+<span class="lineNum">     152 </span><span class="lineCov">          1 :         *error_r = parser-&gt;error;</span>
+<span class="lineNum">     153 </span><span class="lineCov">          1 :     return parser-&gt;error_msg;</span>
+<span class="lineNum">     154 </span>            : }
+<a name="155"><span class="lineNum">     155 </span>            : </a>
+<span class="lineNum">     156 </span>            : /* skip over everything parsed so far, plus the following whitespace */
+<span class="lineNum">     157 </span><span class="lineCov">       1899 : static bool imap_parser_skip_to_next(struct imap_parser *parser,</span>
+<span class="lineNum">     158 </span>            :                      const unsigned char **data,
+<span class="lineNum">     159 </span>            :                      size_t *data_size)
+<span class="lineNum">     160 </span>            : {
+<span class="lineNum">     161 </span>            :     size_t i;
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">       3148 :     for (i = parser-&gt;cur_pos; i &lt; *data_size; i++) {</span>
+<span class="lineNum">     164 </span><span class="lineCov">       3141 :         if ((*data)[i] != ' ')</span>
+<span class="lineNum">     165 </span><span class="lineCov">       1892 :             break;</span>
+<span class="lineNum">     166 </span>            :     }
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineCov">       1899 :     parser-&gt;line_size += i;</span>
+<span class="lineNum">     169 </span><span class="lineCov">       1899 :         i_stream_skip(parser-&gt;input, i);</span>
+<span class="lineNum">     170 </span><span class="lineCov">       1899 :     parser-&gt;cur_pos = 0;</span>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineCov">       1899 :     *data += i;</span>
+<span class="lineNum">     173 </span><span class="lineCov">       1899 :     *data_size -= i;</span>
+<span class="lineNum">     174 </span><span class="lineCov">       1899 :     return *data_size &gt; 0;</span>
+<a name="175"><span class="lineNum">     175 </span>            : }</a>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">       1875 : static struct imap_arg *imap_arg_create(struct imap_parser *parser)</span>
+<span class="lineNum">     178 </span>            : {
+<span class="lineNum">     179 </span>            :     struct imap_arg *arg;
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span><span class="lineCov">       1875 :     arg = array_append_space(parser-&gt;cur_list);</span>
+<span class="lineNum">     182 </span><span class="lineCov">       1875 :     arg-&gt;parent = parser-&gt;list_arg;</span>
+<span class="lineNum">     183 </span><span class="lineCov">       1875 :     return arg;</span>
+<a name="184"><span class="lineNum">     184 </span>            : }</a>
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineCov">        273 : static void imap_parser_open_list(struct imap_parser *parser)</span>
+<span class="lineNum">     187 </span>            : {
+<span class="lineNum">     188 </span><span class="lineCov">        273 :     parser-&gt;list_arg = imap_arg_create(parser);</span>
+<span class="lineNum">     189 </span><span class="lineCov">        273 :     parser-&gt;list_arg-&gt;type = IMAP_ARG_LIST;</span>
+<span class="lineNum">     190 </span><span class="lineCov">        273 :     p_array_init(&amp;parser-&gt;list_arg-&gt;_data.list, parser-&gt;pool,</span>
+<span class="lineNum">     191 </span>            :              LIST_INIT_COUNT);
+<span class="lineNum">     192 </span><span class="lineCov">        273 :     parser-&gt;cur_list = &amp;parser-&gt;list_arg-&gt;_data.list;</span>
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span><span class="lineCov">        273 :     parser-&gt;cur_type = ARG_PARSE_NONE;</span>
+<a name="195"><span class="lineNum">     195 </span><span class="lineCov">        273 : }</span></a>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineCov">        273 : static bool imap_parser_close_list(struct imap_parser *parser)</span>
+<span class="lineNum">     198 </span>            : {
+<span class="lineNum">     199 </span>            :     struct imap_arg *arg;
+<span class="lineNum">     200 </span>            : 
+<span class="lineNum">     201 </span><span class="lineCov">        273 :     if (parser-&gt;list_arg == NULL) {</span>
+<span class="lineNum">     202 </span>            :         /* we're not inside list */
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :         if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_INSIDE_LIST) != 0) {</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :             parser-&gt;eol = TRUE;</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :             parser-&gt;cur_type = ARG_PARSE_NONE;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     207 </span>            :         }
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :         parser-&gt;error_msg = &quot;Unexpected ')'&quot;;</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     211 </span>            :     }
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span><span class="lineCov">        273 :     arg = imap_arg_create(parser);</span>
+<span class="lineNum">     214 </span><span class="lineCov">        273 :     arg-&gt;type = IMAP_ARG_EOL;</span>
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineCov">        273 :     parser-&gt;list_arg = parser-&gt;list_arg-&gt;parent;</span>
+<span class="lineNum">     217 </span><span class="lineCov">        273 :     if (parser-&gt;list_arg == NULL) {</span>
+<span class="lineNum">     218 </span><span class="lineCov">         89 :         parser-&gt;cur_list = &amp;parser-&gt;root_list;</span>
+<span class="lineNum">     219 </span>            :     } else {
+<span class="lineNum">     220 </span><span class="lineCov">        184 :         parser-&gt;cur_list = &amp;parser-&gt;list_arg-&gt;_data.list;</span>
+<span class="lineNum">     221 </span>            :     }
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span><span class="lineCov">        273 :     parser-&gt;cur_type = ARG_PARSE_NONE;</span>
+<span class="lineNum">     224 </span><span class="lineCov">        273 :     return TRUE;</span>
+<span class="lineNum">     225 </span>            : }
+<a name="226"><span class="lineNum">     226 </span>            : </a>
+<span class="lineNum">     227 </span>            : static char *
+<span class="lineNum">     228 </span><span class="lineCov">        757 : imap_parser_strdup(struct imap_parser *parser,</span>
+<span class="lineNum">     229 </span>            :            const void *data, size_t len)
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span>            :     char *ret;
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineCov">        757 :     ret = p_malloc(parser-&gt;pool, len + 1);</span>
+<span class="lineNum">     234 </span><span class="lineCov">        757 :     memcpy(ret, data, len);</span>
+<span class="lineNum">     235 </span><span class="lineCov">        757 :     return ret;</span>
+<a name="236"><span class="lineNum">     236 </span>            : }</a>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span><span class="lineCov">       1329 : static void imap_parser_save_arg(struct imap_parser *parser,</span>
+<span class="lineNum">     239 </span>            :                  const unsigned char *data, size_t size)
+<span class="lineNum">     240 </span>            : {
+<span class="lineNum">     241 </span>            :     struct imap_arg *arg;
+<span class="lineNum">     242 </span>            :     char *str;
+<span class="lineNum">     243 </span>            : 
+<span class="lineNum">     244 </span><span class="lineCov">       1329 :     arg = imap_arg_create(parser);</span>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span><span class="lineCov">       1329 :     switch (parser-&gt;cur_type) {</span>
+<span class="lineNum">     247 </span>            :     case ARG_PARSE_ATOM:
+<span class="lineNum">     248 </span>            :     case ARG_PARSE_TEXT:
+<span class="lineNum">     249 </span><span class="lineCov">        757 :         if (size == 3 &amp;&amp; i_memcasecmp(data, &quot;NIL&quot;, 3) == 0) {</span>
+<span class="lineNum">     250 </span>            :             /* NIL argument. it might be an actual NIL, but if
+<span class="lineNum">     251 </span>            :                we're reading astring, it's an atom and we can't
+<span class="lineNum">     252 </span>            :                lose its case. */
+<span class="lineNum">     253 </span><span class="lineCov">        566 :             arg-&gt;type = IMAP_ARG_NIL;</span>
+<span class="lineNum">     254 </span>            :         } else {
+<span class="lineNum">     255 </span>            :             /* simply save the string */
+<span class="lineNum">     256 </span><span class="lineCov">        191 :             arg-&gt;type = IMAP_ARG_ATOM;</span>
+<span class="lineNum">     257 </span>            :         }
+<span class="lineNum">     258 </span><span class="lineCov">        757 :         arg-&gt;_data.str = imap_parser_strdup(parser, data, size);</span>
+<span class="lineNum">     259 </span><span class="lineCov">        757 :         arg-&gt;str_len = size;</span>
+<span class="lineNum">     260 </span><span class="lineCov">        757 :         break;</span>
+<span class="lineNum">     261 </span>            :     case ARG_PARSE_STRING:
+<span class="lineNum">     262 </span>            :         /* data is quoted and may contain escapes. */
+<span class="lineNum">     263 </span><span class="lineCov">        572 :         i_assert(size &gt; 0);</span>
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineCov">        572 :         arg-&gt;type = IMAP_ARG_STRING;</span>
+<span class="lineNum">     266 </span><span class="lineCov">        572 :         str = p_strndup(parser-&gt;pool, data+1, size-1);</span>
+<span class="lineNum">     267 </span>            : 
+<span class="lineNum">     268 </span>            :         /* remove the escapes */
+<span class="lineNum">     269 </span><span class="lineCov">        575 :         if (parser-&gt;str_first_escape &gt;= 0 &amp;&amp;</span>
+<span class="lineNum">     270 </span><span class="lineCov">          3 :             (parser-&gt;flags &amp; IMAP_PARSE_FLAG_NO_UNESCAPE) == 0) {</span>
+<span class="lineNum">     271 </span>            :             /* -1 because we skipped the '&quot;' prefix */
+<span class="lineNum">     272 </span><span class="lineCov">          2 :             (void)str_unescape(str + parser-&gt;str_first_escape-1);</span>
+<span class="lineNum">     273 </span>            :         }
+<span class="lineNum">     274 </span><span class="lineCov">        572 :         arg-&gt;_data.str = str;</span>
+<span class="lineNum">     275 </span><span class="lineCov">        572 :         arg-&gt;str_len = strlen(str);</span>
+<span class="lineNum">     276 </span><span class="lineCov">        572 :         break;</span>
+<span class="lineNum">     277 </span>            :     case ARG_PARSE_LITERAL_DATA:
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_LITERAL_SIZE) != 0) {</span>
+<span class="lineNum">     279 </span>            :             /* save literal size */
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :             arg-&gt;type = parser-&gt;literal_nonsync ?</span>
+<span class="lineNum">     281 </span>            :                 IMAP_ARG_LITERAL_SIZE_NONSYNC :
+<span class="lineNum">     282 </span>            :                 IMAP_ARG_LITERAL_SIZE;
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :             arg-&gt;_data.literal_size = parser-&gt;literal_size;</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :             arg-&gt;literal8 = parser-&gt;literal8;</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     286 </span>            :         }
+<span class="lineNum">     287 </span>            :         /* fall through */
+<span class="lineNum">     288 </span>            :     case ARG_PARSE_LITERAL_DATA_FORCED:
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_LITERAL_TYPE) != 0)</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :             arg-&gt;type = IMAP_ARG_LITERAL;</span>
+<span class="lineNum">     291 </span>            :         else
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :             arg-&gt;type = IMAP_ARG_STRING;</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         arg-&gt;_data.str = imap_parser_strdup(parser, data, size);</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         arg-&gt;literal8 = parser-&gt;literal8;</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         arg-&gt;str_len = size;</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     297 </span>            :     default:
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :                 i_unreached();</span>
+<span class="lineNum">     299 </span>            :     }
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineCov">       1329 :     parser-&gt;cur_type = ARG_PARSE_NONE;</span>
+<a name="302"><span class="lineNum">     302 </span><span class="lineCov">       1329 : }</span></a>
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span><span class="lineCov">       2339 : static bool is_valid_atom_char(struct imap_parser *parser, char chr)</span>
+<span class="lineNum">     305 </span>            : {
+<span class="lineNum">     306 </span>            :     const char *error_msg;
+<span class="lineNum">     307 </span>            : 
+<span class="lineNum">     308 </span><span class="lineCov">       2339 :     if (IS_ATOM_PARSER_INPUT((unsigned char)chr))</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         error_msg = &quot;Invalid characters in atom&quot;;</span>
+<span class="lineNum">     310 </span><span class="lineCov">       2339 :     else if ((chr &amp; 0x80) != 0)</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         error_msg = &quot;8bit data in atom&quot;;</span>
+<span class="lineNum">     312 </span>            :     else
+<span class="lineNum">     313 </span><span class="lineCov">       2339 :         return TRUE;</span>
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_ATOM_ALLCHARS) != 0)</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     parser-&gt;error_msg = error_msg;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="320"><span class="lineNum">     320 </span>            : }</a>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineCov">        748 : static bool imap_parser_read_atom(struct imap_parser *parser,</span>
+<span class="lineNum">     323 </span>            :                   const unsigned char *data, size_t data_size)
+<span class="lineNum">     324 </span>            : {
+<span class="lineNum">     325 </span>            :     size_t i;
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span>            :     /* read until we've found space, CR or LF. */
+<span class="lineNum">     328 </span><span class="lineCov">       2343 :     for (i = parser-&gt;cur_pos; i &lt; data_size; i++) {</span>
+<span class="lineNum">     329 </span><span class="lineCov">       2309 :         if (data[i] == ' ' || is_linebreak(data[i])) {</span>
+<span class="lineNum">     330 </span><span class="lineCov">        650 :             imap_parser_save_arg(parser, data, i);</span>
+<span class="lineNum">     331 </span><span class="lineCov">        650 :             break;</span>
+<span class="lineNum">     332 </span><span class="lineCov">       1659 :         } else if (data[i] == ')') {</span>
+<span class="lineNum">     333 </span><span class="lineCov">         64 :             if (parser-&gt;list_arg != NULL ||</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :                 (parser-&gt;flags &amp; IMAP_PARSE_FLAG_INSIDE_LIST) != 0) {</span>
+<span class="lineNum">     335 </span><span class="lineCov">         64 :                 imap_parser_save_arg(parser, data, i);</span>
+<span class="lineNum">     336 </span><span class="lineCov">         64 :                 break;</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :             } else if ((parser-&gt;flags &amp;</span>
+<span class="lineNum">     338 </span>            :                     IMAP_PARSE_FLAG_ATOM_ALLCHARS) == 0) {
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :                 parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :                 parser-&gt;error_msg = &quot;Unexpected ')'&quot;;</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     342 </span>            :             }
+<span class="lineNum">     343 </span>            :             /* assume it's part of the atom */
+<span class="lineNum">     344 </span><span class="lineCov">       1595 :         } else if (!is_valid_atom_char(parser, data[i]))</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     346 </span>            :     }
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineCov">        748 :     parser-&gt;cur_pos = i;</span>
+<span class="lineNum">     349 </span><span class="lineCov">        748 :     return parser-&gt;cur_type == ARG_PARSE_NONE;</span>
+<a name="350"><span class="lineNum">     350 </span>            : }</a>
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span><span class="lineCov">        572 : static bool imap_parser_read_string(struct imap_parser *parser,</span>
+<span class="lineNum">     353 </span>            :                     const unsigned char *data, size_t data_size)
+<span class="lineNum">     354 </span>            : {
+<span class="lineNum">     355 </span>            :     size_t i;
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span>            :     /* read until we've found non-escaped &quot;, CR or LF */
+<span class="lineNum">     358 </span><span class="lineCov">       4830 :     for (i = parser-&gt;cur_pos; i &lt; data_size; i++) {</span>
+<span class="lineNum">     359 </span><span class="lineCov">       4830 :         if (data[i] == '&quot;') {</span>
+<span class="lineNum">     360 </span><span class="lineCov">        572 :             imap_parser_save_arg(parser, data, i);</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineCov">        572 :             i++; /* skip the trailing '&quot;' too */</span>
+<span class="lineNum">     363 </span><span class="lineCov">        572 :             break;</span>
+<span class="lineNum">     364 </span>            :         }
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineCov">       4258 :         if (data[i] == '\\') {</span>
+<span class="lineNum">     367 </span><span class="lineCov">          3 :             if (i+1 == data_size) {</span>
+<span class="lineNum">     368 </span>            :                 /* known data ends with '\' - leave it to
+<span class="lineNum">     369 </span>            :                    next time as well if it happens to be \&quot; */
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     371 </span>            :             }
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span>            :             /* save the first escaped char */
+<span class="lineNum">     374 </span><span class="lineCov">          3 :             if (parser-&gt;str_first_escape &lt; 0)</span>
+<span class="lineNum">     375 </span><span class="lineCov">          3 :                 parser-&gt;str_first_escape = i;</span>
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span>            :             /* skip the escaped char */
+<span class="lineNum">     378 </span><span class="lineCov">          3 :             i++;</span>
+<span class="lineNum">     379 </span>            :         }
+<span class="lineNum">     380 </span>            : 
+<span class="lineNum">     381 </span>            :         /* check linebreaks here, so escaping CR/LF isn't possible.
+<span class="lineNum">     382 </span>            :            string always ends with '&quot;', so it's an error if we found
+<span class="lineNum">     383 </span>            :            a linebreak.. */
+<span class="lineNum">     384 </span><span class="lineCov">       4258 :         if (is_linebreak(data[i]) &amp;&amp;</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :             (parser-&gt;flags &amp; IMAP_PARSE_FLAG_MULTILINE_STR) == 0) {</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Missing '\&quot;'&quot;;</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     389 </span>            :         }
+<span class="lineNum">     390 </span>            :     }
+<span class="lineNum">     391 </span>            : 
+<span class="lineNum">     392 </span><span class="lineCov">        572 :     parser-&gt;cur_pos = i;</span>
+<span class="lineNum">     393 </span><span class="lineCov">        572 :     return parser-&gt;cur_type == ARG_PARSE_NONE;</span>
+<a name="394"><span class="lineNum">     394 </span>            : }</a>
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 : static bool imap_parser_literal_end(struct imap_parser *parser)</span>
+<span class="lineNum">     397 </span>            : {
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     if (parser-&gt;literal_minus &amp;&amp; parser-&gt;literal_nonsync &amp;&amp;</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :         parser-&gt;literal_size &gt; 4096) {</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :         parser-&gt;error_msg = &quot;Non-synchronizing literal size too large&quot;;</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :         parser-&gt;error = IMAP_PARSE_ERROR_LITERAL_TOO_BIG;</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     403 </span>            :     }
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_LITERAL_SIZE) == 0) {</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         if (parser-&gt;line_size &gt;= parser-&gt;max_line_size ||</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :             parser-&gt;literal_size &gt;</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :             parser-&gt;max_line_size - parser-&gt;line_size) {</span>
+<span class="lineNum">     409 </span>            :             /* too long string, abort. */
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_LITERAL_TOO_BIG;</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Literal size too large&quot;;</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     413 </span>            :         }
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         if (parser-&gt;output != NULL &amp;&amp; !parser-&gt;literal_nonsync) {</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :             o_stream_nsend(parser-&gt;output, &quot;+ OK\r\n&quot;, 6);</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :             if (o_stream_is_corked(parser-&gt;output)) {</span>
+<span class="lineNum">     418 </span>            :                 /* make sure this continuation is sent to the
+<span class="lineNum">     419 </span>            :                    client as soon as possible */
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :                 o_stream_uncork(parser-&gt;output);</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :                 o_stream_cork(parser-&gt;output);</span>
+<span class="lineNum">     422 </span>            :             }
+<span class="lineNum">     423 </span>            :         }
+<span class="lineNum">     424 </span>            :     }
+<span class="lineNum">     425 </span>            : 
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :     parser-&gt;cur_type = ARG_PARSE_LITERAL_DATA;</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     parser-&gt;literal_skip_crlf = TRUE;</span>
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     parser-&gt;cur_pos = 0;</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="431"><span class="lineNum">     431 </span>            : }</a>
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 : static bool imap_parser_read_literal(struct imap_parser *parser,</span>
+<span class="lineNum">     434 </span>            :                      const unsigned char *data,
+<span class="lineNum">     435 </span>            :                      size_t data_size)
+<span class="lineNum">     436 </span>            : {
+<span class="lineNum">     437 </span>            :     size_t i, prev_size;
+<span class="lineNum">     438 </span>            : 
+<span class="lineNum">     439 </span>            :     /* expecting digits + &quot;}&quot; */
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     for (i = parser-&gt;cur_pos; i &lt; data_size; i++) {</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         if (data[i] == '}') {</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :             parser-&gt;line_size += i+1;</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :             i_stream_skip(parser-&gt;input, i+1);</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :             return imap_parser_literal_end(parser);</span>
+<span class="lineNum">     445 </span>            :         }
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         if (parser-&gt;literal_nonsync) {</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Expecting '}' after '+'&quot;;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     451 </span>            :         }
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         if (data[i] == '+') {</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :             parser-&gt;literal_nonsync = TRUE;</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     456 </span>            :         }
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         if (data[i] &lt; '0' || data[i] &gt; '9') {</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Invalid literal size&quot;;</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     462 </span>            :         }
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         prev_size = parser-&gt;literal_size;</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         parser-&gt;literal_size = parser-&gt;literal_size*10 + (data[i]-'0');</span>
+<span class="lineNum">     466 </span>            : 
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         if (parser-&gt;literal_size &lt; prev_size) {</span>
+<span class="lineNum">     468 </span>            :             /* wrapped around, abort. */
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_LITERAL_TOO_BIG;</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Literal size too large&quot;;</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     472 </span>            :         }
+<span class="lineNum">     473 </span>            :     }
+<span class="lineNum">     474 </span>            : 
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :     parser-&gt;cur_pos = i;</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="477"><span class="lineNum">     477 </span>            : }</a>
+<span class="lineNum">     478 </span>            : 
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 : static bool imap_parser_read_literal_data(struct imap_parser *parser,</span>
+<span class="lineNum">     480 </span>            :                       const unsigned char *data,
+<span class="lineNum">     481 </span>            :                       size_t data_size)
+<span class="lineNum">     482 </span>            : {
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     if (parser-&gt;literal_skip_crlf) {</span>
+<span class="lineNum">     484 </span>            :         /* skip \r\n or \n, anything else gives an error */
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         if (data_size == 0)</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     487 </span>            : 
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :         if (*data == '\r') {</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             parser-&gt;line_size++;</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :             data++; data_size--;</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :             i_stream_skip(parser-&gt;input, 1);</span>
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :             if (data_size == 0)</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     495 </span>            :         }
+<span class="lineNum">     496 </span>            : 
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :         if (*data != '\n') {</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Missing LF after literal size&quot;;</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     501 </span>            :         }
+<span class="lineNum">     502 </span>            : 
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :         parser-&gt;line_size++;</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         data++; data_size--;</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :         i_stream_skip(parser-&gt;input, 1);</span>
+<span class="lineNum">     506 </span>            : 
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :         parser-&gt;literal_skip_crlf = FALSE;</span>
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :         i_assert(parser-&gt;cur_pos == 0);</span>
+<span class="lineNum">     510 </span>            :     }
+<span class="lineNum">     511 </span>            : 
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :     if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_LITERAL_SIZE) == 0 ||</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :         parser-&gt;cur_type == ARG_PARSE_LITERAL_DATA_FORCED) {</span>
+<span class="lineNum">     514 </span>            :         /* now we just wait until we've read enough data */
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :         if (data_size &lt; parser-&gt;literal_size)</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     517 </span>            :         else {
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :             imap_parser_save_arg(parser, data,</span>
+<span class="lineNum">     519 </span>            :                          (size_t)parser-&gt;literal_size);
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :             parser-&gt;cur_pos = (size_t)parser-&gt;literal_size;</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     522 </span>            :         }
+<span class="lineNum">     523 </span>            :     } else {
+<span class="lineNum">     524 </span>            :         /* we want to save only literal size, not the literal itself. */
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :         parser-&gt;literal_size_return = TRUE;</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :         imap_parser_save_arg(parser, uchar_empty_ptr, 0);</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     528 </span>            :     }
+<a name="529"><span class="lineNum">     529 </span>            : }</a>
+<span class="lineNum">     530 </span>            : 
+<span class="lineNum">     531 </span><span class="lineCov">         65 : static bool imap_parser_is_next_resp_text(struct imap_parser *parser)</span>
+<span class="lineNum">     532 </span>            : {
+<span class="lineNum">     533 </span>            :     const struct imap_arg *arg;
+<span class="lineNum">     534 </span>            : 
+<span class="lineNum">     535 </span><span class="lineCov">        130 :     if (parser-&gt;cur_list != &amp;parser-&gt;root_list ||</span>
+<span class="lineNum">     536 </span><span class="lineCov">         65 :         array_count(parser-&gt;cur_list) != 1)</span>
+<span class="lineNum">     537 </span><span class="lineCov">         52 :         return FALSE;</span>
+<span class="lineNum">     538 </span>            : 
+<span class="lineNum">     539 </span><span class="lineCov">         13 :     arg = array_idx(&amp;parser-&gt;root_list, 0);</span>
+<span class="lineNum">     540 </span><span class="lineCov">         13 :     if (arg-&gt;type != IMAP_ARG_ATOM)</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineCov">         26 :     return strcasecmp(arg-&gt;_data.str, &quot;OK&quot;) == 0 ||</span>
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :         strcasecmp(arg-&gt;_data.str, &quot;NO&quot;) == 0 ||</span>
+<span class="lineNum">     545 </span><span class="lineCov">         13 :         strcasecmp(arg-&gt;_data.str, &quot;BAD&quot;) == 0 ||</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         strcasecmp(arg-&gt;_data.str, &quot;BYE&quot;) == 0;</span>
+<a name="547"><span class="lineNum">     547 </span>            : }</a>
+<span class="lineNum">     548 </span>            : 
+<span class="lineNum">     549 </span><span class="lineCov">         78 : static bool imap_parser_is_next_text(struct imap_parser *parser)</span>
+<span class="lineNum">     550 </span>            : {
+<span class="lineNum">     551 </span>            :     const struct imap_arg *arg;
+<span class="lineNum">     552 </span>            :     size_t len;
+<span class="lineNum">     553 </span>            : 
+<span class="lineNum">     554 </span><span class="lineCov">         78 :     if (parser-&gt;cur_list != &amp;parser-&gt;root_list)</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineCov">         78 :     arg = array_idx(&amp;parser-&gt;root_list, array_count(&amp;parser-&gt;root_list)-1);</span>
+<span class="lineNum">     558 </span><span class="lineCov">         78 :     if (arg-&gt;type != IMAP_ARG_ATOM)</span>
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     560 </span>            : 
+<span class="lineNum">     561 </span><span class="lineCov">         78 :     len = strlen(arg-&gt;_data.str);</span>
+<span class="lineNum">     562 </span><span class="lineCov">         78 :     return len &gt; 0 &amp;&amp; arg-&gt;_data.str[len-1] == ']';</span>
+<a name="563"><span class="lineNum">     563 </span>            : }</a>
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineCov">         13 : static bool imap_parser_read_text(struct imap_parser *parser,</span>
+<span class="lineNum">     566 </span>            :                   const unsigned char *data, size_t data_size)
+<span class="lineNum">     567 </span>            : {
+<span class="lineNum">     568 </span>            :     size_t i;
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span>            :     /* read until end of line */
+<span class="lineNum">     571 </span><span class="lineCov">         78 :     for (i = parser-&gt;cur_pos; i &lt; data_size; i++) {</span>
+<span class="lineNum">     572 </span><span class="lineCov">         78 :         if (is_linebreak(data[i])) {</span>
+<span class="lineNum">     573 </span><span class="lineCov">         13 :             imap_parser_save_arg(parser, data, i);</span>
+<span class="lineNum">     574 </span><span class="lineCov">         13 :             break;</span>
+<span class="lineNum">     575 </span>            :         }
+<span class="lineNum">     576 </span>            :     }
+<span class="lineNum">     577 </span><span class="lineCov">         13 :     parser-&gt;cur_pos = i;</span>
+<span class="lineNum">     578 </span><span class="lineCov">         13 :     return parser-&gt;cur_type == ARG_PARSE_NONE;</span>
+<span class="lineNum">     579 </span>            : }
+<span class="lineNum">     580 </span>            : 
+<a name="581"><span class="lineNum">     581 </span>            : /* Returns TRUE if argument was fully processed. Also returns TRUE if</a>
+<span class="lineNum">     582 </span>            :    an argument inside a list was processed. */
+<span class="lineNum">     583 </span><span class="lineCov">       1446 : static bool imap_parser_read_arg(struct imap_parser *parser)</span>
+<span class="lineNum">     584 </span>            : {
+<span class="lineNum">     585 </span>            :     const unsigned char *data;
+<span class="lineNum">     586 </span>            :     size_t data_size;
+<span class="lineNum">     587 </span>            : 
+<span class="lineNum">     588 </span><span class="lineCov">       1446 :     data = i_stream_get_data(parser-&gt;input, &amp;data_size);</span>
+<span class="lineNum">     589 </span><span class="lineCov">       1446 :     if (data_size == 0)</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span><span class="lineCov">       4665 :     while (parser-&gt;cur_type == ARG_PARSE_NONE) {</span>
+<span class="lineNum">     593 </span>            :         /* we haven't started parsing yet */
+<span class="lineNum">     594 </span><span class="lineCov">       1899 :         if (!imap_parser_skip_to_next(parser, &amp;data, &amp;data_size))</span>
+<span class="lineNum">     595 </span><span class="lineCov">          7 :             return FALSE;</span>
+<span class="lineNum">     596 </span><span class="lineCov">       1892 :         i_assert(parser-&gt;cur_pos == 0);</span>
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span><span class="lineCov">       1970 :         if (parser-&gt;cur_resp_text &amp;&amp;</span>
+<span class="lineNum">     599 </span><span class="lineCov">         78 :             imap_parser_is_next_text(parser)) {</span>
+<span class="lineNum">     600 </span>            :             /* we just parsed [resp-text-code] */
+<span class="lineNum">     601 </span><span class="lineCov">         13 :             parser-&gt;cur_type = ARG_PARSE_TEXT;</span>
+<span class="lineNum">     602 </span><span class="lineCov">         13 :             break;</span>
+<span class="lineNum">     603 </span>            :         }
+<span class="lineNum">     604 </span>            : 
+<span class="lineNum">     605 </span><span class="lineCov">       1879 :         switch (data[0]) {</span>
+<span class="lineNum">     606 </span>            :         case '\r':
+<span class="lineNum">     607 </span><span class="lineCov">         17 :             if (data_size == 1) {</span>
+<span class="lineNum">     608 </span>            :                 /* wait for LF */
+<span class="lineNum">     609 </span><span class="lineCov">          2 :                 return FALSE;</span>
+<span class="lineNum">     610 </span>            :             }
+<span class="lineNum">     611 </span><span class="lineCov">         15 :             if (data[1] != '\n') {</span>
+<span class="lineNum">     612 </span><span class="lineCov">          1 :                 parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     613 </span><span class="lineCov">          1 :                 parser-&gt;error_msg = &quot;CR sent without LF&quot;;</span>
+<span class="lineNum">     614 </span><span class="lineCov">          1 :                 return FALSE;</span>
+<span class="lineNum">     615 </span>            :             }
+<span class="lineNum">     616 </span>            :             /* fall through */
+<span class="lineNum">     617 </span>            :         case '\n':
+<span class="lineNum">     618 </span>            :             /* unexpected end of line */
+<span class="lineNum">     619 </span><span class="lineCov">         14 :             if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_INSIDE_LIST) != 0) {</span>
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :                 parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :                 parser-&gt;error_msg = &quot;Missing ')'&quot;;</span>
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     623 </span>            :             }
+<span class="lineNum">     624 </span><span class="lineCov">         14 :             parser-&gt;eol = TRUE;</span>
+<span class="lineNum">     625 </span><span class="lineCov">         14 :             return FALSE;</span>
+<span class="lineNum">     626 </span>            :         case '&quot;':
+<span class="lineNum">     627 </span><span class="lineCov">        572 :             parser-&gt;cur_type = ARG_PARSE_STRING;</span>
+<span class="lineNum">     628 </span><span class="lineCov">        572 :             parser-&gt;str_first_escape = -1;</span>
+<span class="lineNum">     629 </span><span class="lineCov">        572 :             break;</span>
+<span class="lineNum">     630 </span>            :         case '~':
+<span class="lineNum">     631 </span>            :             /* This could be either literal8 or atom */
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :             if (data_size == 1) {</span>
+<span class="lineNum">     633 </span>            :                 /* wait for the next char */
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     635 </span>            :             }
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :             if (data[1] != '{') {</span>
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :                 parser-&gt;cur_type = ARG_PARSE_ATOM;</span>
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     639 </span>            :             }
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :             if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_LITERAL8) == 0) {</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :                 parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :                 parser-&gt;error_msg = &quot;literal8 not allowed here&quot;;</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     644 </span>            :             }
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :             parser-&gt;cur_type = ARG_PARSE_LITERAL8;</span>
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :             parser-&gt;literal_size = 0;</span>
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :             parser-&gt;literal_nonsync = FALSE;</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :             parser-&gt;literal8 = TRUE;</span>
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     650 </span>            :         case '{':
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :             parser-&gt;cur_type = ARG_PARSE_LITERAL;</span>
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :             parser-&gt;literal_size = 0;</span>
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :             parser-&gt;literal_nonsync = FALSE;</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :             parser-&gt;literal8 = FALSE;</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     656 </span>            :         case '(':
+<span class="lineNum">     657 </span><span class="lineCov">        273 :             imap_parser_open_list(parser);</span>
+<span class="lineNum">     658 </span><span class="lineCov">        273 :             if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_STOP_AT_LIST) != 0) {</span>
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :                 i_stream_skip(parser-&gt;input, 1);</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     661 </span>            :             }
+<span class="lineNum">     662 </span><span class="lineCov">        273 :             break;</span>
+<span class="lineNum">     663 </span>            :         case ')':
+<span class="lineNum">     664 </span><span class="lineCov">        273 :             if (!imap_parser_close_list(parser))</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     666 </span>            : 
+<span class="lineNum">     667 </span><span class="lineCov">        273 :             if (parser-&gt;list_arg == NULL) {</span>
+<span class="lineNum">     668 </span>            :                 /* end of argument */
+<span class="lineNum">     669 </span><span class="lineCov">         89 :                 parser-&gt;cur_pos++;</span>
+<span class="lineNum">     670 </span><span class="lineCov">         89 :                 return TRUE;</span>
+<span class="lineNum">     671 </span>            :             }
+<span class="lineNum">     672 </span><span class="lineCov">        184 :             break;</span>
+<span class="lineNum">     673 </span>            :         default:
+<span class="lineNum">     674 </span><span class="lineCov">        744 :             if (!is_valid_atom_char(parser, data[0]))</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     676 </span><span class="lineCov">        744 :             parser-&gt;cur_type = ARG_PARSE_ATOM;</span>
+<span class="lineNum">     677 </span><span class="lineCov">        744 :             break;</span>
+<span class="lineNum">     678 </span>            :         }
+<span class="lineNum">     679 </span>            : 
+<span class="lineNum">     680 </span><span class="lineCov">       1773 :         parser-&gt;cur_pos++;</span>
+<span class="lineNum">     681 </span>            :     }
+<span class="lineNum">     682 </span>            : 
+<span class="lineNum">     683 </span><span class="lineCov">       1333 :     i_assert(data_size &gt; 0);</span>
+<span class="lineNum">     684 </span>            : 
+<span class="lineNum">     685 </span><span class="lineCov">       1333 :     switch (parser-&gt;cur_type) {</span>
+<span class="lineNum">     686 </span>            :     case ARG_PARSE_ATOM:
+<span class="lineNum">     687 </span><span class="lineCov">        748 :         if (!imap_parser_read_atom(parser, data, data_size))</span>
+<span class="lineNum">     688 </span><span class="lineCov">         34 :             return FALSE;</span>
+<span class="lineNum">     689 </span><span class="lineCov">        714 :         if ((parser-&gt;flags &amp; IMAP_PARSE_FLAG_SERVER_TEXT) == 0)</span>
+<span class="lineNum">     690 </span><span class="lineCov">        649 :             break;</span>
+<span class="lineNum">     691 </span>            : 
+<span class="lineNum">     692 </span><span class="lineCov">         65 :         if (imap_parser_is_next_resp_text(parser)) {</span>
+<span class="lineNum">     693 </span>            :             /* we just parsed OK/NO/BAD/BYE. after parsing the
+<span class="lineNum">     694 </span>            :                [resp-text-code] the rest of the message can contain
+<span class="lineNum">     695 </span>            :                pretty much any random text, which we can't parse
+<span class="lineNum">     696 </span>            :                as if it was valid IMAP input */
+<span class="lineNum">     697 </span><span class="lineCov">         13 :             parser-&gt;cur_resp_text = TRUE;</span>
+<span class="lineNum">     698 </span>            :         }
+<span class="lineNum">     699 </span><span class="lineCov">         65 :         break;</span>
+<span class="lineNum">     700 </span>            :     case ARG_PARSE_STRING:
+<span class="lineNum">     701 </span><span class="lineCov">        572 :         if (!imap_parser_read_string(parser, data, data_size))</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     703 </span><span class="lineCov">        572 :         break;</span>
+<span class="lineNum">     704 </span>            :     case ARG_PARSE_LITERAL8:
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :         if (parser-&gt;cur_pos == data_size)</span>
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         if (data[parser-&gt;cur_pos] != '{') {</span>
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;Expected '{'&quot;;</span>
+<span class="lineNum">     710 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     711 </span>            :         }
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :         parser-&gt;cur_type = ARG_PARSE_LITERAL;</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :         parser-&gt;cur_pos++;</span>
+<span class="lineNum">     714 </span>            :         /* fall through */
+<span class="lineNum">     715 </span>            :     case ARG_PARSE_LITERAL:
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :         if (!imap_parser_read_literal(parser, data, data_size))</span>
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span>            :         /* pass through to parsing data. since input-&gt;skip was
+<span class="lineNum">     720 </span>            :            modified, we need to get the data start position again. */
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :         data = i_stream_get_data(parser-&gt;input, &amp;data_size);</span>
+<span class="lineNum">     722 </span>            : 
+<span class="lineNum">     723 </span>            :         /* fall through */
+<span class="lineNum">     724 </span>            :     case ARG_PARSE_LITERAL_DATA:
+<span class="lineNum">     725 </span>            :     case ARG_PARSE_LITERAL_DATA_FORCED:
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :         if (!imap_parser_read_literal_data(parser, data, data_size))</span>
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     729 </span>            :     case ARG_PARSE_TEXT:
+<span class="lineNum">     730 </span><span class="lineCov">         13 :         if (!imap_parser_read_text(parser, data, data_size))</span>
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     732 </span><span class="lineCov">         13 :         break;</span>
+<span class="lineNum">     733 </span>            :     default:
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :                 i_unreached();</span>
+<span class="lineNum">     735 </span>            :     }
+<span class="lineNum">     736 </span>            : 
+<span class="lineNum">     737 </span><span class="lineCov">       1299 :     i_assert(parser-&gt;cur_type == ARG_PARSE_NONE);</span>
+<span class="lineNum">     738 </span><span class="lineCov">       1299 :     return TRUE;</span>
+<span class="lineNum">     739 </span>            : }
+<span class="lineNum">     740 </span>            : 
+<span class="lineNum">     741 </span>            : /* ARG_PARSE_NONE checks that last argument isn't only partially parsed. */
+<span class="lineNum">     742 </span>            : #define IS_UNFINISHED(parser) \
+<span class="lineNum">     743 </span>            :         ((parser)-&gt;cur_type != ARG_PARSE_NONE || \
+<span class="lineNum">     744 </span>            :      ((parser)-&gt;cur_list != &amp;parser-&gt;root_list &amp;&amp; \
+<a name="745"><span class="lineNum">     745 </span>            :      ((parser)-&gt;flags &amp; IMAP_PARSE_FLAG_STOP_AT_LIST) == 0))</a>
+<span class="lineNum">     746 </span>            : 
+<span class="lineNum">     747 </span><span class="lineCov">         51 : static int finish_line(struct imap_parser *parser, unsigned int count,</span>
+<span class="lineNum">     748 </span>            :                const struct imap_arg **args_r)
+<span class="lineNum">     749 </span>            : {
+<span class="lineNum">     750 </span>            :     struct imap_arg *arg;
+<span class="lineNum">     751 </span><span class="lineCov">         51 :     int ret = array_count(&amp;parser-&gt;root_list);</span>
+<span class="lineNum">     752 </span>            : 
+<span class="lineNum">     753 </span><span class="lineCov">         51 :     parser-&gt;line_size += parser-&gt;cur_pos;</span>
+<span class="lineNum">     754 </span><span class="lineCov">         51 :     i_stream_skip(parser-&gt;input, parser-&gt;cur_pos);</span>
+<span class="lineNum">     755 </span><span class="lineCov">         51 :     parser-&gt;cur_pos = 0;</span>
+<span class="lineNum">     756 </span><span class="lineCov">         51 :     parser-&gt;cur_resp_text = FALSE;</span>
+<span class="lineNum">     757 </span>            : 
+<span class="lineNum">     758 </span><span class="lineCov">         51 :     if (parser-&gt;list_arg != NULL &amp;&amp; !parser-&gt;literal_size_return &amp;&amp;</span>
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :         (parser-&gt;flags &amp; IMAP_PARSE_FLAG_STOP_AT_LIST) == 0) {</span>
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 :         parser-&gt;error = IMAP_PARSE_ERROR_BAD_SYNTAX;</span>
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :         parser-&gt;error_msg = &quot;Missing ')'&quot;;</span>
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :         *args_r = NULL;</span>
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     764 </span>            :     }
+<span class="lineNum">     765 </span>            : 
+<span class="lineNum">     766 </span><span class="lineCov">         51 :     arg = array_append_space(&amp;parser-&gt;root_list);</span>
+<span class="lineNum">     767 </span><span class="lineCov">         51 :     arg-&gt;type = IMAP_ARG_EOL;</span>
+<span class="lineNum">     768 </span><span class="lineCov">         51 :     parser-&gt;args_added_extra_eol = TRUE;</span>
+<span class="lineNum">     769 </span>            : 
+<span class="lineNum">     770 </span><span class="lineCov">         51 :     *args_r = array_get(&amp;parser-&gt;root_list, &amp;count);</span>
+<span class="lineNum">     771 </span><span class="lineCov">         51 :     return ret;</span>
+<a name="772"><span class="lineNum">     772 </span>            : }</a>
+<span class="lineNum">     773 </span>            : 
+<span class="lineNum">     774 </span><span class="lineCov">         58 : int imap_parser_read_args(struct imap_parser *parser, unsigned int count,</span>
+<span class="lineNum">     775 </span>            :               enum imap_parser_flags flags,
+<span class="lineNum">     776 </span>            :               const struct imap_arg **args_r)
+<span class="lineNum">     777 </span>            : {
+<span class="lineNum">     778 </span><span class="lineCov">         58 :     parser-&gt;flags = flags;</span>
+<span class="lineNum">     779 </span>            : 
+<span class="lineNum">     780 </span><span class="lineCov">         58 :     if (parser-&gt;args_added_extra_eol) {</span>
+<span class="lineNum">     781 </span>            :         /* delete EOL */
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :         array_delete(&amp;parser-&gt;root_list,</span>
+<span class="lineNum">     783 </span>            :                  array_count(&amp;parser-&gt;root_list)-1, 1);
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :         parser-&gt;args_added_extra_eol = FALSE;</span>
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :         parser-&gt;literal_size_return = FALSE;</span>
+<span class="lineNum">     786 </span>            :     }
+<span class="lineNum">     787 </span>            : 
+<span class="lineNum">     788 </span><span class="lineCov">       1504 :     while (!parser-&gt;eol &amp;&amp; (count == 0 || IS_UNFINISHED(parser) ||</span>
+<span class="lineNum">     789 </span><span class="lineNoCov">          0 :                 array_count(&amp;parser-&gt;root_list) &lt; count)) {</span>
+<span class="lineNum">     790 </span><span class="lineCov">       1446 :         if (!imap_parser_read_arg(parser))</span>
+<span class="lineNum">     791 </span><span class="lineCov">         58 :             break;</span>
+<span class="lineNum">     792 </span>            : 
+<span class="lineNum">     793 </span><span class="lineCov">       1388 :         if (parser-&gt;line_size &gt; parser-&gt;max_line_size) {</span>
+<span class="lineNum">     794 </span><span class="lineNoCov">          0 :             parser-&gt;error = IMAP_PARSE_ERROR_LINE_TOO_LONG;</span>
+<span class="lineNum">     795 </span><span class="lineNoCov">          0 :             parser-&gt;error_msg = &quot;IMAP command line too large&quot;;</span>
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     797 </span>            :         }
+<span class="lineNum">     798 </span>            :     }
+<span class="lineNum">     799 </span>            : 
+<span class="lineNum">     800 </span><span class="lineCov">         58 :     if (parser-&gt;error != IMAP_PARSE_ERROR_NONE) {</span>
+<span class="lineNum">     801 </span>            :         /* error, abort */
+<span class="lineNum">     802 </span><span class="lineCov">          1 :         parser-&gt;line_size += parser-&gt;cur_pos;</span>
+<span class="lineNum">     803 </span><span class="lineCov">          1 :         i_stream_skip(parser-&gt;input, parser-&gt;cur_pos);</span>
+<span class="lineNum">     804 </span><span class="lineCov">          1 :         parser-&gt;cur_pos = 0;</span>
+<span class="lineNum">     805 </span><span class="lineCov">          1 :         *args_r = NULL;</span>
+<span class="lineNum">     806 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     807 </span><span class="lineCov">         57 :     } else if ((!IS_UNFINISHED(parser) &amp;&amp; count &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     808 </span><span class="lineCov">         57 :             array_count(&amp;parser-&gt;root_list) &gt;= count) ||</span>
+<span class="lineNum">     809 </span><span class="lineCov">        100 :            parser-&gt;eol || parser-&gt;literal_size_return) {</span>
+<span class="lineNum">     810 </span>            :         /* all arguments read / end of line. */
+<span class="lineNum">     811 </span><span class="lineCov">         14 :                 return finish_line(parser, count, args_r);</span>
+<span class="lineNum">     812 </span>            :     } else {
+<span class="lineNum">     813 </span>            :         /* need more data */
+<span class="lineNum">     814 </span><span class="lineCov">         43 :         *args_r = NULL;</span>
+<span class="lineNum">     815 </span><span class="lineCov">         43 :         return -2;</span>
+<span class="lineNum">     816 </span>            :     }
+<span class="lineNum">     817 </span>            : }
+<a name="818"><span class="lineNum">     818 </span>            : </a>
+<span class="lineNum">     819 </span>            : static struct imap_arg *
+<span class="lineNum">     820 </span><span class="lineCov">         13 : imap_parser_get_last_literal_size(struct imap_parser *parser,</span>
+<span class="lineNum">     821 </span>            :                   ARRAY_TYPE(imap_arg_list) **list_r)
+<span class="lineNum">     822 </span>            : {
+<span class="lineNum">     823 </span>            :     ARRAY_TYPE(imap_arg_list) *list;
+<span class="lineNum">     824 </span>            :     struct imap_arg *args;
+<span class="lineNum">     825 </span>            :     unsigned int count;
+<span class="lineNum">     826 </span>            : 
+<span class="lineNum">     827 </span><span class="lineCov">         13 :     list = &amp;parser-&gt;root_list;</span>
+<span class="lineNum">     828 </span><span class="lineCov">         13 :     args = array_get_modifiable(&amp;parser-&gt;root_list, &amp;count);</span>
+<span class="lineNum">     829 </span><span class="lineCov">         13 :     i_assert(count &gt; 1 &amp;&amp; args[count-1].type == IMAP_ARG_EOL);</span>
+<span class="lineNum">     830 </span><span class="lineCov">         13 :     count--;</span>
+<span class="lineNum">     831 </span>            : 
+<span class="lineNum">     832 </span><span class="lineCov">         39 :     while (args[count-1].type != IMAP_ARG_LITERAL_SIZE &amp;&amp;</span>
+<span class="lineNum">     833 </span><span class="lineCov">         13 :            args[count-1].type != IMAP_ARG_LITERAL_SIZE_NONSYNC) {</span>
+<span class="lineNum">     834 </span><span class="lineCov">         13 :         if (args[count-1].type != IMAP_ARG_LIST)</span>
+<span class="lineNum">     835 </span><span class="lineCov">         13 :             return NULL;</span>
+<span class="lineNum">     836 </span>            : 
+<span class="lineNum">     837 </span>            :         /* maybe the list ends with literal size */
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :         list = &amp;args[count-1]._data.list;</span>
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :         args = array_get_modifiable(list, &amp;count);</span>
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :         if (count == 0)</span>
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :             return NULL;</span>
+<span class="lineNum">     842 </span>            :     }
+<span class="lineNum">     843 </span>            : 
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :     *list_r = list;</span>
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :     return &amp;args[count-1];</span>
+<a name="846"><span class="lineNum">     846 </span>            : }</a>
+<span class="lineNum">     847 </span>            : 
+<span class="lineNum">     848 </span><span class="lineCov">         13 : bool imap_parser_get_literal_size(struct imap_parser *parser, uoff_t *size_r)</span>
+<span class="lineNum">     849 </span>            : {
+<span class="lineNum">     850 </span>            :     ARRAY_TYPE(imap_arg_list) *list;
+<span class="lineNum">     851 </span>            :     struct imap_arg *last_arg;
+<span class="lineNum">     852 </span>            : 
+<span class="lineNum">     853 </span><span class="lineCov">         13 :     last_arg = imap_parser_get_last_literal_size(parser, &amp;list);</span>
+<span class="lineNum">     854 </span><span class="lineCov">         13 :     if (last_arg == NULL)</span>
+<span class="lineNum">     855 </span><span class="lineCov">         13 :         return FALSE;</span>
+<span class="lineNum">     856 </span>            : 
+<span class="lineNum">     857 </span><span class="lineNoCov">          0 :     return imap_arg_get_literal_size(last_arg, size_r);</span>
+<a name="858"><span class="lineNum">     858 </span>            : }</a>
+<span class="lineNum">     859 </span>            : 
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 : void imap_parser_read_last_literal(struct imap_parser *parser)</span>
+<span class="lineNum">     861 </span>            : {
+<span class="lineNum">     862 </span>            :     ARRAY_TYPE(imap_arg_list) *list;
+<span class="lineNum">     863 </span>            :     struct imap_arg *last_arg;
+<span class="lineNum">     864 </span>            : 
+<span class="lineNum">     865 </span><span class="lineNoCov">          0 :     i_assert(parser-&gt;literal_size_return);</span>
+<span class="lineNum">     866 </span>            : 
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :     last_arg = imap_parser_get_last_literal_size(parser, &amp;list);</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :     i_assert(last_arg != NULL);</span>
+<span class="lineNum">     869 </span>            : 
+<span class="lineNum">     870 </span><span class="lineNoCov">          0 :     parser-&gt;cur_type = ARG_PARSE_LITERAL_DATA_FORCED;</span>
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :     i_assert(parser-&gt;literal_size == last_arg-&gt;_data.literal_size);</span>
+<span class="lineNum">     872 </span>            : 
+<span class="lineNum">     873 </span>            :     /* delete EOL */
+<span class="lineNum">     874 </span><span class="lineNoCov">          0 :     array_delete(&amp;parser-&gt;root_list, array_count(&amp;parser-&gt;root_list)-1, 1);</span>
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :     parser-&gt;args_added_extra_eol = FALSE;</span>
+<span class="lineNum">     876 </span>            : 
+<span class="lineNum">     877 </span>            :     /* delete literal size */
+<span class="lineNum">     878 </span><span class="lineNoCov">          0 :     array_delete(list, array_count(list)-1, 1);</span>
+<span class="lineNum">     879 </span><span class="lineNoCov">          0 :     parser-&gt;literal_size_return = FALSE;</span>
+<a name="880"><span class="lineNum">     880 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     881 </span>            : 
+<span class="lineNum">     882 </span><span class="lineCov">         37 : int imap_parser_finish_line(struct imap_parser *parser, unsigned int count,</span>
+<span class="lineNum">     883 </span>            :                 enum imap_parser_flags flags,
+<span class="lineNum">     884 </span>            :                 const struct imap_arg **args_r)
+<span class="lineNum">     885 </span>            : {
+<span class="lineNum">     886 </span>            :     const unsigned char *data;
+<span class="lineNum">     887 </span>            :     size_t data_size;
+<span class="lineNum">     888 </span>            :     int ret;
+<span class="lineNum">     889 </span>            : 
+<span class="lineNum">     890 </span><span class="lineCov">         37 :     ret = imap_parser_read_args(parser, count, flags, args_r);</span>
+<span class="lineNum">     891 </span><span class="lineCov">         37 :     if (ret == -1)</span>
+<span class="lineNum">     892 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     893 </span><span class="lineCov">         37 :     if (ret == -2) {</span>
+<span class="lineNum">     894 </span>            :         /* we should have noticed end of everything except atom */
+<span class="lineNum">     895 </span><span class="lineCov">         37 :         if (parser-&gt;cur_type == ARG_PARSE_ATOM) {</span>
+<span class="lineNum">     896 </span><span class="lineCov">         30 :             data = i_stream_get_data(parser-&gt;input, &amp;data_size);</span>
+<span class="lineNum">     897 </span><span class="lineCov">         30 :             imap_parser_save_arg(parser, data, data_size);</span>
+<span class="lineNum">     898 </span>            :         }
+<span class="lineNum">     899 </span>            :     }
+<span class="lineNum">     900 </span><span class="lineCov">         37 :     return finish_line(parser, count, args_r);</span>
+<a name="901"><span class="lineNum">     901 </span>            : }</a>
+<span class="lineNum">     902 </span>            : 
+<span class="lineNum">     903 </span><span class="lineCov">         56 : const char *imap_parser_read_word(struct imap_parser *parser)</span>
+<span class="lineNum">     904 </span>            : {
+<span class="lineNum">     905 </span>            :     const unsigned char *data;
+<span class="lineNum">     906 </span>            :     size_t i, data_size;
+<span class="lineNum">     907 </span>            : 
+<span class="lineNum">     908 </span><span class="lineCov">         56 :     data = i_stream_get_data(parser-&gt;input, &amp;data_size);</span>
+<span class="lineNum">     909 </span>            : 
+<span class="lineNum">     910 </span><span class="lineCov">         84 :     for (i = 0; i &lt; data_size; i++) {</span>
+<span class="lineNum">     911 </span><span class="lineCov">         56 :         if (data[i] == ' ' || data[i] == '\r' || data[i] == '\n')</span>
+<span class="lineNum">     912 </span>            :             break;
+<span class="lineNum">     913 </span>            :     }
+<span class="lineNum">     914 </span>            : 
+<span class="lineNum">     915 </span><span class="lineCov">         56 :     if (i &lt; data_size) {</span>
+<span class="lineNum">     916 </span><span class="lineCov">         28 :         data_size = i + (data[i] == ' ' ? 1 : 0);</span>
+<span class="lineNum">     917 </span><span class="lineCov">         28 :         parser-&gt;line_size += data_size;</span>
+<span class="lineNum">     918 </span><span class="lineCov">         28 :         i_stream_skip(parser-&gt;input, data_size);</span>
+<span class="lineNum">     919 </span><span class="lineCov">         28 :         return p_strndup(parser-&gt;pool, data, i);</span>
+<span class="lineNum">     920 </span>            :     } else {
+<span class="lineNum">     921 </span><span class="lineCov">         28 :         return NULL;</span>
+<span class="lineNum">     922 </span>            :     }
+<span class="lineNum">     923 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,400 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/list/mailbox-list-subscriptions.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">lib-storage/list</a> - mailbox-list-subscriptions.c<span style="font-size: 80%;"> (source / <a href="mailbox-list-subscriptions.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">146</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;unichar.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;imap-match.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;subscription-file.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;mailbox-tree.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;mailbox-list-private.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;mailbox-list-subscriptions.h&quot;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : struct subscriptions_mailbox_list_iterate_context {
+<span class="lineNum">      16 </span>            :     struct mailbox_list_iterate_context ctx;
+<span class="lineNum">      17 </span>            :     struct mailbox_tree_context *tree;
+<span class="lineNum">      18 </span>            :     struct mailbox_tree_iterate_context *iter;
+<span class="lineNum">      19 </span>            :     struct mailbox_info info;
+<span class="lineNum">      20 </span>            : };
+<a name="21"><span class="lineNum">      21 </span>            : </a>
+<span class="lineNum">      22 </span>            : static int
+<span class="lineNum">      23 </span><span class="lineNoCov">          0 : mailbox_list_subscription_fill_one(struct mailbox_list *list,</span>
+<span class="lineNum">      24 </span>            :                    struct mailbox_list *src_list,
+<span class="lineNum">      25 </span>            :                    const char *name)
+<span class="lineNum">      26 </span>            : {
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 :     struct mail_namespace *ns, *default_ns = list-&gt;ns;</span>
+<span class="lineNum">      28 </span><span class="lineNoCov">          0 :     struct mail_namespace *namespaces = default_ns-&gt;user-&gt;namespaces;</span>
+<span class="lineNum">      29 </span>            :     struct mailbox_node *node;
+<span class="lineNum">      30 </span>            :     const char *vname, *ns_name, *error;
+<span class="lineNum">      31 </span>            :     size_t len;
+<span class="lineNum">      32 </span>            :     bool created;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :     /* default_ns is whatever namespace we're currently listing.
+<span class="lineNum">      35 </span>            :        if we have e.g. prefix=&quot;&quot; and prefix=pub/ namespaces with
+<span class="lineNum">      36 </span>            :        pub/ namespace having subscriptions=no, we want to:
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :        1) when listing &quot;&quot; namespace we want to skip over any names
+<span class="lineNum">      39 </span>            :        that begin with pub/. */
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :     if (src_list-&gt;ns-&gt;prefix_len == 0)</span>
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :         ns_name = name;</span>
+<span class="lineNum">      42 </span>            :     else {
+<span class="lineNum">      43 </span>            :         /* we could have two-level namespace: ns/ns2/ */
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :         ns_name = t_strconcat(src_list-&gt;ns-&gt;prefix, name, NULL);</span>
+<span class="lineNum">      45 </span>            :     }
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :     ns = mail_namespace_find_unsubscribable(namespaces, ns_name);</span>
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     if (ns != NULL &amp;&amp; ns != default_ns) {</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :         if (ns-&gt;prefix_len &gt; 0)</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">      50 </span>            :         /* prefix=&quot;&quot; namespace=no : catching this is basically the
+<span class="lineNum">      51 </span>            :            same as not finding any namespace. */
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :         ns = NULL;</span>
+<span class="lineNum">      53 </span>            :     }
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :     /* 2) when listing pub/ namespace, skip over entries that don't
+<span class="lineNum">      56 </span>            :        begin with pub/. */
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     if (ns == NULL &amp;&amp;</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :         (default_ns-&gt;flags &amp; NAMESPACE_FLAG_SUBSCRIPTIONS) == 0)</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            :     /* When listing shared namespace's subscriptions, we need to
+<span class="lineNum">      62 </span>            :        autocreate all the visible child namespaces. their subscriptions
+<span class="lineNum">      63 </span>            :        are listed later. */
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     if (ns != NULL &amp;&amp; mail_namespace_is_shared_user_root(ns)) {</span>
+<span class="lineNum">      65 </span>            :         /* we'll need to get the namespace autocreated.
+<span class="lineNum">      66 </span>            :            one easy way is to just ask to join a reference and
+<span class="lineNum">      67 </span>            :            pattern */
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         (void)mailbox_list_join_refpattern(ns-&gt;list, ns_name, &quot;&quot;);</span>
+<span class="lineNum">      69 </span>            :     }
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span>            :     /* When listing pub/ namespace, skip over the namespace
+<span class="lineNum">      72 </span>            :        prefix in the name. the rest of the name is storage_name. */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     if (ns == NULL)</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         ns = default_ns;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     else if (strncmp(ns_name, ns-&gt;prefix, ns-&gt;prefix_len) == 0) {</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         ns_name += ns-&gt;prefix_len;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         name = ns_name;</span>
+<span class="lineNum">      78 </span>            :     } else {
+<span class="lineNum">      79 </span>            :         /* &quot;pub&quot; entry - this shouldn't be possible normally, because
+<span class="lineNum">      80 </span>            :            it should be saved as &quot;pub/&quot;, but handle it anyway */
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         i_assert(strncmp(ns_name, ns-&gt;prefix, ns-&gt;prefix_len-1) == 0 &amp;&amp;</span>
+<span class="lineNum">      82 </span>            :              ns_name[ns-&gt;prefix_len-1] == '\0');
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         name = ns_name = &quot;&quot;;</span>
+<span class="lineNum">      84 </span>            :     }
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     len = strlen(name);</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     if (len &gt; 0 &amp;&amp; name[len-1] == mail_namespace_get_sep(ns)) {</span>
+<span class="lineNum">      88 </span>            :         /* entry ends with hierarchy separator, remove it.
+<span class="lineNum">      89 </span>            :            this exists mainly for backwards compatibility with old
+<span class="lineNum">      90 </span>            :            Dovecot versions and non-Dovecot software that added them */
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :         name = t_strndup(name, len-1);</span>
+<span class="lineNum">      92 </span>            :     }
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     if (!mailbox_list_is_valid_name(list, name, &amp;error)) {</span>
+<span class="lineNum">      95 </span>            :         /* we'll only get into trouble if we show this */
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      97 </span>            :     } else {
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         vname = mailbox_list_get_vname(list, name);</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         if (!uni_utf8_str_is_valid(vname))</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         node = mailbox_tree_get(list-&gt;subscriptions, vname, &amp;created);</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         node-&gt;flags = MAILBOX_SUBSCRIBED;</span>
+<span class="lineNum">     103 </span>            :     }
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="105"><span class="lineNum">     105 </span>            : }</a>
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 : int mailbox_list_subscriptions_refresh(struct mailbox_list *src_list,</span>
+<span class="lineNum">     108 </span>            :                        struct mailbox_list *dest_list)
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span>            :     struct subsfile_list_context *subsfile_ctx;
+<span class="lineNum">     111 </span>            :     struct stat st;
+<span class="lineNum">     112 </span>            :     enum mailbox_list_path_type type;
+<span class="lineNum">     113 </span>            :     const char *path, *name;
+<span class="lineNum">     114 </span>            :     char sep;
+<span class="lineNum">     115 </span>            :     int ret;
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span>            :     /* src_list is subscriptions=yes, dest_list is subscriptions=no
+<span class="lineNum">     118 </span>            :        (or the same as src_list) */
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     i_assert((src_list-&gt;ns-&gt;flags &amp; NAMESPACE_FLAG_SUBSCRIPTIONS) != 0);</span>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     if (dest_list-&gt;subscriptions == NULL) {</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :         sep = mail_namespace_get_sep(src_list-&gt;ns);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         dest_list-&gt;subscriptions = mailbox_tree_init(sep);</span>
+<span class="lineNum">     124 </span>            :     }
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     type = src_list-&gt;set.control_dir != NULL ?</span>
+<span class="lineNum">     127 </span>            :         MAILBOX_LIST_PATH_TYPE_CONTROL : MAILBOX_LIST_PATH_TYPE_DIR;
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (!mailbox_list_get_root_path(src_list, type, &amp;path) ||</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         src_list-&gt;set.subscription_fname == NULL) {</span>
+<span class="lineNum">     130 </span>            :         /* no subscriptions (e.g. pop3c) */
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     132 </span>            :     }
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     path = t_strconcat(path, &quot;/&quot;, src_list-&gt;set.subscription_fname, NULL);</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     if (stat(path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         if (errno == ENOENT) {</span>
+<span class="lineNum">     136 </span>            :             /* no subscriptions */
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             mailbox_tree_clear(dest_list-&gt;subscriptions);</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :             dest_list-&gt;subscriptions_mtime = 0;</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     140 </span>            :         }
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         mailbox_list_set_critical(dest_list, &quot;stat(%s) failed: %m&quot;,</span>
+<span class="lineNum">     142 </span>            :                       path);
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     144 </span>            :     }
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     if (st.st_mtime == dest_list-&gt;subscriptions_mtime &amp;&amp;</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         st.st_mtime &lt; dest_list-&gt;subscriptions_read_time-1) {</span>
+<span class="lineNum">     147 </span>            :         /* we're up to date */
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     149 </span>            :     }
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     mailbox_tree_clear(dest_list-&gt;subscriptions);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     dest_list-&gt;subscriptions_read_time = ioloop_time;</span>
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     subsfile_ctx = subsfile_list_init(dest_list, path);</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     if (subsfile_list_fstat(subsfile_ctx, &amp;st) == 0)</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         dest_list-&gt;subscriptions_mtime = st.st_mtime;</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     while ((name = subsfile_list_next(subsfile_ctx)) != NULL) T_BEGIN {</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :             ret = mailbox_list_subscription_fill_one(dest_list,</span>
+<span class="lineNum">     160 </span>            :                                  src_list, name);
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :             i_warning(&quot;Subscriptions file %s: &quot;</span>
+<span class="lineNum">     164 </span>            :                   &quot;Removing invalid entry: %s&quot;,
+<span class="lineNum">     165 </span>            :                   path, name);
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :             (void)subsfile_set_subscribed(src_list, path,</span>
+<span class="lineNum">     167 </span>            :                 mailbox_list_get_temp_prefix(src_list),
+<span class="lineNum">     168 </span>            :                 name, FALSE);
+<span class="lineNum">     169 </span>            : 
+<span class="lineNum">     170 </span>            :         }
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     if (subsfile_list_deinit(&amp;subsfile_ctx) &lt; 0) {</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         dest_list-&gt;subscriptions_mtime = (time_t)-1;</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     176 </span>            :     }
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="178"><span class="lineNum">     178 </span>            : }</a>
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 : void mailbox_list_set_subscription_flags(struct mailbox_list *list,</span>
+<span class="lineNum">     181 </span>            :                      const char *vname,
+<span class="lineNum">     182 </span>            :                      enum mailbox_info_flags *flags)
+<span class="lineNum">     183 </span>            : {
+<span class="lineNum">     184 </span>            :     struct mailbox_node *node;
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     *flags &amp;= ~(MAILBOX_SUBSCRIBED | MAILBOX_CHILD_SUBSCRIBED);</span>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     node = mailbox_tree_lookup(list-&gt;subscriptions, vname);</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     if (node != NULL) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         *flags |= node-&gt;flags &amp; MAILBOX_SUBSCRIBED;</span>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span>            :         /* the only reason why node might have a child is if one of
+<span class="lineNum">     193 </span>            :            them is subscribed */
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         if (node-&gt;children != NULL)</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :             *flags |= MAILBOX_CHILD_SUBSCRIBED;</span>
+<span class="lineNum">     196 </span>            :     }
+<a name="197"><span class="lineNum">     197 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 : void mailbox_list_subscriptions_fill(struct mailbox_list_iterate_context *ctx,</span>
+<span class="lineNum">     200 </span>            :                      struct mailbox_tree_context *tree,
+<span class="lineNum">     201 </span>            :                      bool default_nonexistent)
+<span class="lineNum">     202 </span>            : {
+<span class="lineNum">     203 </span>            :     struct mailbox_list_iter_update_context update_ctx;
+<span class="lineNum">     204 </span>            :     struct mailbox_tree_iterate_context *iter;
+<span class="lineNum">     205 </span>            :     const char *name;
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     i_zero(&amp;update_ctx);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     update_ctx.iter_ctx = ctx;</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     update_ctx.tree_ctx = tree;</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     update_ctx.glob = ctx-&gt;glob;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     update_ctx.leaf_flags = MAILBOX_SUBSCRIBED;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     if (default_nonexistent)</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         update_ctx.leaf_flags |= MAILBOX_NONEXISTENT;</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     update_ctx.parent_flags = MAILBOX_CHILD_SUBSCRIBED;</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     update_ctx.match_parents =</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :         (ctx-&gt;flags &amp; MAILBOX_LIST_ITER_SELECT_RECURSIVEMATCH) != 0;</span>
+<span class="lineNum">     217 </span>            : 
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     iter = mailbox_tree_iterate_init(ctx-&gt;list-&gt;subscriptions, NULL,</span>
+<span class="lineNum">     219 </span>            :                      MAILBOX_SUBSCRIBED);
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     while (mailbox_tree_iterate_next(iter, &amp;name) != NULL)</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         mailbox_list_iter_update(&amp;update_ctx, name);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     mailbox_tree_iterate_deinit(&amp;iter);</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 : }</span>
+<a name="224"><span class="lineNum">     224 </span>            : </a>
+<span class="lineNum">     225 </span>            : struct mailbox_list_iterate_context *
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 : mailbox_list_subscriptions_iter_init(struct mailbox_list *list,</span>
+<span class="lineNum">     227 </span>            :                      const char *const *patterns,
+<span class="lineNum">     228 </span>            :                      enum mailbox_list_iter_flags flags)
+<span class="lineNum">     229 </span>            : {
+<span class="lineNum">     230 </span>            :     struct subscriptions_mailbox_list_iterate_context *ctx;
+<span class="lineNum">     231 </span>            :     pool_t pool;
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     char sep = mail_namespace_get_sep(list-&gt;ns);</span>
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;mailbox list subscriptions iter&quot;, 1024);</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     ctx = p_new(pool, struct subscriptions_mailbox_list_iterate_context, 1);</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.pool = pool;</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.list = list;</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.flags = flags;</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.glob = imap_match_init_multiple(pool, patterns, TRUE, sep);</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     array_create(&amp;ctx-&gt;ctx.module_contexts, pool, sizeof(void *), 5);</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     ctx-&gt;tree = mailbox_tree_init(sep);</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     mailbox_list_subscriptions_fill(&amp;ctx-&gt;ctx, ctx-&gt;tree, FALSE);</span>
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     ctx-&gt;info.ns = list-&gt;ns;</span>
+<span class="lineNum">     246 </span>            :     /* the tree usually has only those entries we want to iterate through,
+<span class="lineNum">     247 </span>            :        but there are also non-matching root entries (e.g. &quot;LSUB foo/%&quot; will
+<span class="lineNum">     248 </span>            :        include the &quot;foo&quot;), which we'll drop with MAILBOX_MATCHED. */
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :     ctx-&gt;iter = mailbox_tree_iterate_init(ctx-&gt;tree, NULL, MAILBOX_MATCHED);</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     return &amp;ctx-&gt;ctx;</span>
+<span class="lineNum">     251 </span>            : }
+<a name="252"><span class="lineNum">     252 </span>            : </a>
+<span class="lineNum">     253 </span>            : const struct mailbox_info *
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 : mailbox_list_subscriptions_iter_next(struct mailbox_list_iterate_context *_ctx)</span>
+<span class="lineNum">     255 </span>            : {
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     struct subscriptions_mailbox_list_iterate_context *ctx =</span>
+<span class="lineNum">     257 </span>            :         (struct subscriptions_mailbox_list_iterate_context *)_ctx;
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     struct mailbox_list *list = _ctx-&gt;list;</span>
+<span class="lineNum">     259 </span>            :     struct mailbox_node *node;
+<span class="lineNum">     260 </span>            :     enum mailbox_info_flags subs_flags;
+<span class="lineNum">     261 </span>            :     const char *vname, *storage_name, *error;
+<span class="lineNum">     262 </span>            :     int ret;
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     node = mailbox_tree_iterate_next(ctx-&gt;iter, &amp;vname);</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     if (node == NULL)</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         return mailbox_list_iter_default_next(_ctx);</span>
+<span class="lineNum">     267 </span>            : 
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     ctx-&gt;info.vname = vname;</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     subs_flags = node-&gt;flags &amp; (MAILBOX_SUBSCRIBED |</span>
+<span class="lineNum">     270 </span>            :                     MAILBOX_CHILD_SUBSCRIBED);
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     if ((_ctx-&gt;flags &amp; MAILBOX_LIST_ITER_RETURN_NO_FLAGS) != 0 &amp;&amp;</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         (_ctx-&gt;flags &amp; MAILBOX_LIST_ITER_RETURN_CHILDREN) == 0) {</span>
+<span class="lineNum">     274 </span>            :         /* don't care about flags, just return it */
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         ctx-&gt;info.flags = subs_flags;</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         return &amp;ctx-&gt;info;</span>
+<span class="lineNum">     277 </span>            :     }
+<span class="lineNum">     278 </span>            : 
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     storage_name = mailbox_list_get_storage_name(list, vname);</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     if (!mailbox_list_is_valid_name(list, storage_name, &amp;error)) {</span>
+<span class="lineNum">     281 </span>            :         /* broken entry in subscriptions file */
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         ctx-&gt;info.flags = MAILBOX_NONEXISTENT;</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :     } else if (mailbox_list_mailbox(list, storage_name,</span>
+<span class="lineNum">     284 </span>            :                     &amp;ctx-&gt;info.flags) &lt; 0) {
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         ctx-&gt;info.flags = 0;</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :         _ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     } else if ((_ctx-&gt;flags &amp; MAILBOX_LIST_ITER_RETURN_CHILDREN) != 0 &amp;&amp;</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :            (ctx-&gt;info.flags &amp; (MAILBOX_CHILDREN |</span>
+<span class="lineNum">     289 </span>            :                        MAILBOX_NOCHILDREN)) == 0) {
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         ret = mailbox_has_children(list, storage_name);</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :             _ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         else if (ret == 0)</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             ctx-&gt;info.flags |= MAILBOX_NOCHILDREN;</span>
+<span class="lineNum">     295 </span>            :         else
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :             ctx-&gt;info.flags |= MAILBOX_CHILDREN;</span>
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span>            :     }
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     ctx-&gt;info.flags &amp;= ~(MAILBOX_SUBSCRIBED | MAILBOX_CHILD_SUBSCRIBED);</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     ctx-&gt;info.flags |=</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :         node-&gt;flags &amp; (MAILBOX_SUBSCRIBED | MAILBOX_CHILD_SUBSCRIBED);</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     return &amp;ctx-&gt;info;</span>
+<a name="304"><span class="lineNum">     304 </span>            : }</a>
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 : int mailbox_list_subscriptions_iter_deinit(struct mailbox_list_iterate_context *_ctx)</span>
+<span class="lineNum">     307 </span>            : {
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     struct subscriptions_mailbox_list_iterate_context *ctx =</span>
+<span class="lineNum">     309 </span>            :         (struct subscriptions_mailbox_list_iterate_context *)_ctx;
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     int ret = _ctx-&gt;failed ? -1 : 0;</span>
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     mailbox_tree_iterate_deinit(&amp;ctx-&gt;iter);</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     mailbox_tree_deinit(&amp;ctx-&gt;tree);</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     pool_unref(&amp;_ctx-&gt;pool);</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     316 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

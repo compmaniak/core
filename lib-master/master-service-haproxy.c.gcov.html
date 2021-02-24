@@ -1,0 +1,766 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-master/master-service-haproxy.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-master</a> - master-service-haproxy.c<span style="font-size: 80%;"> (source / <a href="master-service-haproxy.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">285</td>
+            <td class="headerCovTableEntryLo">1.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntryLo">7.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;llist.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str-sanitize.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;master-service-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;master-service-settings.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #define HAPROXY_V1_MAX_HEADER_SIZE (108)
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : #define PP2_TYPE_ALPN           0x01
+<span class="lineNum">      13 </span>            : #define PP2_TYPE_AUTHORITY      0x02
+<span class="lineNum">      14 </span>            : #define PP2_TYPE_CRC32C         0x03
+<span class="lineNum">      15 </span>            : #define PP2_TYPE_NOOP           0x04
+<span class="lineNum">      16 </span>            : #define PP2_TYPE_SSL            0x20
+<span class="lineNum">      17 </span>            : #define PP2_SUBTYPE_SSL_VERSION 0x21
+<span class="lineNum">      18 </span>            : #define PP2_SUBTYPE_SSL_CN      0x22
+<span class="lineNum">      19 </span>            : #define PP2_SUBTYPE_SSL_CIPHER  0x23
+<span class="lineNum">      20 </span>            : #define PP2_SUBTYPE_SSL_SIG_ALG 0x24
+<span class="lineNum">      21 </span>            : #define PP2_SUBTYPE_SSL_KEY_ALG 0x25
+<span class="lineNum">      22 </span>            : #define PP2_TYPE_NETNS          0x30
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : #define PP2_CLIENT_SSL      0x01
+<span class="lineNum">      25 </span>            : #define PP2_CLIENT_CERT_CONN    0x02
+<span class="lineNum">      26 </span>            : #define PP2_CLIENT_CERT_SESS    0x04
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : enum haproxy_version_t {
+<span class="lineNum">      29 </span>            :     HAPROXY_VERSION_1,
+<span class="lineNum">      30 </span>            :     HAPROXY_VERSION_2,
+<span class="lineNum">      31 </span>            : };
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : enum {
+<span class="lineNum">      34 </span>            :     HAPROXY_CMD_LOCAL = 0x00,
+<span class="lineNum">      35 </span>            :     HAPROXY_CMD_PROXY = 0x01
+<span class="lineNum">      36 </span>            : };
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            : enum {
+<span class="lineNum">      39 </span>            :     HAPROXY_AF_UNSPEC = 0x00,
+<span class="lineNum">      40 </span>            :     HAPROXY_AF_INET   = 0x01,
+<span class="lineNum">      41 </span>            :     HAPROXY_AF_INET6  = 0x02,
+<span class="lineNum">      42 </span>            :     HAPROXY_AF_UNIX   = 0x03
+<span class="lineNum">      43 </span>            : };
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            : enum {
+<span class="lineNum">      46 </span>            :     HAPROXY_SOCK_UNSPEC = 0x00,
+<span class="lineNum">      47 </span>            :     HAPROXY_SOCK_STREAM = 0x01,
+<span class="lineNum">      48 </span>            :     HAPROXY_SOCK_DGRAM  = 0x02
+<span class="lineNum">      49 </span>            : };
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            : static const char haproxy_v2sig[12] =
+<span class="lineNum">      52 </span>            :     &quot;\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A&quot;;
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            : struct haproxy_header_v2 {
+<span class="lineNum">      55 </span>            :     uint8_t sig[12];
+<span class="lineNum">      56 </span>            :     uint8_t ver_cmd;
+<span class="lineNum">      57 </span>            :     uint8_t fam;
+<span class="lineNum">      58 </span>            :     uint16_t len;
+<span class="lineNum">      59 </span>            : };
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            : struct haproxy_data_v2 {
+<span class="lineNum">      62 </span>            :     union {
+<span class="lineNum">      63 </span>            :         struct {  /* for TCP/UDP over IPv4, len = 12 */
+<span class="lineNum">      64 </span>            :             uint32_t src_addr;
+<span class="lineNum">      65 </span>            :             uint32_t dst_addr;
+<span class="lineNum">      66 </span>            :             uint16_t src_port;
+<span class="lineNum">      67 </span>            :             uint16_t dst_port;
+<span class="lineNum">      68 </span>            :         } ip4;
+<span class="lineNum">      69 </span>            :         struct {  /* for TCP/UDP over IPv6, len = 36 */
+<span class="lineNum">      70 </span>            :             uint8_t  src_addr[16];
+<span class="lineNum">      71 </span>            :             uint8_t  dst_addr[16];
+<span class="lineNum">      72 </span>            :             uint16_t src_port;
+<span class="lineNum">      73 </span>            :             uint16_t dst_port;
+<span class="lineNum">      74 </span>            :         } ip6;
+<span class="lineNum">      75 </span>            :         struct {  /* for AF_UNIX sockets, len = 216 */
+<span class="lineNum">      76 </span>            :             uint8_t src_addr[108];
+<span class="lineNum">      77 </span>            :             uint8_t dst_addr[108];
+<span class="lineNum">      78 </span>            :         } unx;
+<span class="lineNum">      79 </span>            :     } addr;
+<span class="lineNum">      80 </span>            : };
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span>            : #define SIZEOF_PP2_TLV (1U+2U)
+<span class="lineNum">      83 </span>            : struct haproxy_pp2_tlv {
+<span class="lineNum">      84 </span>            :     uint8_t type;
+<span class="lineNum">      85 </span>            :     uint16_t len;
+<span class="lineNum">      86 </span>            :     const unsigned char *data;
+<span class="lineNum">      87 </span>            : };
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span>            : #define SIZEOF_PP2_TLV_SSL (1U+4U)
+<span class="lineNum">      90 </span>            : struct haproxy_pp2_tlv_ssl {
+<span class="lineNum">      91 </span>            :     uint8_t client;
+<span class="lineNum">      92 </span>            :     uint32_t verify;
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span>            :     size_t len;
+<span class="lineNum">      95 </span>            :     const unsigned char *data;
+<span class="lineNum">      96 </span>            : };
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span>            : struct master_service_haproxy_conn {
+<span class="lineNum">      99 </span>            :     struct master_service_connection conn;
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span>            :     pool_t pool;
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span>            :     struct master_service_haproxy_conn *prev, *next;
+<span class="lineNum">     104 </span>            :     
+<span class="lineNum">     105 </span>            :     struct master_service *service;
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span>            :     struct io *io;
+<span class="lineNum">     108 </span>            :     struct timeout *to;
+<span class="lineNum">     109 </span>            : };
+<a name="110"><span class="lineNum">     110 </span>            : </a>
+<span class="lineNum">     111 </span>            : static void
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 : master_service_haproxy_conn_free(struct master_service_haproxy_conn *hpconn)</span>
+<span class="lineNum">     113 </span>            : {
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     struct master_service *service = hpconn-&gt;service;</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     DLLIST_REMOVE(&amp;service-&gt;haproxy_conns, hpconn);</span>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     io_remove(&amp;hpconn-&gt;io);</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;hpconn-&gt;to);</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     pool_unref(&amp;hpconn-&gt;pool);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 : }</span>
+<a name="122"><span class="lineNum">     122 </span>            : </a>
+<span class="lineNum">     123 </span>            : static void
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 : master_service_haproxy_conn_failure(struct master_service_haproxy_conn *hpconn)</span>
+<span class="lineNum">     125 </span>            : {
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     struct master_service *service = hpconn-&gt;service;</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     struct master_service_connection conn = hpconn-&gt;conn;</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     master_service_haproxy_conn_free(hpconn);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     master_service_client_connection_handled(service, &amp;conn);</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 : }</span>
+<a name="132"><span class="lineNum">     132 </span>            : </a>
+<span class="lineNum">     133 </span>            : static void
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 : master_service_haproxy_conn_success(struct master_service_haproxy_conn *hpconn)</span>
+<span class="lineNum">     135 </span>            : {
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     struct master_service *service = hpconn-&gt;service;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     struct master_service_connection conn = hpconn-&gt;conn;</span>
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     master_service_haproxy_conn_free(hpconn);</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     master_service_client_connection_callback(service, &amp;conn);</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 : }</span>
+<a name="142"><span class="lineNum">     142 </span>            : </a>
+<span class="lineNum">     143 </span>            : static void
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 : master_service_haproxy_timeout(struct master_service_haproxy_conn *hpconn)</span>
+<span class="lineNum">     145 </span>            : {
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     i_error(&quot;haproxy: Client timed out (rip=%s)&quot;,</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :         net_ip2addr(&amp;hpconn-&gt;conn.remote_ip));</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     master_service_haproxy_conn_failure(hpconn);</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 : }</span>
+<a name="150"><span class="lineNum">     150 </span>            : </a>
+<span class="lineNum">     151 </span>            : static int
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 : master_service_haproxy_recv(int fd, void *buf, size_t len, int flags)</span>
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span>            :     ssize_t ret;
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span>            :     do {
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         ret = recv(fd, buf, len, flags);</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     } while (ret &lt; 0 &amp;&amp; errno == EINTR);</span>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     if (ret &lt; 0 &amp;&amp; errno == EAGAIN)</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :             errno = ECONNRESET;</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     166 </span>            :     }
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="169"><span class="lineNum">     169 </span>            : }</a>
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 : static int get_ssl_tlv(const unsigned char *kvdata, size_t dlen,</span>
+<span class="lineNum">     172 </span>            :                struct haproxy_pp2_tlv_ssl *kv)
+<span class="lineNum">     173 </span>            : {
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     if (dlen &lt; SIZEOF_PP2_TLV_SSL)</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     kv-&gt;client = kvdata[0];</span>
+<span class="lineNum">     177 </span>            :     /* spec does not specify the endianess of this field */
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     kv-&gt;verify = cpu32_to_cpu_unaligned(kvdata+1);</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     kv-&gt;data = kvdata+SIZEOF_PP2_TLV_SSL;</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :     kv-&gt;len = dlen - SIZEOF_PP2_TLV_SSL;</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="182"><span class="lineNum">     182 </span>            : }</a>
+<span class="lineNum">     183 </span>            : 
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 : static int get_tlv(const unsigned char *kvdata, size_t dlen,</span>
+<span class="lineNum">     185 </span>            :            struct haproxy_pp2_tlv *kv)
+<span class="lineNum">     186 </span>            : {
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :     if (dlen &lt; SIZEOF_PP2_TLV)</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     189 </span>            : 
+<span class="lineNum">     190 </span>            :     /* spec says
+<span class="lineNum">     191 </span>            :         uint8_t type
+<span class="lineNum">     192 </span>            :         uint8_t len_hi
+<span class="lineNum">     193 </span>            :         uint8_t len_lo
+<span class="lineNum">     194 </span>            :       so we combine the hi and lo here. */
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     kv-&gt;type = kvdata[0];</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     kv-&gt;len = (kvdata[1]&lt;&lt;8)+kvdata[2];</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     kv-&gt;data = kvdata + SIZEOF_PP2_TLV;</span>
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     if (kv-&gt;len + SIZEOF_PP2_TLV &gt; dlen)</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     203 </span>            : }
+<a name="204"><span class="lineNum">     204 </span>            : </a>
+<span class="lineNum">     205 </span>            : static int
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 : master_service_haproxy_parse_ssl_tlv(struct master_service_haproxy_conn *hpconn,</span>
+<span class="lineNum">     207 </span>            :                      const struct haproxy_pp2_tlv_ssl *ssl_kv,
+<span class="lineNum">     208 </span>            :                      const char **error_r)
+<span class="lineNum">     209 </span>            : {
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn.proxy.ssl = (ssl_kv-&gt;client &amp; (PP2_CLIENT_SSL)) != 0;</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span>            :     /* try parse some more */
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     for(size_t i = 0; i &lt; ssl_kv-&gt;len;) {</span>
+<span class="lineNum">     214 </span>            :         struct haproxy_pp2_tlv kv;
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         if (get_tlv(ssl_kv-&gt;data + i, ssl_kv-&gt;len - i, &amp;kv) &lt; 0) {</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;get_tlv(%&quot;PRIuSIZE_T&quot;) failed:&quot;</span>
+<span class="lineNum">     217 </span>            :                            &quot;Truncated data&quot;, i);
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     219 </span>            :         }
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         i += SIZEOF_PP2_TLV + kv.len;</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         switch(kv.type) {</span>
+<span class="lineNum">     222 </span>            :         /* we don't care about these */
+<span class="lineNum">     223 </span>            :         case PP2_SUBTYPE_SSL_CIPHER:
+<span class="lineNum">     224 </span>            :         case PP2_SUBTYPE_SSL_SIG_ALG:
+<span class="lineNum">     225 </span>            :         case PP2_SUBTYPE_SSL_KEY_ALG:
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     227 </span>            :         case PP2_SUBTYPE_SSL_CN:
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :             hpconn-&gt;conn.proxy.cert_common_name =</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :                 p_strndup(hpconn-&gt;pool, kv.data, kv.len);</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     231 </span>            :         }
+<span class="lineNum">     232 </span>            :     }
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     234 </span>            : }
+<a name="235"><span class="lineNum">     235 </span>            : </a>
+<span class="lineNum">     236 </span>            : static int
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 : master_service_haproxy_parse_tlv(struct master_service_haproxy_conn *hpconn,</span>
+<span class="lineNum">     238 </span>            :                  const unsigned char *buf, size_t blen,
+<span class="lineNum">     239 </span>            :                  const char **error_r)
+<span class="lineNum">     240 </span>            : {
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     for(size_t i = 0; i &lt; blen;) {</span>
+<span class="lineNum">     242 </span>            :         struct haproxy_pp2_tlv kv;
+<span class="lineNum">     243 </span>            :                 struct haproxy_pp2_tlv_ssl ssl_kv;
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         if (get_tlv(buf + i, blen - i, &amp;kv) &lt; 0) {</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;get_tlv(%&quot;PRIuSIZE_T&quot;) failed:&quot;</span>
+<span class="lineNum">     247 </span>            :                            &quot;Truncated data&quot;, i);
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     249 </span>            :         }
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span>            :                 /* skip unsupported values */
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :                 switch(kv.type) {</span>
+<span class="lineNum">     253 </span>            :         case PP2_TYPE_ALPN:
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :             hpconn-&gt;conn.proxy.alpn_size = kv.len;</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :             hpconn-&gt;conn.proxy.alpn =</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :                 p_memdup(hpconn-&gt;pool, kv.data, kv.len);</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     258 </span>            :                 case PP2_TYPE_AUTHORITY:
+<span class="lineNum">     259 </span>            :                         /* store hostname somewhere */
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :                         hpconn-&gt;conn.proxy.hostname =</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :                 p_strndup(hpconn-&gt;pool, kv.data, kv.len);</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     263 </span>            :                 case PP2_TYPE_SSL:
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :             if (get_ssl_tlv(kv.data, kv.len, &amp;ssl_kv) &lt; 0) {</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :                 *error_r = t_strdup_printf(&quot;get_ssl_tlv(%&quot;PRIuSIZE_T&quot;) failed:&quot;</span>
+<span class="lineNum">     266 </span>            :                                &quot;Truncated data&quot;, i);
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     268 </span>            :             }
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :                         if (master_service_haproxy_parse_ssl_tlv(hpconn, &amp;ssl_kv, error_r)&lt;0)</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     272 </span>            :         }
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         i += SIZEOF_PP2_TLV + kv.len;</span>
+<span class="lineNum">     274 </span>            :         }
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     276 </span>            : }
+<a name="277"><span class="lineNum">     277 </span>            : </a>
+<span class="lineNum">     278 </span>            : static int
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 : master_service_haproxy_read(struct master_service_haproxy_conn *hpconn)</span>
+<span class="lineNum">     280 </span>            : {
+<span class="lineNum">     281 </span>            :     /* reasonable max size for haproxy data */
+<span class="lineNum">     282 </span>            :     unsigned char rbuf[1500];
+<span class="lineNum">     283 </span>            :     const char *error;
+<span class="lineNum">     284 </span>            :     static union {
+<span class="lineNum">     285 </span>            :         unsigned char v1_data[HAPROXY_V1_MAX_HEADER_SIZE];
+<span class="lineNum">     286 </span>            :         struct {
+<span class="lineNum">     287 </span>            :             const struct haproxy_header_v2 hdr;
+<span class="lineNum">     288 </span>            :             const struct haproxy_data_v2 data;
+<span class="lineNum">     289 </span>            :         } v2;
+<span class="lineNum">     290 </span>            :     } buf;
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     struct ip_addr *real_remote_ip = &amp;hpconn-&gt;conn.remote_ip;</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     int fd = hpconn-&gt;conn.fd;</span>
+<span class="lineNum">     293 </span>            :     struct ip_addr local_ip, remote_ip;
+<span class="lineNum">     294 </span>            :     in_port_t local_port, remote_port;
+<span class="lineNum">     295 </span>            :     size_t size,i,want;
+<span class="lineNum">     296 </span>            :     ssize_t ret;
+<span class="lineNum">     297 </span>            :     enum haproxy_version_t version;
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span>            :     /* the protocol specification explicitly states that the protocol header
+<span class="lineNum">     300 </span>            :        must be sent as one TCP frame, meaning that we will get it in full
+<span class="lineNum">     301 </span>            :        with the first recv() call.
+<span class="lineNum">     302 </span>            :      */
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     i_zero(&amp;buf);</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     i_zero(rbuf);</span>
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span>            :     /* see if there is a HAPROXY protocol command waiting */
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     if ((ret = master_service_haproxy_recv(fd, &amp;buf, sizeof(buf), MSG_PEEK))&lt;=0) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :             i_info(&quot;haproxy: Client disconnected (rip=%s): %m&quot;,</span>
+<span class="lineNum">     310 </span>            :                    net_ip2addr(real_remote_ip));
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     312 </span>            :     /* see if there is a haproxy command, 8 is used later on as well */
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     } else if (ret &gt;= 8 &amp;&amp; memcmp(buf.v1_data, &quot;PROXY&quot;, 5) == 0) {</span>
+<span class="lineNum">     314 </span>            :         /* fine */
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         version = HAPROXY_VERSION_1;</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     } else if ((size_t)ret &gt;= sizeof(buf.v2.hdr) &amp;&amp;</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :            memcmp(buf.v2.hdr.sig, haproxy_v2sig, sizeof(haproxy_v2sig)) == 0) {</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         want = ntohs(buf.v2.hdr.len) + sizeof(buf.v2.hdr);</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         if (want &gt; sizeof(rbuf)) {</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy: Client disconnected: Too long header (rip=%s)&quot;,</span>
+<span class="lineNum">     321 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     323 </span>            :         }
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :         if ((ret = master_service_haproxy_recv(fd, rbuf, want, MSG_WAITALL))&lt;=0) {</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :             if (ret &lt; 0)</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :                 i_info(&quot;haproxy: Client disconnected (rip=%s): %m&quot;,</span>
+<span class="lineNum">     328 </span>            :                        net_ip2addr(real_remote_ip));
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     330 </span>            :         }
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :         if (ret != (ssize_t)want) {</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :             i_info(&quot;haproxy: Client disconnected: Failed to read full header (rip=%s)&quot;,</span>
+<span class="lineNum">     334 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     336 </span>            :         }
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :         memcpy(&amp;buf, rbuf, sizeof(buf));</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :         version = HAPROXY_VERSION_2;</span>
+<span class="lineNum">     339 </span>            :     } else {
+<span class="lineNum">     340 </span>            :         /* it wasn't haproxy data */
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :         i_error(&quot;haproxy: Client disconnected: &quot;</span>
+<span class="lineNum">     342 </span>            :             &quot;Failed to read valid HAproxy data (rip=%s)&quot;,
+<span class="lineNum">     343 </span>            :             net_ip2addr(real_remote_ip));
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     345 </span>            :     }
+<span class="lineNum">     346 </span>            : 
+<span class="lineNum">     347 </span>            :     /* don't update true connection data until we succeed */
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     local_ip = hpconn-&gt;conn.local_ip;</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     remote_ip = hpconn-&gt;conn.remote_ip;</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :     local_port = hpconn-&gt;conn.local_port;</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     remote_port = hpconn-&gt;conn.remote_port;</span>
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span>            :     /* protocol version 2 */
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     if (version == HAPROXY_VERSION_2) {</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         const struct haproxy_header_v2 *hdr = &amp;buf.v2.hdr;</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         const struct haproxy_data_v2 *data = &amp;buf.v2.data;</span>
+<span class="lineNum">     357 </span>            :         size_t hdr_len;
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :         i_assert(ret &gt;= (ssize_t)sizeof(buf.v2.hdr));</span>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         if ((hdr-&gt;ver_cmd &amp; 0xf0) != 0x20) {</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy: Client disconnected: &quot;</span>
+<span class="lineNum">     363 </span>            :                 &quot;Unsupported protocol version (version=%02x, rip=%s)&quot;,
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :                 (hdr-&gt;ver_cmd &amp; 0xf0) &gt;&gt; 4,</span>
+<span class="lineNum">     365 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     367 </span>            :         }
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         hdr_len = ntohs(hdr-&gt;len);</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         size = sizeof(*hdr) + hdr_len;</span>
+<span class="lineNum">     371 </span>            :         /* keep tab of how much address data there really is because
+<span class="lineNum">     372 </span>            :            because TLVs begin after that. */
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :         i = 0;</span>
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :         if (ret &lt; (ssize_t)size) {</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     377 </span>            :                 &quot;Protocol payload length does not match header &quot;
+<span class="lineNum">     378 </span>            :                 &quot;(got=%&quot;PRIuSIZE_T&quot;, expect=%&quot;PRIuSIZE_T&quot;, rip=%s)&quot;,
+<span class="lineNum">     379 </span>            :                 (size_t)ret, size, net_ip2addr(real_remote_ip));
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     381 </span>            :         }
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         i += sizeof(*hdr);</span>
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :         switch (hdr-&gt;ver_cmd &amp; 0x0f) {</span>
+<span class="lineNum">     386 </span>            :         case HAPROXY_CMD_LOCAL:
+<span class="lineNum">     387 </span>            :             /* keep local connection address for LOCAL */
+<span class="lineNum">     388 </span>            :             /*i_debug(&quot;haproxy(v2): Local connection (rip=%s)&quot;,
+<span class="lineNum">     389 </span>            :                 net_ip2addr(real_remote_ip));*/
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     391 </span>            :         case HAPROXY_CMD_PROXY:
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :             if ((hdr-&gt;fam &amp; 0x0f) != HAPROXY_SOCK_STREAM) {</span>
+<span class="lineNum">     393 </span>            :                 /* UDP makes no sense currently */
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     395 </span>            :                     &quot;Not using TCP (type=%02x, rip=%s)&quot;,
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :                     (hdr-&gt;fam &amp; 0x0f), net_ip2addr(real_remote_ip));</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     398 </span>            :             }
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :             switch ((hdr-&gt;fam &amp; 0xf0) &gt;&gt; 4) {</span>
+<span class="lineNum">     400 </span>            :             case HAPROXY_AF_INET:
+<span class="lineNum">     401 </span>            :                 /* IPv4 */
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :                 if (hdr_len &lt; sizeof(data-&gt;addr.ip4)) {</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :                     i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     404 </span>            :                         &quot;IPv4 data is incomplete (rip=%s)&quot;,
+<span class="lineNum">     405 </span>            :                         net_ip2addr(real_remote_ip));
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     407 </span>            :                 }
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :                 local_ip.family = AF_INET;</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :                 local_ip.u.ip4.s_addr = data-&gt;addr.ip4.dst_addr;</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :                 local_port = ntohs(data-&gt;addr.ip4.dst_port);</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :                 remote_ip.family = AF_INET;</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :                 remote_ip.u.ip4.s_addr = data-&gt;addr.ip4.src_addr;</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :                 remote_port = ntohs(data-&gt;addr.ip4.src_port);</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :                 i += sizeof(data-&gt;addr.ip4);</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     416 </span>            :             case HAPROXY_AF_INET6:
+<span class="lineNum">     417 </span>            :                 /* IPv6 */
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :                 if (hdr_len &lt; sizeof(data-&gt;addr.ip6)) {</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :                     i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     420 </span>            :                         &quot;IPv6 data is incomplete (rip=%s)&quot;,
+<span class="lineNum">     421 </span>            :                         net_ip2addr(real_remote_ip));
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     423 </span>            :                 }
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :                 local_ip.family = AF_INET6;</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :                 memcpy(&amp;local_ip.u.ip6.s6_addr, data-&gt;addr.ip6.dst_addr, 16);</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :                 local_port = ntohs(data-&gt;addr.ip6.dst_port);</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :                 remote_ip.family = AF_INET6;</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :                 memcpy(&amp;remote_ip.u.ip6.s6_addr, data-&gt;addr.ip6.src_addr, 16);</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :                 remote_port = ntohs(data-&gt;addr.ip6.src_port);</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :                 i += sizeof(data-&gt;addr.ip6);</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     432 </span>            :             case HAPROXY_AF_UNSPEC:
+<span class="lineNum">     433 </span>            :             case HAPROXY_AF_UNIX:
+<span class="lineNum">     434 </span>            :                 /* unsupported; ignored */
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v2): Unsupported address family &quot;</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :                     &quot;(family=%02x, rip=%s)&quot;, (hdr-&gt;fam &amp; 0xf0) &gt;&gt; 4,</span>
+<span class="lineNum">     437 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     439 </span>            :             default:
+<span class="lineNum">     440 </span>            :                 /* unsupported; error */
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     442 </span>            :                     &quot;Unknown address family &quot;
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :                     &quot;(family=%02x, rip=%s)&quot;, (hdr-&gt;fam &amp; 0xf0) &gt;&gt; 4,</span>
+<span class="lineNum">     444 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     446 </span>            :             }
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     448 </span>            :         default:
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     450 </span>            :                 &quot;Invalid command (cmd=%02x, rip=%s)&quot;,
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :                 (hdr-&gt;ver_cmd &amp; 0x0f),</span>
+<span class="lineNum">     452 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :             return -1; /* not a supported command */</span>
+<span class="lineNum">     454 </span>            :         }
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :         if (master_service_haproxy_parse_tlv(hpconn, rbuf+i, size-i, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy(v2): Client disconnected: &quot;</span>
+<span class="lineNum">     458 </span>            :                 &quot;Invalid TLV: %s (cmd=%02x, rip=%s)&quot;,
+<span class="lineNum">     459 </span>            :                 error,
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :                 (hdr-&gt;ver_cmd &amp; 0x0f),</span>
+<span class="lineNum">     461 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     463 </span>            :         }
+<span class="lineNum">     464 </span>            :     /* protocol version 1 (soon obsolete) */
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     } else if (version == HAPROXY_VERSION_1) {</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :         unsigned char *data = buf.v1_data, *end;</span>
+<span class="lineNum">     467 </span>            :         const char *const *fields;
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         unsigned int family = 0;</span>
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :         i_assert(ret &gt;= 8);</span>
+<span class="lineNum">     471 </span>            : 
+<span class="lineNum">     472 </span>            :         /* find end of header line */
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         end = memchr(data, '\r', ret - 1);</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         if (end == NULL || end[1] != '\n')</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         *end = '\0';</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         size = end + 2 - data;</span>
+<span class="lineNum">     478 </span>            : 
+<span class="lineNum">     479 </span>            :         /* magic */
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :         fields = t_strsplit((char *)data, &quot; &quot;);</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         i_assert(strcmp(*fields, &quot;PROXY&quot;) == 0);</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         fields++;</span>
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span>            :         /* protocol */
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         if (*fields == NULL) {</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     487 </span>            :                 &quot;Field for proxied protocol is missing &quot;
+<span class="lineNum">     488 </span>            :                 &quot;(rip=%s)&quot;, net_ip2addr(real_remote_ip));
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     490 </span>            :         }
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :         if (strcmp(*fields, &quot;TCP4&quot;) == 0) {</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :             family = AF_INET;</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :         } else if (strcmp(*fields, &quot;TCP6&quot;) == 0) {</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :             family = AF_INET6;</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :         } else if (strcmp(*fields, &quot;UNKNOWN&quot;) == 0) {</span>
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :             family = 0;</span>
+<span class="lineNum">     497 </span>            :         } else {
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     499 </span>            :                 &quot;Unknown proxied protocol &quot;
+<span class="lineNum">     500 </span>            :                 &quot;(protocol=`%s', rip=%s)&quot;, str_sanitize(*fields, 64),
+<span class="lineNum">     501 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     503 </span>            :         }
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :         fields++;</span>
+<span class="lineNum">     505 </span>            : 
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :         if (family != 0) {</span>
+<span class="lineNum">     507 </span>            :             /* remote address */
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :             if (*fields == NULL) {</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     510 </span>            :                     &quot;Field for proxied remote address is missing &quot;
+<span class="lineNum">     511 </span>            :                     &quot;(rip=%s)&quot;, net_ip2addr(real_remote_ip));
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     513 </span>            :             }
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :             if (net_addr2ip(*fields, &amp;remote_ip) &lt; 0 ||</span>
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :                 remote_ip.family != family) {</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     517 </span>            :                     &quot;Proxied remote address is invalid &quot;
+<span class="lineNum">     518 </span>            :                     &quot;(address=`%s', rip=%s)&quot;, str_sanitize(*fields, 64),
+<span class="lineNum">     519 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     521 </span>            :             }
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :             fields++;</span>
+<span class="lineNum">     523 </span>            : 
+<span class="lineNum">     524 </span>            :             /* local address */
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             if (*fields == NULL) {</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     527 </span>            :                     &quot;Field for proxied local address is missing &quot;
+<span class="lineNum">     528 </span>            :                     &quot;(rip=%s)&quot;, net_ip2addr(real_remote_ip));
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     530 </span>            :             }
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :             if (net_addr2ip(*fields, &amp;local_ip) &lt; 0 ||</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :                 local_ip.family != family) {</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     534 </span>            :                     &quot;Proxied local address is invalid &quot;
+<span class="lineNum">     535 </span>            :                     &quot;(address=`%s', rip=%s)&quot;, str_sanitize(*fields, 64),
+<span class="lineNum">     536 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     538 </span>            :             }
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :             fields++;</span>
+<span class="lineNum">     540 </span>            : 
+<span class="lineNum">     541 </span>            :             /* remote port */
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :             if (*fields == NULL) {</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     544 </span>            :                     &quot;Field for proxied local port is missing &quot;
+<span class="lineNum">     545 </span>            :                     &quot;(rip=%s)&quot;, net_ip2addr(real_remote_ip));
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     547 </span>            :             }
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :             if (net_str2port(*fields, &amp;remote_port) &lt; 0) {</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     550 </span>            :                     &quot;Proxied remote port is invalid &quot;
+<span class="lineNum">     551 </span>            :                     &quot;(port=`%s', rip=%s)&quot;, str_sanitize(*fields, 64),
+<span class="lineNum">     552 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     554 </span>            :             }
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :             fields++;</span>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span>            :             /* local port */
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :             if (*fields == NULL) {</span>
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     560 </span>            :                     &quot;Field for proxied local port is missing &quot;
+<span class="lineNum">     561 </span>            :                     &quot;(rip=%s)&quot;, net_ip2addr(real_remote_ip));
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     563 </span>            :             }
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :             if (net_str2port(*fields, &amp;local_port) &lt; 0) {</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     566 </span>            :                     &quot;Proxied local port is invalid &quot;
+<span class="lineNum">     567 </span>            :                     &quot;(port=`%s', rip=%s)&quot;, str_sanitize(*fields, 64),
+<span class="lineNum">     568 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     570 </span>            :             }
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :             fields++;</span>
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :             if (*fields != NULL) {</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :                 i_error(&quot;haproxy(v1): Client disconnected: &quot;</span>
+<span class="lineNum">     575 </span>            :                     &quot;Header line has spurius extra field &quot;
+<span class="lineNum">     576 </span>            :                     &quot;(field=`%s', rip=%s)&quot;, str_sanitize(*fields, 64),
+<span class="lineNum">     577 </span>            :                     net_ip2addr(real_remote_ip));
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     579 </span>            :             }
+<span class="lineNum">     580 </span>            :         }
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :         i_assert(size &lt;= sizeof(buf));</span>
+<span class="lineNum">     582 </span>            : 
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :         if ((ret = master_service_haproxy_recv(fd, &amp;buf, size, 0))&lt;=0) {</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :             if (ret &lt; 0)</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :                 i_info(&quot;haproxy: Client disconnected (rip=%s): %m&quot;,</span>
+<span class="lineNum">     586 </span>            :                        net_ip2addr(real_remote_ip));
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :         } else if (ret != (ssize_t)size) {</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy: Client disconnected: &quot;</span>
+<span class="lineNum">     590 </span>            :                 &quot;Failed to read full header (rip=%s)&quot;,
+<span class="lineNum">     591 </span>            :                 net_ip2addr(real_remote_ip));
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     593 </span>            :         }
+<span class="lineNum">     594 </span>            :     /* invalid protocol */
+<span class="lineNum">     595 </span>            :     } else {
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     597 </span>            :     }
+<span class="lineNum">     598 </span>            : 
+<span class="lineNum">     599 </span>            :     /* assign data from proxy */
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn.local_ip = local_ip;</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn.remote_ip = remote_ip;</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn.local_port = local_port;</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn.remote_port = remote_port;</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn.proxied = TRUE;</span>
+<span class="lineNum">     605 </span>            : 
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     607 </span>            : }
+<a name="608"><span class="lineNum">     608 </span>            : </a>
+<span class="lineNum">     609 </span>            : static void
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 : master_service_haproxy_input(struct master_service_haproxy_conn *hpconn)</span>
+<span class="lineNum">     611 </span>            : {
+<span class="lineNum">     612 </span>            :     int ret;
+<span class="lineNum">     613 </span>            : 
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :     if ((ret = master_service_haproxy_read(hpconn)) &lt;= 0) {</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :             master_service_haproxy_conn_failure(hpconn);</span>
+<span class="lineNum">     617 </span>            :     } else {
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :         master_service_haproxy_conn_success(hpconn);</span>
+<span class="lineNum">     619 </span>            :     }
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 : }</span>
+<a name="621"><span class="lineNum">     621 </span>            : </a>
+<span class="lineNum">     622 </span>            : static bool
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 : master_service_haproxy_conn_is_trusted(struct master_service *service,</span>
+<span class="lineNum">     624 </span>            :                        struct master_service_connection *conn)
+<span class="lineNum">     625 </span>            : {
+<span class="lineNum">     626 </span>            :     const char *const *net;
+<span class="lineNum">     627 </span>            :     struct ip_addr net_ip;
+<span class="lineNum">     628 </span>            :     unsigned int bits;
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :     if (service-&gt;set-&gt;haproxy_trusted_networks == NULL)</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     632 </span>            : 
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :     net = t_strsplit_spaces(service-&gt;set-&gt;haproxy_trusted_networks, &quot;, &quot;);</span>
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :     for (; *net != NULL; net++) {</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :         if (net_parse_range(*net, &amp;net_ip, &amp;bits) &lt; 0) {</span>
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :             i_error(&quot;haproxy_trusted_networks: &quot;</span>
+<span class="lineNum">     637 </span>            :                 &quot;Invalid network '%s'&quot;, *net);
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     639 </span>            :         }
+<span class="lineNum">     640 </span>            : 
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         if (net_is_in_network(&amp;conn-&gt;real_remote_ip, &amp;net_ip, bits))</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     643 </span>            :     }
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="645"><span class="lineNum">     645 </span>            : }</a>
+<span class="lineNum">     646 </span>            : 
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 : void master_service_haproxy_new(struct master_service *service,</span>
+<span class="lineNum">     648 </span>            :                 struct master_service_connection *conn)
+<span class="lineNum">     649 </span>            : {
+<span class="lineNum">     650 </span>            :     struct master_service_haproxy_conn *hpconn;
+<span class="lineNum">     651 </span>            :     pool_t pool;
+<span class="lineNum">     652 </span>            : 
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :     if (!master_service_haproxy_conn_is_trusted(service, conn)) {</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :         i_warning(&quot;haproxy: Client not trusted (rip=%s)&quot;,</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :               net_ip2addr(&amp;conn-&gt;real_remote_ip));</span>
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :         master_service_client_connection_handled(service, conn);</span>
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     658 </span>            :     }
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;haproxy connection&quot;, 128);</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :     hpconn = p_new(pool, struct master_service_haproxy_conn, 1);</span>
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :     hpconn-&gt;pool = pool;</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     hpconn-&gt;conn = *conn;</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :     hpconn-&gt;service = service;</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :     DLLIST_PREPEND(&amp;service-&gt;haproxy_conns, hpconn);</span>
+<span class="lineNum">     666 </span>            : 
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     hpconn-&gt;io = io_add(conn-&gt;fd, IO_READ,</span>
+<span class="lineNum">     668 </span>            :                 master_service_haproxy_input, hpconn);
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     hpconn-&gt;to = timeout_add(service-&gt;set-&gt;haproxy_timeout*1000,</span>
+<span class="lineNum">     670 </span>            :                  master_service_haproxy_timeout, hpconn);
+<a name="671"><span class="lineNum">     671 </span>            : }</a>
+<span class="lineNum">     672 </span>            : 
+<span class="lineNum">     673 </span><span class="lineCov">          1 : void master_service_haproxy_abort(struct master_service *service)</span>
+<span class="lineNum">     674 </span>            : {
+<span class="lineNum">     675 </span><span class="lineCov">          2 :     while (service-&gt;haproxy_conns != NULL) {</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :         int fd = service-&gt;haproxy_conns-&gt;conn.fd;</span>
+<span class="lineNum">     677 </span>            : 
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :         master_service_haproxy_conn_free(service-&gt;haproxy_conns);</span>
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;fd);</span>
+<span class="lineNum">     680 </span>            :     }
+<span class="lineNum">     681 </span><span class="lineCov">          1 : }</span>
+<span class="lineNum">     682 </span>            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

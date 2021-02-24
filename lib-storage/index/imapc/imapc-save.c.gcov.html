@@ -1,0 +1,510 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/imapc/imapc-save.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/imapc</a> - imapc-save.c<span style="font-size: 80%;"> (source / <a href="imapc-save.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">220</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2011-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream-crlf.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;imap-date.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;imap-util.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;mail-copy.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;mailbox-list-private.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;imapc-storage.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;imapc-sync.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;imapc-mail.h&quot;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : struct imapc_save_context {
+<span class="lineNum">      18 </span>            :     struct mail_save_context ctx;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :     struct imapc_mailbox *mbox;
+<span class="lineNum">      21 </span>            :     struct mail_index_transaction *trans;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            :     int fd;
+<span class="lineNum">      24 </span>            :     char *temp_path;
+<span class="lineNum">      25 </span>            :     struct istream *input;
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            :     uint32_t dest_uid_validity;
+<span class="lineNum">      28 </span>            :     ARRAY_TYPE(seq_range) dest_saved_uids;
+<span class="lineNum">      29 </span>            :     unsigned int save_count;
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            :     bool failed:1;
+<span class="lineNum">      32 </span>            :     bool finished:1;
+<span class="lineNum">      33 </span>            : };
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : struct imapc_save_cmd_context {
+<span class="lineNum">      36 </span>            :     struct imapc_save_context *ctx;
+<span class="lineNum">      37 </span>            :     int ret;
+<span class="lineNum">      38 </span>            : };
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            : #define IMAPC_SAVECTX(s)    container_of(s, struct imapc_save_context, ctx)
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : void imapc_transaction_save_rollback(struct mail_save_context *_ctx);
+<a name="43"><span class="lineNum">      43 </span>            : </a>
+<span class="lineNum">      44 </span>            : struct mail_save_context *
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 : imapc_save_alloc(struct mailbox_transaction_context *t)</span>
+<span class="lineNum">      46 </span>            : {
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     struct imapc_mailbox *mbox = IMAPC_MAILBOX(t-&gt;box);</span>
+<span class="lineNum">      48 </span>            :     struct imapc_save_context *ctx;
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     i_assert((t-&gt;flags &amp; MAILBOX_TRANSACTION_FLAG_EXTERNAL) != 0);</span>
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     if (t-&gt;save_ctx == NULL) {</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         ctx = i_new(struct imapc_save_context, 1);</span>
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.transaction = t;</span>
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox = mbox;</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :         ctx-&gt;trans = t-&gt;itrans;</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :         ctx-&gt;fd = -1;</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :         t-&gt;save_ctx = &amp;ctx-&gt;ctx;</span>
+<span class="lineNum">      59 </span>            :     }
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     return t-&gt;save_ctx;</span>
+<a name="61"><span class="lineNum">      61 </span>            : }</a>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 : int imapc_save_begin(struct mail_save_context *_ctx, struct istream *input)</span>
+<span class="lineNum">      64 </span>            : {
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">      66 </span>            :     const char *path;
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;fd == -1);</span>
+<span class="lineNum">      69 </span>            : 
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     if (imapc_storage_client_handle_auth_failure(ctx-&gt;mbox-&gt;storage-&gt;client))</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     ctx-&gt;fd = imapc_client_create_temp_fd(ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client,</span>
+<span class="lineNum">      74 </span>            :                           &amp;path);
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     if (ctx-&gt;fd == -1) {</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         mail_set_critical(_ctx-&gt;dest_mail,</span>
+<span class="lineNum">      77 </span>            :                   &quot;Couldn't create temp file %s&quot;, path);
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      80 </span>            :     }
+<span class="lineNum">      81 </span>            :     /* we may not know the size of the input, or be sure that it contains
+<span class="lineNum">      82 </span>            :        only CRLFs. so we'll always first write the mail to a temp file and
+<span class="lineNum">      83 </span>            :        upload it from there to remote server. */
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     ctx-&gt;finished = FALSE;</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :     ctx-&gt;temp_path = i_strdup(path);</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     ctx-&gt;input = i_stream_create_crlf(input);</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     _ctx-&gt;data.output = o_stream_create_fd_file(ctx-&gt;fd, 0, FALSE);</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     o_stream_cork(_ctx-&gt;data.output);</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="90"><span class="lineNum">      90 </span>            : }</a>
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 : int imapc_save_continue(struct mail_save_context *_ctx)</span>
+<span class="lineNum">      93 </span>            : {
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     if (ctx-&gt;failed)</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     if (index_storage_save_continue(_ctx, ctx-&gt;input, NULL) &lt; 0) {</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     102 </span>            :     }
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="104"><span class="lineNum">     104 </span>            : }</a>
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 : static void imapc_save_appenduid(struct imapc_save_context *ctx,</span>
+<span class="lineNum">     107 </span>            :                  const struct imapc_command_reply *reply,
+<span class="lineNum">     108 </span>            :                  uint32_t *uid_r)
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span>            :     const char *const *args;
+<span class="lineNum">     111 </span>            :     uint32_t uid_validity, dest_uid;
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     *uid_r = 0;</span>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span>            :     /* &lt;uidvalidity&gt; &lt;dest uid-set&gt; */
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     args = t_strsplit(reply-&gt;resp_text_value, &quot; &quot;);</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     if (str_array_length(args) != 2)</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     if (str_to_uint32(args[0], &amp;uid_validity) &lt; 0)</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     if (ctx-&gt;dest_uid_validity == 0)</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         ctx-&gt;dest_uid_validity = uid_validity;</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     else if (ctx-&gt;dest_uid_validity != uid_validity)</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     if (str_to_uint32(args[1], &amp;dest_uid) == 0) {</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         seq_range_array_add_with_init(&amp;ctx-&gt;dest_saved_uids,</span>
+<span class="lineNum">     129 </span>            :                           32, dest_uid);
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         *uid_r = dest_uid;</span>
+<span class="lineNum">     131 </span>            :     }
+<span class="lineNum">     132 </span>            : }
+<a name="133"><span class="lineNum">     133 </span>            : </a>
+<span class="lineNum">     134 </span>            : static void
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 : imapc_save_add_to_index(struct imapc_save_context *ctx, uint32_t uid)</span>
+<span class="lineNum">     136 </span>            : {
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     struct mail *_mail = ctx-&gt;ctx.dest_mail;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     struct index_mail *imail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     139 </span>            :     uint32_t seq;
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span>            :     /* we'll temporarily append messages and at commit time expunge
+<span class="lineNum">     142 </span>            :        them all, since we can't guarantee that no one else has saved
+<span class="lineNum">     143 </span>            :        messages to remote server during our transaction */
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     mail_index_append(ctx-&gt;trans, uid, &amp;seq);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     mail_set_seq_saving(_mail, seq);</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     imail-&gt;data.no_caching = TRUE;</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     imail-&gt;data.forced_no_caching = TRUE;</span>
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     if (ctx-&gt;fd != -1) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         struct imapc_mail *imapc_mail = IMAPC_MAIL(_mail);</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         imail-&gt;data.stream = i_stream_create_fd_autoclose(&amp;ctx-&gt;fd, 0);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         imapc_mail-&gt;header_fetched = TRUE;</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         imapc_mail-&gt;body_fetched = TRUE;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         imapc_mail_init_stream(imapc_mail);</span>
+<span class="lineNum">     155 </span>            :     }
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     ctx-&gt;save_count++;</span>
+<a name="158"><span class="lineNum">     158 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 : static void imapc_save_callback(const struct imapc_command_reply *reply,</span>
+<span class="lineNum">     161 </span>            :                 void *context)
+<span class="lineNum">     162 </span>            : {
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     struct imapc_save_cmd_context *ctx = context;</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     uint32_t uid = 0;</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     if (reply-&gt;state == IMAPC_COMMAND_STATE_OK) {</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         if (reply-&gt;resp_text_key != NULL &amp;&amp;</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :             strcasecmp(reply-&gt;resp_text_key, &quot;APPENDUID&quot;) == 0)</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :             imapc_save_appenduid(ctx-&gt;ctx, reply, &amp;uid);</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         imapc_save_add_to_index(ctx-&gt;ctx, uid);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = 0;</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     } else if (imapc_storage_client_handle_auth_failure(ctx-&gt;ctx-&gt;mbox-&gt;storage-&gt;client)) {</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = -1;</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     } else if (reply-&gt;state == IMAPC_COMMAND_STATE_NO) {</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         imapc_copy_error_from_reply(ctx-&gt;ctx-&gt;mbox-&gt;storage,</span>
+<span class="lineNum">     176 </span>            :                         MAIL_ERROR_PARAMS, reply);
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = -1;</span>
+<span class="lineNum">     178 </span>            :     } else {
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     180 </span>            :             &quot;imapc: APPEND failed: %s&quot;, reply-&gt;text_full);
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = -1;</span>
+<span class="lineNum">     182 </span>            :     }
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :     imapc_client_stop(ctx-&gt;ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client);</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 : }</span>
+<a name="185"><span class="lineNum">     185 </span>            : </a>
+<span class="lineNum">     186 </span>            : static void
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 : imapc_save_noop_callback(const struct imapc_command_reply *reply ATTR_UNUSED,</span>
+<span class="lineNum">     188 </span>            :              void *context)
+<span class="lineNum">     189 </span>            : {
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     struct imapc_save_cmd_context *ctx = context;</span>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span>            :     /* we don't really care about the reply */
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     ctx-&gt;ret = 0;</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     imapc_client_stop(ctx-&gt;ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client);</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 : }</span>
+<a name="196"><span class="lineNum">     196 </span>            : </a>
+<span class="lineNum">     197 </span>            : static void
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 : imapc_append_keywords(string_t *str, struct mail_keywords *kw)</span>
+<span class="lineNum">     199 </span>            : {
+<span class="lineNum">     200 </span>            :     const ARRAY_TYPE(keywords) *kw_arr;
+<span class="lineNum">     201 </span>            :     const char *const *kw_p;
+<span class="lineNum">     202 </span>            :     unsigned int i;
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     kw_arr = mail_index_get_keywords(kw-&gt;index);</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; kw-&gt;count; i++) {</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         kw_p = array_idx(kw_arr, kw-&gt;idx[i]);</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         if (str_len(str) &gt; 1)</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :             str_append_c(str, ' ');</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         str_append(str, *kw_p);</span>
+<span class="lineNum">     210 </span>            :     }
+<a name="211"><span class="lineNum">     211 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 : static int imapc_save_append(struct imapc_save_context *ctx)</span>
+<span class="lineNum">     214 </span>            : {
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     struct mail_save_context *_ctx = &amp;ctx-&gt;ctx;</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     struct mail_save_data *mdata = &amp;_ctx-&gt;data;</span>
+<span class="lineNum">     217 </span>            :     struct imapc_command *cmd;
+<span class="lineNum">     218 </span>            :     struct imapc_save_cmd_context sctx;
+<span class="lineNum">     219 </span>            :     struct istream *input;
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     const char *flags = &quot;&quot;, *internaldate = &quot;&quot;;</span>
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     if (mdata-&gt;flags != 0 || mdata-&gt;keywords != NULL) {</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :         string_t *str = t_str_new(64);</span>
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         str_append(str, &quot; (&quot;);</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :         imap_write_flags(str, mdata-&gt;flags &amp; ~MAIL_RECENT, NULL);</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         if (mdata-&gt;keywords != NULL)</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :             imapc_append_keywords(str, mdata-&gt;keywords);</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         str_append_c(str, ')');</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         flags = str_c(str);</span>
+<span class="lineNum">     231 </span>            :     }
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     if (mdata-&gt;received_date != (time_t)-1) {</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :         internaldate = t_strdup_printf(&quot; \&quot;%s\&quot;&quot;,</span>
+<span class="lineNum">     234 </span>            :             imap_to_datetime(mdata-&gt;received_date));
+<span class="lineNum">     235 </span>            :     }
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox-&gt;exists_received = FALSE;</span>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     input = i_stream_create_fd(ctx-&gt;fd, IO_BLOCK_SIZE);</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     sctx.ctx = ctx;</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     sctx.ret = -2;</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     cmd = imapc_client_cmd(ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client,</span>
+<span class="lineNum">     243 </span>            :                    imapc_save_callback, &amp;sctx);
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     imapc_command_sendf(cmd, &quot;APPEND %s%1s%1s %p&quot;,</span>
+<span class="lineNum">     245 </span>            :         imapc_mailbox_get_remote_name(ctx-&gt;mbox),
+<span class="lineNum">     246 </span>            :         flags, internaldate, input);
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :     while (sctx.ret == -2)</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         imapc_mailbox_run(ctx-&gt;mbox);</span>
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     if (sctx.ret == 0 &amp;&amp; ctx-&gt;mbox-&gt;selected &amp;&amp;</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         !ctx-&gt;mbox-&gt;exists_received) {</span>
+<span class="lineNum">     253 </span>            :         /* e.g. Courier doesn't send EXISTS reply before the tagged
+<span class="lineNum">     254 </span>            :            APPEND reply. That isn't exactly required by the IMAP RFC,
+<span class="lineNum">     255 </span>            :            but it makes the behavior better. See if NOOP finds
+<span class="lineNum">     256 </span>            :            the mail. */
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         sctx.ret = -2;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         cmd = imapc_client_cmd(ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client,</span>
+<span class="lineNum">     259 </span>            :                        imapc_save_noop_callback, &amp;sctx);
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         imapc_command_set_flags(cmd, IMAPC_COMMAND_FLAG_RETRIABLE);</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         imapc_command_send(cmd, &quot;NOOP&quot;);</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         while (sctx.ret == -2)</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :             imapc_mailbox_run(ctx-&gt;mbox);</span>
+<span class="lineNum">     264 </span>            :     }
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     return sctx.ret;</span>
+<a name="266"><span class="lineNum">     266 </span>            : }</a>
+<span class="lineNum">     267 </span>            : 
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 : int imapc_save_finish(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     269 </span>            : {
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     struct mail_storage *storage = _ctx-&gt;transaction-&gt;box-&gt;storage;</span>
+<span class="lineNum">     272 </span>            : 
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     ctx-&gt;finished = TRUE;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;failed) {</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         if (o_stream_finish(_ctx-&gt;data.output) &lt; 0) {</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :             if (!mail_storage_set_error_from_errno(storage)) {</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :                 mail_set_critical(_ctx-&gt;dest_mail,</span>
+<span class="lineNum">     279 </span>            :                     &quot;write(%s) failed: %s&quot;, ctx-&gt;temp_path,
+<span class="lineNum">     280 </span>            :                     o_stream_get_error(_ctx-&gt;data.output));
+<span class="lineNum">     281 </span>            :             }
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :             ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     283 </span>            :         }
+<span class="lineNum">     284 </span>            :     }
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;failed) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         if (imapc_save_append(ctx) &lt; 0)</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :             ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     289 </span>            :     }
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;_ctx-&gt;data.output);</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;ctx-&gt;input);</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     i_close_fd_path(&amp;ctx-&gt;fd, ctx-&gt;temp_path);</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     i_free(ctx-&gt;temp_path);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     index_save_context_free(_ctx);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     return ctx-&gt;failed ? -1 : 0;</span>
+<a name="297"><span class="lineNum">     297 </span>            : }</a>
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 : void imapc_save_cancel(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     300 </span>            : {
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     (void)imapc_save_finish(_ctx);</span>
+<a name="305"><span class="lineNum">     305 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 : int imapc_transaction_save_commit_pre(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     308 </span>            : {
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     struct mail_transaction_commit_changes *changes =</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         _ctx-&gt;transaction-&gt;changes;</span>
+<span class="lineNum">     312 </span>            :     uint32_t i, last_seq;
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;finished);</span>
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span>            :     /* expunge all added messages from index before commit */
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     last_seq = mail_index_view_get_messages_count(_ctx-&gt;transaction-&gt;view);</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; ctx-&gt;save_count; i++)</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         mail_index_expunge(ctx-&gt;trans, last_seq - i);</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;ctx-&gt;dest_saved_uids)) {</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         changes-&gt;uid_validity = ctx-&gt;dest_uid_validity;</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         array_append_array(&amp;changes-&gt;saved_uids, &amp;ctx-&gt;dest_saved_uids);</span>
+<span class="lineNum">     324 </span>            :     }
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="326"><span class="lineNum">     326 </span>            : }</a>
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 : void imapc_transaction_save_commit_post(struct mail_save_context *_ctx,</span>
+<span class="lineNum">     329 </span>            :                     struct mail_index_transaction_commit_result *result ATTR_UNUSED)
+<span class="lineNum">     330 </span>            : {
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     imapc_transaction_save_rollback(_ctx);</span>
+<a name="332"><span class="lineNum">     332 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 : void imapc_transaction_save_rollback(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     335 </span>            : {
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span>            :     /* FIXME: if we really want to rollback, we should expunge messages
+<span class="lineNum">     339 </span>            :        we already saved */
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;finished)</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :         imapc_save_cancel(_ctx);</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;ctx-&gt;dest_saved_uids))</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         array_free(&amp;ctx-&gt;dest_saved_uids);</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<a name="347"><span class="lineNum">     347 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 : static void imapc_save_copyuid(struct imapc_save_context *ctx,</span>
+<span class="lineNum">     350 </span>            :                    const struct imapc_command_reply *reply,
+<span class="lineNum">     351 </span>            :                    uint32_t *uid_r)
+<span class="lineNum">     352 </span>            : {
+<span class="lineNum">     353 </span>            :     const char *const *args;
+<span class="lineNum">     354 </span>            :     uint32_t uid_validity, dest_uid;
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     *uid_r = 0;</span>
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span>            :     /* &lt;uidvalidity&gt; &lt;source uid-set&gt; &lt;dest uid-set&gt; */
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     args = t_strsplit(reply-&gt;resp_text_value, &quot; &quot;);</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     if (str_array_length(args) != 3)</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     if (str_to_uint32(args[0], &amp;uid_validity) &lt; 0)</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     if (ctx-&gt;dest_uid_validity == 0)</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         ctx-&gt;dest_uid_validity = uid_validity;</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     else if (ctx-&gt;dest_uid_validity != uid_validity)</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     369 </span>            : 
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :     if (str_to_uint32(args[2], &amp;dest_uid) == 0) {</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         seq_range_array_add_with_init(&amp;ctx-&gt;dest_saved_uids,</span>
+<span class="lineNum">     372 </span>            :                           32, dest_uid);
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :         *uid_r = dest_uid;</span>
+<span class="lineNum">     374 </span>            :     }
+<a name="375"><span class="lineNum">     375 </span>            : }</a>
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 : static void imapc_copy_callback(const struct imapc_command_reply *reply,</span>
+<span class="lineNum">     378 </span>            :                 void *context)
+<span class="lineNum">     379 </span>            : {
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     struct imapc_save_cmd_context *ctx = context;</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     uint32_t uid = 0;</span>
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     if (reply-&gt;state == IMAPC_COMMAND_STATE_OK) {</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         if (reply-&gt;resp_text_key != NULL &amp;&amp;</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :             strcasecmp(reply-&gt;resp_text_key, &quot;COPYUID&quot;) == 0)</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :             imapc_save_copyuid(ctx-&gt;ctx, reply, &amp;uid);</span>
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :         imapc_save_add_to_index(ctx-&gt;ctx, uid);</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = 0;</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :     } else if (reply-&gt;state == IMAPC_COMMAND_STATE_NO) {</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :         imapc_copy_error_from_reply(ctx-&gt;ctx-&gt;mbox-&gt;storage,</span>
+<span class="lineNum">     391 </span>            :                         MAIL_ERROR_PARAMS, reply);
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = -1;</span>
+<span class="lineNum">     393 </span>            :     } else {
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     395 </span>            :             &quot;imapc: COPY failed: %s&quot;, reply-&gt;text_full);
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :         ctx-&gt;ret = -1;</span>
+<span class="lineNum">     397 </span>            :     }
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     imapc_client_stop(ctx-&gt;ctx-&gt;mbox-&gt;storage-&gt;client-&gt;client);</span>
+<a name="399"><span class="lineNum">     399 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 : int imapc_copy(struct mail_save_context *_ctx, struct mail *mail)</span>
+<span class="lineNum">     402 </span>            : {
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :     struct imapc_save_context *ctx = IMAPC_SAVECTX(_ctx);</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     struct mailbox_transaction_context *_t = _ctx-&gt;transaction;</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     struct imapc_mailbox *src_mbox = IMAPC_MAILBOX(mail-&gt;box);</span>
+<span class="lineNum">     406 </span>            :     struct imapc_command *cmd;
+<span class="lineNum">     407 </span>            :     struct imapc_save_cmd_context sctx;
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     i_assert((_t-&gt;flags &amp; MAILBOX_TRANSACTION_FLAG_EXTERNAL) != 0);</span>
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     if (_t-&gt;box-&gt;storage == mail-&gt;box-&gt;storage) {</span>
+<span class="lineNum">     412 </span>            :         /* same server, we can use COPY for the mail */
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :         sctx.ret = -2;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :         sctx.ctx = ctx;</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         cmd = imapc_client_mailbox_cmd(src_mbox-&gt;client_box,</span>
+<span class="lineNum">     416 </span>            :                            imapc_copy_callback, &amp;sctx);
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         imapc_command_sendf(cmd, &quot;UID COPY %u %s&quot;,</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :                     mail-&gt;uid, _t-&gt;box-&gt;name);</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :         while (sctx.ret == -2)</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :             imapc_mailbox_run(src_mbox);</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :         ctx-&gt;finished = TRUE;</span>
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :         index_save_context_free(_ctx);</span>
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :         return sctx.ret;</span>
+<span class="lineNum">     424 </span>            :     }
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     return mail_storage_copy(_ctx, mail);</span>
+<span class="lineNum">     426 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

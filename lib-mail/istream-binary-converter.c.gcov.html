@@ -1,0 +1,389 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-mail/istream-binary-converter.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-mail</a> - istream-binary-converter.c<span style="font-size: 80%;"> (source / <a href="istream-binary-converter.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">145</td>
+            <td class="headerCovTableEntry">160</td>
+            <td class="headerCovTableEntryHi">90.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;base64.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream-binary-converter.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #define BASE64_BLOCK_INPUT_SIZE 3
+<span class="lineNum">      11 </span>            : #define BASE64_BLOCK_SIZE 4
+<span class="lineNum">      12 </span>            : #define BASE64_BLOCKS_PER_LINE (76/BASE64_BLOCK_SIZE)
+<span class="lineNum">      13 </span>            : #define MAX_HDR_BUFFER_SIZE (1024*32)
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : struct binary_converter_istream {
+<span class="lineNum">      16 </span>            :     struct istream_private istream;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            :     pool_t pool;
+<span class="lineNum">      19 </span>            :     struct message_parser_ctx *parser;
+<span class="lineNum">      20 </span>            :     struct message_part *convert_part;
+<span class="lineNum">      21 </span>            :     char base64_delayed[BASE64_BLOCK_INPUT_SIZE-1];
+<span class="lineNum">      22 </span>            :     unsigned int base64_delayed_len;
+<span class="lineNum">      23 </span>            :     unsigned int base64_block_pos;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            :     buffer_t *hdr_buf;
+<span class="lineNum">      26 </span>            :     size_t cte_header_len;
+<span class="lineNum">      27 </span>            :     bool content_type_seen:1;
+<span class="lineNum">      28 </span>            : };
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : static void stream_add_data(struct binary_converter_istream *bstream,
+<a name="31"><span class="lineNum">      31 </span>            :                 const void *data, size_t size);</a>
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span><span class="lineCov">          9 : static bool part_can_convert(const struct message_part *part)</span>
+<span class="lineNum">      34 </span>            : {
+<span class="lineNum">      35 </span>            :     /* some MUAs use &quot;c-t-e: binary&quot; for multiparts.
+<span class="lineNum">      36 </span>            :        we don't want to convert them. */
+<span class="lineNum">      37 </span><span class="lineCov">          9 :     return (part-&gt;flags &amp; MESSAGE_PART_FLAG_MULTIPART) == 0;</span>
+<span class="lineNum">      38 </span>            : }
+<a name="39"><span class="lineNum">      39 </span>            : </a>
+<span class="lineNum">      40 </span>            : static void
+<span class="lineNum">      41 </span><span class="lineCov">          4 : stream_finish_convert_decision(struct binary_converter_istream *bstream)</span>
+<span class="lineNum">      42 </span>            : {
+<span class="lineNum">      43 </span><span class="lineCov">          4 :     buffer_t *buf = bstream-&gt;hdr_buf;</span>
+<span class="lineNum">      44 </span>            :     const unsigned char *data;
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span><span class="lineCov">          4 :     bstream-&gt;hdr_buf = NULL;</span>
+<span class="lineNum">      47 </span><span class="lineCov">          4 :     if (!part_can_convert(bstream-&gt;convert_part)) {</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :         bstream-&gt;convert_part = NULL;</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :         stream_add_data(bstream, buf-&gt;data, buf-&gt;used);</span>
+<span class="lineNum">      50 </span>            :     } else {
+<span class="lineNum">      51 </span><span class="lineCov">          4 :         stream_add_data(bstream,</span>
+<span class="lineNum">      52 </span>            :             &quot;Content-Transfer-Encoding: base64\r\n&quot;, 35);
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span><span class="lineCov">          4 :         data = CONST_PTR_OFFSET(buf-&gt;data, bstream-&gt;cte_header_len);</span>
+<span class="lineNum">      55 </span><span class="lineCov">          4 :         stream_add_data(bstream, data,</span>
+<span class="lineNum">      56 </span><span class="lineCov">          4 :                 buf-&gt;used - bstream-&gt;cte_header_len);</span>
+<span class="lineNum">      57 </span>            :     }
+<span class="lineNum">      58 </span><span class="lineCov">          4 :     buffer_free(&amp;buf);</span>
+<a name="59"><span class="lineNum">      59 </span><span class="lineCov">          4 : }</span></a>
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineCov">        125 : static void stream_add_data(struct binary_converter_istream *bstream,</span>
+<span class="lineNum">      62 </span>            :                 const void *data, size_t size)
+<span class="lineNum">      63 </span>            : {
+<span class="lineNum">      64 </span><span class="lineCov">        125 :     if (size == 0)</span>
+<span class="lineNum">      65 </span><span class="lineCov">         12 :         return;</span>
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span><span class="lineCov">        113 :     if (bstream-&gt;hdr_buf != NULL) {</span>
+<span class="lineNum">      68 </span><span class="lineCov">         32 :         if (bstream-&gt;hdr_buf-&gt;used + size &lt;= MAX_HDR_BUFFER_SIZE) {</span>
+<span class="lineNum">      69 </span><span class="lineCov">         32 :             buffer_append(bstream-&gt;hdr_buf, data, size);</span>
+<span class="lineNum">      70 </span><span class="lineCov">         32 :             return;</span>
+<span class="lineNum">      71 </span>            :         }
+<span class="lineNum">      72 </span>            :         /* buffer is getting too large. just finish the decision. */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         stream_finish_convert_decision(bstream);</span>
+<span class="lineNum">      74 </span>            :     }
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineCov">         81 :     memcpy(i_stream_alloc(&amp;bstream-&gt;istream, size), data, size);</span>
+<span class="lineNum">      77 </span><span class="lineCov">         81 :     bstream-&gt;istream.pos += size;</span>
+<a name="78"><span class="lineNum">      78 </span>            : }</a>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineCov">        105 : static void stream_encode_base64(struct binary_converter_istream *bstream,</span>
+<span class="lineNum">      81 </span>            :                  const void *_data, size_t size)
+<span class="lineNum">      82 </span>            : {
+<span class="lineNum">      83 </span><span class="lineCov">        105 :     struct istream_private *stream = &amp;bstream-&gt;istream;</span>
+<span class="lineNum">      84 </span><span class="lineCov">        105 :     const unsigned char *data = _data;</span>
+<span class="lineNum">      85 </span>            :     buffer_t buf;
+<span class="lineNum">      86 </span>            :     void *dest;
+<span class="lineNum">      87 </span>            :     size_t encode_size, max_encoded_size;
+<span class="lineNum">      88 </span>            :     unsigned char base64_block[BASE64_BLOCK_INPUT_SIZE];
+<span class="lineNum">      89 </span>            :     unsigned int base64_block_len, missing_len, encode_blocks;
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineCov">        105 :     if (bstream-&gt;base64_delayed_len &gt; 0) {</span>
+<span class="lineNum">      92 </span><span class="lineCov">         59 :         if (bstream-&gt;base64_delayed_len == 1 &amp;&amp; size == 1) {</span>
+<span class="lineNum">      93 </span><span class="lineCov">          2 :             bstream-&gt;base64_delayed[1] = data[0];</span>
+<span class="lineNum">      94 </span><span class="lineCov">          2 :             bstream-&gt;base64_delayed_len++;</span>
+<span class="lineNum">      95 </span><span class="lineCov">        107 :             return;</span>
+<span class="lineNum">      96 </span>            :         }
+<span class="lineNum">      97 </span><span class="lineCov">         57 :         memcpy(base64_block, bstream-&gt;base64_delayed,</span>
+<span class="lineNum">      98 </span><span class="lineCov">         57 :                bstream-&gt;base64_delayed_len);</span>
+<span class="lineNum">      99 </span><span class="lineCov">         57 :         base64_block_len = bstream-&gt;base64_delayed_len;</span>
+<span class="lineNum">     100 </span><span class="lineCov">         57 :         if (size == 0) {</span>
+<span class="lineNum">     101 </span>            :             /* finish base64 */
+<span class="lineNum">     102 </span>            :         } else {
+<span class="lineNum">     103 </span><span class="lineCov">         53 :             missing_len = BASE64_BLOCK_INPUT_SIZE - base64_block_len;</span>
+<span class="lineNum">     104 </span><span class="lineCov">         53 :             i_assert(size &gt;= missing_len);</span>
+<span class="lineNum">     105 </span><span class="lineCov">         53 :             memcpy(base64_block + base64_block_len,</span>
+<span class="lineNum">     106 </span>            :                    data, missing_len);
+<span class="lineNum">     107 </span><span class="lineCov">         53 :             data += missing_len;</span>
+<span class="lineNum">     108 </span><span class="lineCov">         53 :             size -= missing_len;</span>
+<span class="lineNum">     109 </span><span class="lineCov">         53 :             base64_block_len = BASE64_BLOCK_INPUT_SIZE;</span>
+<span class="lineNum">     110 </span>            :         }
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineCov">         57 :         if (bstream-&gt;base64_block_pos == BASE64_BLOCKS_PER_LINE) {</span>
+<span class="lineNum">     113 </span><span class="lineCov">          2 :             memcpy(i_stream_alloc(stream, 2), &quot;\r\n&quot;, 2);</span>
+<span class="lineNum">     114 </span><span class="lineCov">          2 :             stream-&gt;pos += 2;</span>
+<span class="lineNum">     115 </span><span class="lineCov">          2 :             bstream-&gt;base64_block_pos = 0;</span>
+<span class="lineNum">     116 </span>            :         }
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineCov">         57 :         dest = i_stream_alloc(stream, BASE64_BLOCK_SIZE);</span>
+<span class="lineNum">     119 </span><span class="lineCov">         57 :         buffer_create_from_data(&amp;buf, dest, BASE64_BLOCK_SIZE);</span>
+<span class="lineNum">     120 </span><span class="lineCov">         57 :         base64_encode(base64_block, base64_block_len, &amp;buf);</span>
+<span class="lineNum">     121 </span><span class="lineCov">         57 :         stream-&gt;pos += buf.used;</span>
+<span class="lineNum">     122 </span><span class="lineCov">         57 :         bstream-&gt;base64_block_pos++;</span>
+<span class="lineNum">     123 </span><span class="lineCov">         57 :         bstream-&gt;base64_delayed_len = 0;</span>
+<span class="lineNum">     124 </span>            :     }
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">        208 :     while (size &gt;= BASE64_BLOCK_INPUT_SIZE) {</span>
+<span class="lineNum">     127 </span><span class="lineCov">          2 :         if (bstream-&gt;base64_block_pos == BASE64_BLOCKS_PER_LINE) {</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :             memcpy(i_stream_alloc(stream, 2), &quot;\r\n&quot;, 2);</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :             stream-&gt;pos += 2;</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :             bstream-&gt;base64_block_pos = 0;</span>
+<span class="lineNum">     131 </span>            :         }
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span>            :         /* try to encode one full line of base64 blocks */
+<span class="lineNum">     134 </span><span class="lineCov">          2 :         encode_size = I_MIN(size, BASE64_BLOCKS_PER_LINE*BASE64_BLOCK_SIZE);</span>
+<span class="lineNum">     135 </span><span class="lineCov">          2 :         if (encode_size % BASE64_BLOCK_INPUT_SIZE != 0)</span>
+<span class="lineNum">     136 </span><span class="lineCov">          2 :             encode_size -= encode_size % BASE64_BLOCK_INPUT_SIZE;</span>
+<span class="lineNum">     137 </span><span class="lineCov">          2 :         encode_blocks = encode_size/BASE64_BLOCK_INPUT_SIZE;</span>
+<span class="lineNum">     138 </span><span class="lineCov">          2 :         if (bstream-&gt;base64_block_pos + encode_blocks &gt; BASE64_BLOCKS_PER_LINE) {</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :             encode_blocks = BASE64_BLOCKS_PER_LINE -</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :                 bstream-&gt;base64_block_pos;</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :             encode_size = encode_blocks * BASE64_BLOCK_INPUT_SIZE;</span>
+<span class="lineNum">     142 </span>            :         }
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineCov">          2 :         max_encoded_size = MAX_BASE64_ENCODED_SIZE(encode_size);</span>
+<span class="lineNum">     145 </span><span class="lineCov">          2 :         dest = i_stream_alloc(stream, max_encoded_size);</span>
+<span class="lineNum">     146 </span><span class="lineCov">          2 :         buffer_create_from_data(&amp;buf, dest, max_encoded_size);</span>
+<span class="lineNum">     147 </span><span class="lineCov">          2 :         base64_encode(data, encode_size, &amp;buf);</span>
+<span class="lineNum">     148 </span><span class="lineCov">          2 :         stream-&gt;pos += buf.used;</span>
+<span class="lineNum">     149 </span><span class="lineCov">          2 :         bstream-&gt;base64_block_pos += encode_blocks;</span>
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineCov">          2 :         data += encode_size;</span>
+<span class="lineNum">     152 </span><span class="lineCov">          2 :         size -= encode_size;</span>
+<span class="lineNum">     153 </span>            :     }
+<span class="lineNum">     154 </span><span class="lineCov">        103 :     if (size &gt; 0) {</span>
+<span class="lineNum">     155 </span>            :         /* encode these when more data is available */
+<span class="lineNum">     156 </span><span class="lineCov">         57 :         i_assert(size &lt; BASE64_BLOCK_INPUT_SIZE);</span>
+<span class="lineNum">     157 </span><span class="lineCov">         57 :         memcpy(bstream-&gt;base64_delayed, data, size);</span>
+<span class="lineNum">     158 </span><span class="lineCov">         57 :         bstream-&gt;base64_delayed_len = size;</span>
+<span class="lineNum">     159 </span>            :     }
+<a name="160"><span class="lineNum">     160 </span>            : }</a>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineCov">         22 : static void stream_add_hdr(struct binary_converter_istream *bstream,</span>
+<span class="lineNum">     163 </span>            :                const struct message_header_line *hdr)
+<span class="lineNum">     164 </span>            : {
+<span class="lineNum">     165 </span><span class="lineCov">         22 :     if (!hdr-&gt;continued) {</span>
+<span class="lineNum">     166 </span><span class="lineCov">         21 :         stream_add_data(bstream, hdr-&gt;name, hdr-&gt;name_len);</span>
+<span class="lineNum">     167 </span><span class="lineCov">         21 :         stream_add_data(bstream, hdr-&gt;middle, hdr-&gt;middle_len);</span>
+<span class="lineNum">     168 </span>            :     }
+<span class="lineNum">     169 </span>            : 
+<span class="lineNum">     170 </span><span class="lineCov">         22 :     stream_add_data(bstream, hdr-&gt;value, hdr-&gt;value_len);</span>
+<span class="lineNum">     171 </span><span class="lineCov">         22 :     if (!hdr-&gt;no_newline)</span>
+<span class="lineNum">     172 </span><span class="lineCov">         22 :         stream_add_data(bstream, &quot;\r\n&quot;, 2);</span>
+<a name="173"><span class="lineNum">     173 </span><span class="lineCov">         22 : }</span></a>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">        936 : static ssize_t i_stream_binary_converter_read(struct istream_private *stream)</span>
+<span class="lineNum">     176 </span>            : {
+<span class="lineNum">     177 </span>            :     /* @UNSAFE */
+<span class="lineNum">     178 </span><span class="lineCov">        936 :     struct binary_converter_istream *bstream =</span>
+<span class="lineNum">     179 </span>            :         (struct binary_converter_istream *)stream;
+<span class="lineNum">     180 </span>            :     struct message_block block;
+<span class="lineNum">     181 </span>            :     size_t old_size, new_size;
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span><span class="lineCov">        936 :     if (stream-&gt;pos - stream-&gt;skip &gt;= i_stream_get_max_buffer_size(&amp;stream-&gt;istream))</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         return -2;</span>
+<span class="lineNum">     185 </span><span class="lineCov">        936 :     old_size = stream-&gt;pos - stream-&gt;skip;</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineCov">        936 :     switch (message_parser_parse_next_block(bstream-&gt;parser, &amp;block)) {</span>
+<span class="lineNum">     188 </span>            :     case -1:
+<span class="lineNum">     189 </span>            :         /* done / error */
+<span class="lineNum">     190 </span><span class="lineCov">         13 :         if (bstream-&gt;convert_part != NULL &amp;&amp;</span>
+<span class="lineNum">     191 </span><span class="lineCov">          6 :             bstream-&gt;base64_delayed_len &gt; 0) {</span>
+<span class="lineNum">     192 </span>            :             /* flush any pending base64 output */
+<span class="lineNum">     193 </span><span class="lineCov">          2 :             stream_encode_base64(bstream, &quot;&quot;, 0);</span>
+<span class="lineNum">     194 </span><span class="lineCov">          2 :             new_size = stream-&gt;pos - stream-&gt;skip;</span>
+<span class="lineNum">     195 </span><span class="lineCov">          2 :             i_assert(old_size != new_size);</span>
+<span class="lineNum">     196 </span><span class="lineCov">          2 :             return new_size - old_size;</span>
+<span class="lineNum">     197 </span>            :         }
+<span class="lineNum">     198 </span><span class="lineCov">          5 :         stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     199 </span><span class="lineCov">          5 :         stream-&gt;istream.stream_errno = stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     200 </span><span class="lineCov">          5 :         return -1;</span>
+<span class="lineNum">     201 </span>            :     case 0:
+<span class="lineNum">     202 </span>            :         /* need more data */
+<span class="lineNum">     203 </span><span class="lineCov">        783 :         return 0;</span>
+<span class="lineNum">     204 </span>            :     default:
+<span class="lineNum">     205 </span><span class="lineCov">        146 :         break;</span>
+<span class="lineNum">     206 </span>            :     }
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineCov">        193 :     if (block.part != bstream-&gt;convert_part &amp;&amp;</span>
+<span class="lineNum">     209 </span><span class="lineCov">         47 :         bstream-&gt;convert_part != NULL) {</span>
+<span class="lineNum">     210 </span>            :         /* end of base64 encoded part */
+<span class="lineNum">     211 </span><span class="lineCov">         18 :         stream_encode_base64(bstream, &quot;&quot;, 0);</span>
+<span class="lineNum">     212 </span>            :     }
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineCov">        146 :     if (block.hdr != NULL) {</span>
+<span class="lineNum">     215 </span>            :         /* parsing a header */
+<span class="lineNum">     216 </span><span class="lineCov">         27 :         if (strcasecmp(block.hdr-&gt;name, &quot;Content-Type&quot;) == 0)</span>
+<span class="lineNum">     217 </span><span class="lineCov">          9 :             bstream-&gt;content_type_seen = TRUE;</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span><span class="lineCov">         32 :         if (strcasecmp(block.hdr-&gt;name, &quot;Content-Transfer-Encoding&quot;) == 0 &amp;&amp;</span>
+<span class="lineNum">     220 </span><span class="lineCov">         15 :              !block.hdr-&gt;continued &amp;&amp; !block.hdr-&gt;continues &amp;&amp;</span>
+<span class="lineNum">     221 </span><span class="lineCov">         10 :              block.hdr-&gt;value_len == 6 &amp;&amp;</span>
+<span class="lineNum">     222 </span><span class="lineCov">         10 :              i_memcasecmp(block.hdr-&gt;value, &quot;binary&quot;, 6) == 0 &amp;&amp;</span>
+<span class="lineNum">     223 </span><span class="lineCov">         10 :              part_can_convert(block.part) &amp;&amp;</span>
+<span class="lineNum">     224 </span><span class="lineCov">          5 :              bstream-&gt;convert_part != block.part) {</span>
+<span class="lineNum">     225 </span>            :             /* looks like we want to convert this body part to
+<span class="lineNum">     226 </span>            :                base64, but if we haven't seen Content-Type yet
+<span class="lineNum">     227 </span>            :                delay the decision until we've read the rest of
+<span class="lineNum">     228 </span>            :                the header */
+<span class="lineNum">     229 </span><span class="lineCov">          5 :             i_assert(block.part != NULL);</span>
+<span class="lineNum">     230 </span><span class="lineCov">          5 :             bstream-&gt;convert_part = block.part;</span>
+<span class="lineNum">     231 </span><span class="lineCov">          5 :             bstream-&gt;base64_block_pos = 0;</span>
+<span class="lineNum">     232 </span><span class="lineCov">         10 :             if (!bstream-&gt;content_type_seen) {</span>
+<span class="lineNum">     233 </span><span class="lineCov">          4 :                 i_assert(bstream-&gt;hdr_buf == NULL);</span>
+<span class="lineNum">     234 </span><span class="lineCov">          4 :                 bstream-&gt;hdr_buf = buffer_create_dynamic(default_pool, 512);</span>
+<span class="lineNum">     235 </span><span class="lineCov">          4 :                 stream_add_hdr(bstream, block.hdr);</span>
+<span class="lineNum">     236 </span><span class="lineCov">          4 :                 bstream-&gt;cte_header_len = bstream-&gt;hdr_buf-&gt;used;</span>
+<span class="lineNum">     237 </span>            :             } else {
+<span class="lineNum">     238 </span><span class="lineCov">          1 :                 stream_add_data(bstream,</span>
+<span class="lineNum">     239 </span>            :                     &quot;Content-Transfer-Encoding: base64\r\n&quot;, 35);
+<span class="lineNum">     240 </span>            :             }
+<span class="lineNum">     241 </span><span class="lineCov">         22 :         } else if (block.hdr-&gt;eoh &amp;&amp; bstream-&gt;hdr_buf != NULL) {</span>
+<span class="lineNum">     242 </span>            :             /* finish the decision about decoding */
+<span class="lineNum">     243 </span><span class="lineCov">          4 :             stream_finish_convert_decision(bstream);</span>
+<span class="lineNum">     244 </span><span class="lineCov">          4 :             stream_add_data(bstream, &quot;\r\n&quot;, 2);</span>
+<span class="lineNum">     245 </span>            :         } else {
+<span class="lineNum">     246 </span><span class="lineCov">         18 :             stream_add_hdr(bstream, block.hdr);</span>
+<span class="lineNum">     247 </span>            :         }
+<span class="lineNum">     248 </span><span class="lineCov">        119 :     } else if (block.size == 0) {</span>
+<span class="lineNum">     249 </span>            :         /* end of header */
+<span class="lineNum">     250 </span><span class="lineCov">          8 :         if (bstream-&gt;hdr_buf != NULL) {</span>
+<span class="lineNum">     251 </span>            :             /* message has no body */
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             bstream-&gt;convert_part = NULL;</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :             stream_add_data(bstream, bstream-&gt;hdr_buf-&gt;data,</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :                     bstream-&gt;hdr_buf-&gt;used);</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :             buffer_free(&amp;bstream-&gt;hdr_buf);</span>
+<span class="lineNum">     256 </span>            :         }
+<span class="lineNum">     257 </span><span class="lineCov">          8 :         bstream-&gt;content_type_seen = FALSE;</span>
+<span class="lineNum">     258 </span><span class="lineCov">        111 :     } else if (block.part == bstream-&gt;convert_part) {</span>
+<span class="lineNum">     259 </span>            :         /* convert body part to base64 */
+<span class="lineNum">     260 </span><span class="lineCov">         85 :         stream_encode_base64(bstream, block.data, block.size);</span>
+<span class="lineNum">     261 </span>            :     } else {
+<span class="lineNum">     262 </span><span class="lineCov">         26 :         stream_add_data(bstream, block.data, block.size);</span>
+<span class="lineNum">     263 </span>            :     }
+<span class="lineNum">     264 </span><span class="lineCov">        146 :     new_size = stream-&gt;pos - stream-&gt;skip;</span>
+<span class="lineNum">     265 </span><span class="lineCov">        146 :     if (new_size == old_size)</span>
+<span class="lineNum">     266 </span><span class="lineCov">         46 :         return i_stream_binary_converter_read(stream);</span>
+<span class="lineNum">     267 </span><span class="lineCov">        100 :     return new_size - old_size;</span>
+<a name="268"><span class="lineNum">     268 </span>            : }</a>
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span><span class="lineCov">          5 : static void i_stream_binary_converter_close(struct iostream_private *stream,</span>
+<span class="lineNum">     271 </span>            :                         bool close_parent)
+<span class="lineNum">     272 </span>            : {
+<span class="lineNum">     273 </span><span class="lineCov">          5 :     struct binary_converter_istream *bstream =</span>
+<span class="lineNum">     274 </span>            :         (struct binary_converter_istream *)stream;
+<span class="lineNum">     275 </span>            :     struct message_part *parts;
+<span class="lineNum">     276 </span>            : 
+<span class="lineNum">     277 </span><span class="lineCov">          5 :     if (bstream-&gt;parser != NULL) {</span>
+<span class="lineNum">     278 </span><span class="lineCov">          5 :         message_parser_deinit(&amp;bstream-&gt;parser, &amp;parts);</span>
+<span class="lineNum">     279 </span>            :     }
+<span class="lineNum">     280 </span><span class="lineCov">          5 :     pool_unref(&amp;bstream-&gt;pool);</span>
+<span class="lineNum">     281 </span><span class="lineCov">          5 :     if (close_parent)</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         i_stream_close(bstream-&gt;istream.parent);</span>
+<a name="283"><span class="lineNum">     283 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     284 </span>            : 
+<span class="lineNum">     285 </span><span class="lineCov">          5 : struct istream *i_stream_create_binary_converter(struct istream *input)</span>
+<span class="lineNum">     286 </span>            : {
+<span class="lineNum">     287 </span>            :     struct binary_converter_istream *bstream;
+<span class="lineNum">     288 </span>            : 
+<span class="lineNum">     289 </span><span class="lineCov">          5 :     bstream = i_new(struct binary_converter_istream, 1);</span>
+<span class="lineNum">     290 </span><span class="lineCov">          5 :     bstream-&gt;istream.max_buffer_size = input-&gt;real_stream-&gt;max_buffer_size;</span>
+<span class="lineNum">     291 </span>            : 
+<span class="lineNum">     292 </span><span class="lineCov">          5 :     bstream-&gt;istream.read = i_stream_binary_converter_read;</span>
+<span class="lineNum">     293 </span><span class="lineCov">          5 :     bstream-&gt;istream.iostream.close = i_stream_binary_converter_close;</span>
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineCov">          5 :     bstream-&gt;istream.istream.readable_fd = FALSE;</span>
+<span class="lineNum">     296 </span><span class="lineCov">          5 :     bstream-&gt;istream.istream.blocking = input-&gt;blocking;</span>
+<span class="lineNum">     297 </span><span class="lineCov">          5 :     bstream-&gt;istream.istream.seekable = FALSE;</span>
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineCov">          5 :     bstream-&gt;pool = pool_alloconly_create(&quot;istream binary converter&quot;, 128);</span>
+<span class="lineNum">     300 </span><span class="lineCov">          5 :     bstream-&gt;parser = message_parser_init(bstream-&gt;pool, input, 0,</span>
+<span class="lineNum">     301 </span>            :                 MESSAGE_PARSER_FLAG_INCLUDE_MULTIPART_BLOCKS |
+<span class="lineNum">     302 </span>            :                 MESSAGE_PARSER_FLAG_INCLUDE_BOUNDARIES);
+<span class="lineNum">     303 </span><span class="lineCov">          5 :     return i_stream_create(&amp;bstream-&gt;istream, input,</span>
+<span class="lineNum">     304 </span>            :                    i_stream_get_fd(input), 0);
+<span class="lineNum">     305 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

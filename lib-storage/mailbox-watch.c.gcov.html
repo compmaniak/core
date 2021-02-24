@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/mailbox-watch.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-storage</a> - mailbox-watch.c<span style="font-size: 80%;"> (source / <a href="mailbox-watch.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">75</td>
+            <td class="headerCovTableEntryLo">6.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">14.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;mail-storage-private.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;mailbox-watch.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">       9 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      10 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : #define NOTIFY_DELAY_MSECS 500
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : struct mailbox_notify_file {
+<span class="lineNum">      15 </span>            :     struct mailbox_notify_file *next;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            :     char *path;
+<span class="lineNum">      18 </span>            :     struct stat last_st;
+<span class="lineNum">      19 </span>            :     struct io *io_notify;
+<a name="20"><span class="lineNum">      20 </span>            : };</a>
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span><span class="lineNoCov">          0 : static void notify_delay_callback(struct mailbox *box)</span>
+<span class="lineNum">      23 </span>            : {
+<span class="lineNum">      24 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;box-&gt;to_notify_delay);</span>
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 :     box-&gt;notify_callback(box, box-&gt;notify_context);</span>
+<a name="26"><span class="lineNum">      26 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span><span class="lineNoCov">          0 : static void notify_timeout(struct mailbox *box)</span>
+<span class="lineNum">      29 </span>            : {
+<span class="lineNum">      30 </span>            :     struct mailbox_notify_file *file;
+<span class="lineNum">      31 </span>            :     struct stat st;
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :     bool notify = FALSE;</span>
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     for (file = box-&gt;notify_files; file != NULL; file = file-&gt;next) {</span>
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 :         if (stat(file-&gt;path, &amp;st) == 0 &amp;&amp;</span>
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :             ST_CHANGED(file-&gt;last_st, st)) {</span>
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :             file-&gt;last_st = st;</span>
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :             notify = TRUE;</span>
+<span class="lineNum">      39 </span>            :         }
+<span class="lineNum">      40 </span>            :     }
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :     if (notify)</span>
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :         notify_delay_callback(box);</span>
+<a name="44"><span class="lineNum">      44 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 : static void notify_callback(struct mailbox *box)</span>
+<span class="lineNum">      47 </span>            : {
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     timeout_reset(box-&gt;to_notify);</span>
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     if (box-&gt;to_notify_delay == NULL) {</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :         box-&gt;to_notify_delay =</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :             timeout_add_short(NOTIFY_DELAY_MSECS,</span>
+<span class="lineNum">      53 </span>            :                       notify_delay_callback, box);
+<span class="lineNum">      54 </span>            :     }
+<a name="55"><span class="lineNum">      55 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 : void mailbox_watch_add(struct mailbox *box, const char *path)</span>
+<span class="lineNum">      58 </span>            : {
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     const struct mail_storage_settings *set = box-&gt;storage-&gt;set;</span>
+<span class="lineNum">      60 </span>            :     struct mailbox_notify_file *file;
+<span class="lineNum">      61 </span>            :     struct stat st;
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     struct io *io = NULL;</span>
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     i_assert(set-&gt;mailbox_idle_check_interval &gt; 0);</span>
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     (void)io_add_notify(path, notify_callback, box, &amp;io);</span>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     file = i_new(struct mailbox_notify_file, 1);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     file-&gt;path = i_strdup(path);</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     if (stat(path, &amp;st) == 0)</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         file-&gt;last_st = st;</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     file-&gt;io_notify = io;</span>
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     file-&gt;next = box-&gt;notify_files;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     box-&gt;notify_files = file;</span>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :     /* we still add a timeout if we don't have one already,
+<span class="lineNum">      78 </span>            :      * because we don't know what happens with [di]notify
+<span class="lineNum">      79 </span>            :      * when the filesystem is remote (NFS, ...) */
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     if (box-&gt;to_notify == NULL) {</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         box-&gt;to_notify =</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :             timeout_add(set-&gt;mailbox_idle_check_interval * 1000,</span>
+<span class="lineNum">      83 </span>            :                     notify_timeout, box);
+<span class="lineNum">      84 </span>            :     }
+<a name="85"><span class="lineNum">      85 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span><span class="lineCov">         11 : void mailbox_watch_remove_all(struct mailbox *box)</span>
+<span class="lineNum">      88 </span>            : {
+<span class="lineNum">      89 </span>            :     struct mailbox_notify_file *file;
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineCov">         22 :     while (box-&gt;notify_files != NULL) {</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :         file = box-&gt;notify_files;</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         box-&gt;notify_files = file-&gt;next;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         io_remove(&amp;file-&gt;io_notify);</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :                 i_free(file-&gt;path);</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :         i_free(file);</span>
+<span class="lineNum">      98 </span>            :     }
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineCov">         11 :     timeout_remove(&amp;box-&gt;to_notify_delay);</span>
+<span class="lineNum">     101 </span><span class="lineCov">         11 :     timeout_remove(&amp;box-&gt;to_notify);</span>
+<a name="102"><span class="lineNum">     102 </span><span class="lineCov">         11 : }</span></a>
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 : static void notify_extract_callback(struct mailbox *box ATTR_UNUSED)</span>
+<span class="lineNum">     105 </span>            : {
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<a name="107"><span class="lineNum">     107 </span>            : }</a>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 : int mailbox_watch_extract_notify_fd(struct mailbox *box, const char **reason_r)</span>
+<span class="lineNum">     110 </span>            : {
+<span class="lineNum">     111 </span>            :     struct ioloop *ioloop;
+<span class="lineNum">     112 </span>            :     struct mailbox_notify_file *file;
+<span class="lineNum">     113 </span>            :     struct io *io, *const *iop;
+<span class="lineNum">     114 </span>            :     ARRAY(struct io *) temp_ios;
+<span class="lineNum">     115 </span>            :     int ret;
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     bool failed = FALSE;</span>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span>            :     /* add all the notify IOs to a new ioloop. */
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     ioloop = io_loop_create();</span>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     t_array_init(&amp;temp_ios, 8);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     for (file = box-&gt;notify_files; file != NULL &amp;&amp; !failed; file = file-&gt;next) {</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         switch (io_add_notify(file-&gt;path, notify_extract_callback, box, &amp;io)) {</span>
+<span class="lineNum">     124 </span>            :         case IO_NOTIFY_ADDED:
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :             array_append(&amp;temp_ios, &amp;io, 1);</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     127 </span>            :         case IO_NOTIFY_NOTFOUND:
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :             *reason_r = t_strdup_printf(</span>
+<span class="lineNum">     129 </span>            :                 &quot;%s not found - can't watch it&quot;, file-&gt;path);
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :             failed = TRUE;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     132 </span>            :         case IO_NOTIFY_NOSUPPORT:
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :             *reason_r = &quot;Filesystem notifications not supported&quot;;</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :             failed = TRUE;</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     136 </span>            :         }
+<span class="lineNum">     137 </span>            :     }
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     if (failed)</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     else if (array_count(&amp;temp_ios) == 0) {</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         *reason_r = &quot;Mailbox has no IO notifications&quot;;</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     143 </span>            :     } else {
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         ret = io_loop_extract_notify_fd(ioloop);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         if (ret == -1)</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :             *reason_r = &quot;Couldn't extra notify fd&quot;;</span>
+<span class="lineNum">     147 </span>            :     }
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     array_foreach(&amp;temp_ios, iop) {</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :         struct io *io = *iop;</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         io_remove(&amp;io);</span>
+<span class="lineNum">     151 </span>            :     }
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     io_loop_destroy(&amp;ioloop);</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     154 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,1145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/ostream-file.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - ostream-file.c<span style="font-size: 80%;"> (source / <a href="ostream-file.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">362</td>
+            <td class="headerCovTableEntry">561</td>
+            <td class="headerCovTableEntryLo">64.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">32</td>
+            <td class="headerCovTableEntry">35</td>
+            <td class="headerCovTableEntryHi">91.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /* @UNSAFE: whole file */
+<span class="lineNum">       4 </span>            : 
+<span class="lineNum">       5 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;sendfile-util.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;ostream-file-private.h&quot;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      15 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      16 </span>            : #ifdef HAVE_SYS_UIO_H
+<span class="lineNum">      17 </span>            : #  include &lt;sys/uio.h&gt;
+<span class="lineNum">      18 </span>            : #endif
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : /* try to keep the buffer size within 4k..128k. ReiserFS may actually return
+<span class="lineNum">      21 </span>            :    128k as optimal size. */
+<span class="lineNum">      22 </span>            : #define DEFAULT_OPTIMAL_BLOCK_SIZE IO_BLOCK_SIZE
+<span class="lineNum">      23 </span>            : #define MAX_OPTIMAL_BLOCK_SIZE (128*1024)
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : #define IS_STREAM_EMPTY(fstream) \
+<span class="lineNum">      26 </span>            :     ((fstream)-&gt;head == (fstream)-&gt;tail &amp;&amp; !(fstream)-&gt;full)
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : #define MAX_SSIZE_T(size) \
+<span class="lineNum">      29 </span>            :     ((size) &lt; SSIZE_T_MAX ? (size_t)(size) : SSIZE_T_MAX)
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : static void stream_send_io(struct file_ostream *fstream);
+<span class="lineNum">      32 </span>            : static struct ostream * o_stream_create_fd_common(int fd,
+<a name="33"><span class="lineNum">      33 </span>            :         size_t max_buffer_size, bool autoclose_fd);</a>
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span><span class="lineCov">        400 : static void stream_closed(struct file_ostream *fstream)</span>
+<span class="lineNum">      36 </span>            : {
+<span class="lineNum">      37 </span><span class="lineCov">        400 :     io_remove(&amp;fstream-&gt;io);</span>
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span><span class="lineCov">        400 :     if (fstream-&gt;autoclose_fd &amp;&amp; fstream-&gt;fd != -1) {</span>
+<span class="lineNum">      40 </span><span class="lineCov">          1 :         if (close(fstream-&gt;fd) &lt; 0) {</span>
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :             i_error(&quot;file_ostream.close(%s) failed: %m&quot;,</span>
+<span class="lineNum">      42 </span>            :                 o_stream_get_name(&amp;fstream-&gt;ostream.ostream));
+<span class="lineNum">      43 </span>            :         }
+<span class="lineNum">      44 </span>            :     }
+<span class="lineNum">      45 </span><span class="lineCov">        400 :     fstream-&gt;fd = -1;</span>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span><span class="lineCov">        400 :     fstream-&gt;ostream.ostream.closed = TRUE;</span>
+<a name="48"><span class="lineNum">      48 </span><span class="lineCov">        400 : }</span></a>
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineCov">        400 : void o_stream_file_close(struct iostream_private *stream,</span>
+<span class="lineNum">      51 </span>            :                 bool close_parent ATTR_UNUSED)
+<span class="lineNum">      52 </span>            : {
+<span class="lineNum">      53 </span><span class="lineCov">        400 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineCov">        400 :     stream_closed(fstream);</span>
+<a name="56"><span class="lineNum">      56 </span><span class="lineCov">        400 : }</span></a>
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineCov">        283 : static void o_stream_file_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">      59 </span>            : {
+<span class="lineNum">      60 </span><span class="lineCov">        283 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineCov">        283 :     i_free(fstream-&gt;buffer);</span>
+<a name="63"><span class="lineNum">      63 </span><span class="lineCov">        283 : }</span></a>
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineCov">       1000 : static size_t file_buffer_get_used_size(struct file_ostream *fstream)</span>
+<span class="lineNum">      66 </span>            : {
+<span class="lineNum">      67 </span><span class="lineCov">       1000 :     if (fstream-&gt;head == fstream-&gt;tail)</span>
+<span class="lineNum">      68 </span><span class="lineCov">        887 :         return fstream-&gt;full ? fstream-&gt;buffer_size : 0;</span>
+<span class="lineNum">      69 </span><span class="lineCov">        113 :     else if (fstream-&gt;head &lt; fstream-&gt;tail) {</span>
+<span class="lineNum">      70 </span>            :         /* ...HXXXT... */
+<span class="lineNum">      71 </span><span class="lineCov">        113 :         return fstream-&gt;tail - fstream-&gt;head;</span>
+<span class="lineNum">      72 </span>            :     } else {
+<span class="lineNum">      73 </span>            :         /* XXXT...HXXX */
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         return fstream-&gt;tail +</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :             (fstream-&gt;buffer_size - fstream-&gt;head);</span>
+<span class="lineNum">      76 </span>            :     }
+<a name="77"><span class="lineNum">      77 </span>            : }</a>
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineCov">        248 : static void update_buffer(struct file_ostream *fstream, size_t size)</span>
+<span class="lineNum">      80 </span>            : {
+<span class="lineNum">      81 </span>            :     size_t used;
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">        248 :     if (IS_STREAM_EMPTY(fstream) || size == 0)</span>
+<span class="lineNum">      84 </span><span class="lineCov">        248 :         return;</span>
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span><span class="lineCov">        248 :     if (fstream-&gt;head &lt; fstream-&gt;tail) {</span>
+<span class="lineNum">      87 </span>            :         /* ...HXXXT... */
+<span class="lineNum">      88 </span><span class="lineCov">        248 :         used = fstream-&gt;tail - fstream-&gt;head;</span>
+<span class="lineNum">      89 </span><span class="lineCov">        248 :         i_assert(size &lt;= used);</span>
+<span class="lineNum">      90 </span><span class="lineCov">        248 :         fstream-&gt;head += size;</span>
+<span class="lineNum">      91 </span>            :     } else {
+<span class="lineNum">      92 </span>            :         /* XXXT...HXXX */
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         used = fstream-&gt;buffer_size - fstream-&gt;head;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         if (size &gt; used) {</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :             size -= used;</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :             i_assert(size &lt;= fstream-&gt;tail);</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :             fstream-&gt;head = size;</span>
+<span class="lineNum">      98 </span>            :         } else {
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :             fstream-&gt;head += size;</span>
+<span class="lineNum">     100 </span>            :         }
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         fstream-&gt;full = FALSE;</span>
+<span class="lineNum">     103 </span>            :     }
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineCov">        248 :     if (fstream-&gt;head == fstream-&gt;tail)</span>
+<span class="lineNum">     106 </span><span class="lineCov">        248 :         fstream-&gt;head = fstream-&gt;tail = 0;</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineCov">        248 :     if (fstream-&gt;head == fstream-&gt;buffer_size)</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         fstream-&gt;head = 0;</span>
+<a name="110"><span class="lineNum">     110 </span>            : }</a>
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineCov">       1502 : static void o_stream_socket_cork(struct file_ostream *fstream)</span>
+<span class="lineNum">     113 </span>            : {
+<span class="lineNum">     114 </span><span class="lineCov">       1502 :     if (fstream-&gt;ostream.corked &amp;&amp; !fstream-&gt;socket_cork_set) {</span>
+<span class="lineNum">     115 </span><span class="lineCov">        248 :         if (!fstream-&gt;no_socket_cork) {</span>
+<span class="lineNum">     116 </span><span class="lineCov">         19 :             if (net_set_cork(fstream-&gt;fd, TRUE) &lt; 0)</span>
+<span class="lineNum">     117 </span><span class="lineCov">          2 :                 fstream-&gt;no_socket_cork = TRUE;</span>
+<span class="lineNum">     118 </span>            :             else
+<span class="lineNum">     119 </span><span class="lineCov">         17 :                 fstream-&gt;socket_cork_set = TRUE;</span>
+<span class="lineNum">     120 </span>            :         }
+<span class="lineNum">     121 </span>            :     }
+<a name="122"><span class="lineNum">     122 </span><span class="lineCov">       1502 : }</span></a>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineCov">        340 : static int o_stream_lseek(struct file_ostream *fstream)</span>
+<span class="lineNum">     125 </span>            : {
+<span class="lineNum">     126 </span>            :     off_t ret;
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineCov">        340 :     if (fstream-&gt;real_offset == fstream-&gt;buffer_offset)</span>
+<span class="lineNum">     129 </span><span class="lineCov">        340 :         return 0;</span>
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     ret = lseek(fstream-&gt;fd, (off_t)fstream-&gt;buffer_offset, SEEK_SET);</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;fstream-&gt;ostream.iostream,</span>
+<span class="lineNum">     134 </span>            :                     &quot;lseek() failed: %m&quot;);
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         fstream-&gt;ostream.ostream.stream_errno = errno;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     137 </span>            :     }
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     if (ret != (off_t)fstream-&gt;buffer_offset) {</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         io_stream_set_error(&amp;fstream-&gt;ostream.iostream,</span>
+<span class="lineNum">     141 </span>            :                     &quot;lseek() returned wrong value&quot;);
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         fstream-&gt;ostream.ostream.stream_errno = EINVAL;</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     144 </span>            :     }
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     fstream-&gt;real_offset = fstream-&gt;buffer_offset;</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="147"><span class="lineNum">     147 </span>            : }</a>
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineCov">       1501 : ssize_t o_stream_file_writev(struct file_ostream *fstream,</span>
+<span class="lineNum">     150 </span>            :                    const struct const_iovec *iov,
+<span class="lineNum">     151 </span>            :                    unsigned int iov_count)
+<span class="lineNum">     152 </span>            : {
+<span class="lineNum">     153 </span>            :     ssize_t ret;
+<span class="lineNum">     154 </span>            :     size_t size, sent;
+<span class="lineNum">     155 </span>            :     unsigned int i;
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineCov">       1501 :     if (iov_count == 1) {</span>
+<span class="lineNum">     158 </span><span class="lineCov">       1162 :         i_assert(iov-&gt;iov_len &gt; 0);</span>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineCov">       1957 :         if (!fstream-&gt;file ||</span>
+<span class="lineNum">     161 </span><span class="lineCov">        795 :             fstream-&gt;real_offset == fstream-&gt;buffer_offset) {</span>
+<span class="lineNum">     162 </span><span class="lineCov">       1161 :             ret = write(fstream-&gt;fd, iov-&gt;iov_base, iov-&gt;iov_len);</span>
+<span class="lineNum">     163 </span><span class="lineCov">       2322 :             if (ret &gt; 0)</span>
+<span class="lineNum">     164 </span><span class="lineCov">       1161 :                 fstream-&gt;real_offset += ret;</span>
+<span class="lineNum">     165 </span>            :         } else {
+<span class="lineNum">     166 </span><span class="lineCov">          1 :             ret = pwrite(fstream-&gt;fd, iov-&gt;iov_base, iov-&gt;iov_len,</span>
+<span class="lineNum">     167 </span><span class="lineCov">          1 :                      fstream-&gt;buffer_offset);</span>
+<span class="lineNum">     168 </span>            :         }
+<span class="lineNum">     169 </span>            :     } else {
+<span class="lineNum">     170 </span><span class="lineCov">        339 :         if (o_stream_lseek(fstream) &lt; 0)</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineCov">        339 :         sent = 0;</span>
+<span class="lineNum">     174 </span><span class="lineCov">        678 :         while (iov_count &gt; IOV_MAX) {</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :             size = 0;</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :             for (i = 0; i &lt; IOV_MAX; i++)</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :                 size += iov[i].iov_len;</span>
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :             ret = writev(fstream-&gt;fd, (const struct iovec *)iov,</span>
+<span class="lineNum">     180 </span>            :                      IOV_MAX);
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             if (ret != (ssize_t)size) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     183 </span>            :             }
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :             fstream-&gt;real_offset += ret;</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :             fstream-&gt;buffer_offset += ret;</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :             sent += ret;</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :             iov += IOV_MAX;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :             iov_count -= IOV_MAX;</span>
+<span class="lineNum">     190 </span>            :         }
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineCov">        339 :         if (iov_count &lt;= IOV_MAX) {</span>
+<span class="lineNum">     193 </span><span class="lineCov">        339 :             size = 0;</span>
+<span class="lineNum">     194 </span><span class="lineCov">       1695 :             for (i = 0; i &lt; iov_count; i++)</span>
+<span class="lineNum">     195 </span><span class="lineCov">       1356 :                 size += iov[i].iov_len;</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineCov">        339 :             ret = writev(fstream-&gt;fd, (const struct iovec *)iov,</span>
+<span class="lineNum">     198 </span>            :                      iov_count);
+<span class="lineNum">     199 </span>            :         }
+<span class="lineNum">     200 </span><span class="lineCov">        339 :         if (ret &gt; 0) {</span>
+<span class="lineNum">     201 </span><span class="lineCov">        339 :             fstream-&gt;real_offset += ret;</span>
+<span class="lineNum">     202 </span><span class="lineCov">        339 :             ret += sent;</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :         } else if (!fstream-&gt;file &amp;&amp; sent &gt; 0) {</span>
+<span class="lineNum">     204 </span>            :             /* return what we managed to get sent */
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :             ret = sent;</span>
+<span class="lineNum">     206 </span>            :         }
+<span class="lineNum">     207 </span>            :     }
+<span class="lineNum">     208 </span><span class="lineCov">       1501 :     return ret;</span>
+<span class="lineNum">     209 </span>            : }
+<a name="210"><span class="lineNum">     210 </span>            : </a>
+<span class="lineNum">     211 </span>            : static ssize_t
+<span class="lineNum">     212 </span><span class="lineCov">       1501 : o_stream_file_writev_full(struct file_ostream *fstream,</span>
+<span class="lineNum">     213 </span>            :                    const struct const_iovec *iov,
+<span class="lineNum">     214 </span>            :                    unsigned int iov_count)
+<span class="lineNum">     215 </span>            : {
+<span class="lineNum">     216 </span>            :     ssize_t ret, ret2;
+<span class="lineNum">     217 </span>            :     size_t size, total_size;
+<span class="lineNum">     218 </span>            :     bool partial;
+<span class="lineNum">     219 </span>            :     unsigned int i;
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineCov">       4019 :     for (i = 0, total_size = 0; i &lt; iov_count; i++)</span>
+<span class="lineNum">     222 </span><span class="lineCov">       2518 :         total_size += iov[i].iov_len;</span>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineCov">       1501 :     o_stream_socket_cork(fstream);</span>
+<span class="lineNum">     225 </span><span class="lineCov">       1501 :     ret = fstream-&gt;writev(fstream, iov, iov_count);</span>
+<span class="lineNum">     226 </span><span class="lineCov">       1501 :     partial = ret != (ssize_t)total_size;</span>
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span><span class="lineCov">       1501 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         if (fstream-&gt;file) {</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             if (errno == EINTR) {</span>
+<span class="lineNum">     231 </span>            :                 /* automatically retry */
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :                 return o_stream_file_writev_full(fstream, iov, iov_count);</span>
+<span class="lineNum">     233 </span>            :             }
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :         } else if (errno == EAGAIN || errno == EINTR) {</span>
+<span class="lineNum">     235 </span>            :             /* try again later */
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     237 </span>            :         }
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         fstream-&gt;ostream.ostream.stream_errno = errno;</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         stream_closed(fstream);</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     241 </span>            :     }
+<span class="lineNum">     242 </span><span class="lineCov">       1501 :     if (unlikely(ret == 0 &amp;&amp; fstream-&gt;file)) {</span>
+<span class="lineNum">     243 </span>            :         /* assume out of disk space */
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         fstream-&gt;ostream.ostream.stream_errno = ENOSPC;</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         stream_closed(fstream);</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     247 </span>            :     }
+<span class="lineNum">     248 </span><span class="lineCov">       1501 :     fstream-&gt;buffer_offset += ret;</span>
+<span class="lineNum">     249 </span><span class="lineCov">       1501 :     if (partial &amp;&amp; fstream-&gt;file) {</span>
+<span class="lineNum">     250 </span>            :         /* we failed to write everything to a file. either we ran out
+<span class="lineNum">     251 </span>            :            of disk space or we're writing to NFS. try to write the
+<span class="lineNum">     252 </span>            :            rest to resolve this. */
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :         size = ret;</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         while (iov_count &gt; 0 &amp;&amp; size &gt;= iov-&gt;iov_len) {</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :             size -= iov-&gt;iov_len;</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :             iov++;</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :             iov_count--;</span>
+<span class="lineNum">     258 </span>            :         }
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         i_assert(iov_count &gt; 0);</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         if (size == 0)</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :             ret2 = o_stream_file_writev_full(fstream, iov, iov_count);</span>
+<span class="lineNum">     262 </span>            :         else {
+<span class="lineNum">     263 </span>            :             /* write the first iov separately */
+<span class="lineNum">     264 </span>            :             struct const_iovec new_iov;
+<span class="lineNum">     265 </span>            : 
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :             new_iov.iov_base =</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :                 CONST_PTR_OFFSET(iov-&gt;iov_base, size);</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :             new_iov.iov_len = iov-&gt;iov_len - size;</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :             ret2 = o_stream_file_writev_full(fstream, &amp;new_iov, 1);</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :             if (ret2 &gt; 0) {</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :                 i_assert((size_t)ret2 == new_iov.iov_len);</span>
+<span class="lineNum">     272 </span>            :                 /* write the rest */
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :                 if (iov_count &gt; 1) {</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :                     ret += ret2;</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :                     ret2 = o_stream_file_writev_full(fstream, iov + 1,</span>
+<span class="lineNum">     276 </span>            :                                    iov_count - 1);
+<span class="lineNum">     277 </span>            :                 }
+<span class="lineNum">     278 </span>            :             }
+<span class="lineNum">     279 </span>            :         }
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         i_assert(ret2 != 0);</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         if (ret2 &lt; 0)</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :             ret = ret2;</span>
+<span class="lineNum">     283 </span>            :         else
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :             ret += ret2;</span>
+<span class="lineNum">     285 </span>            :     }
+<span class="lineNum">     286 </span><span class="lineCov">       1501 :     i_assert(ret &lt; 0 || !fstream-&gt;file ||</span>
+<span class="lineNum">     287 </span>            :          (size_t)ret == total_size);
+<span class="lineNum">     288 </span><span class="lineCov">       1501 :     return ret;</span>
+<span class="lineNum">     289 </span>            : }
+<a name="290"><span class="lineNum">     290 </span>            : </a>
+<span class="lineNum">     291 </span>            : /* returns how much of vector was used */
+<span class="lineNum">     292 </span><span class="lineCov">       1618 : static int o_stream_fill_iovec(struct file_ostream *fstream,</span>
+<span class="lineNum">     293 </span>            :                    struct const_iovec iov[2])
+<span class="lineNum">     294 </span>            : {
+<span class="lineNum">     295 </span><span class="lineCov">       1618 :     if (IS_STREAM_EMPTY(fstream))</span>
+<span class="lineNum">     296 </span><span class="lineCov">       1370 :         return 0;</span>
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineCov">        248 :     if (fstream-&gt;head &lt; fstream-&gt;tail) {</span>
+<span class="lineNum">     299 </span><span class="lineCov">        248 :         iov[0].iov_base = fstream-&gt;buffer + fstream-&gt;head;</span>
+<span class="lineNum">     300 </span><span class="lineCov">        248 :         iov[0].iov_len = fstream-&gt;tail - fstream-&gt;head;</span>
+<span class="lineNum">     301 </span><span class="lineCov">        248 :         return 1;</span>
+<span class="lineNum">     302 </span>            :     } else {
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :         iov[0].iov_base = fstream-&gt;buffer + fstream-&gt;head;</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :         iov[0].iov_len = fstream-&gt;buffer_size - fstream-&gt;head;</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         if (fstream-&gt;tail == 0)</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :             return 1;</span>
+<span class="lineNum">     307 </span>            :         else {
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :             iov[1].iov_base = fstream-&gt;buffer;</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :             iov[1].iov_len = fstream-&gt;tail;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :             return 2;</span>
+<span class="lineNum">     311 </span>            :         }
+<span class="lineNum">     312 </span>            :     }
+<a name="313"><span class="lineNum">     313 </span>            : }</a>
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineCov">       1618 : static int buffer_flush(struct file_ostream *fstream)</span>
+<span class="lineNum">     316 </span>            : {
+<span class="lineNum">     317 </span>            :     struct const_iovec iov[2];
+<span class="lineNum">     318 </span>            :     int iov_len;
+<span class="lineNum">     319 </span>            :     ssize_t ret;
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineCov">       1618 :     iov_len = o_stream_fill_iovec(fstream, iov);</span>
+<span class="lineNum">     322 </span><span class="lineCov">       1618 :     if (iov_len &gt; 0) {</span>
+<span class="lineNum">     323 </span><span class="lineCov">        248 :         ret = o_stream_file_writev_full(fstream, iov, iov_len);</span>
+<span class="lineNum">     324 </span><span class="lineCov">        248 :         if (ret &lt; 0)</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span><span class="lineCov">        248 :         update_buffer(fstream, ret);</span>
+<span class="lineNum">     328 </span>            :     }
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineCov">       1618 :     return IS_STREAM_EMPTY(fstream) ? 1 : 0;</span>
+<a name="331"><span class="lineNum">     331 </span>            : }</a>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineCov">        391 : static void o_stream_file_cork(struct ostream_private *stream, bool set)</span>
+<span class="lineNum">     334 </span>            : {
+<span class="lineNum">     335 </span><span class="lineCov">        391 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">     336 </span>            :     int ret;
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineCov">        391 :     if (stream-&gt;corked != set &amp;&amp; !stream-&gt;ostream.closed) {</span>
+<span class="lineNum">     339 </span><span class="lineCov">        391 :         if (set &amp;&amp; fstream-&gt;io != NULL)</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :             io_remove(&amp;fstream-&gt;io);</span>
+<span class="lineNum">     341 </span><span class="lineCov">        391 :         else if (!set) {</span>
+<span class="lineNum">     342 </span>            :             /* buffer flushing might close the stream */
+<span class="lineNum">     343 </span><span class="lineCov">        131 :             ret = buffer_flush(fstream);</span>
+<span class="lineNum">     344 </span><span class="lineCov">        131 :             stream-&gt;last_errors_not_checked = TRUE;</span>
+<span class="lineNum">     345 </span><span class="lineCov">        131 :             if (fstream-&gt;io == NULL &amp;&amp;</span>
+<span class="lineNum">     346 </span><span class="lineCov">        131 :                 (ret == 0 || fstream-&gt;flush_pending) &amp;&amp;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :                 !stream-&gt;ostream.closed) {</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :                 fstream-&gt;io = io_add(fstream-&gt;fd, IO_WRITE,</span>
+<span class="lineNum">     349 </span>            :                              stream_send_io, fstream);
+<span class="lineNum">     350 </span>            :             }
+<span class="lineNum">     351 </span>            :         }
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineCov">        391 :         if (fstream-&gt;socket_cork_set) {</span>
+<span class="lineNum">     354 </span><span class="lineCov">         17 :             i_assert(!set);</span>
+<span class="lineNum">     355 </span><span class="lineCov">         17 :             if (net_set_cork(fstream-&gt;fd, FALSE) &lt; 0)</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :                 fstream-&gt;no_socket_cork = TRUE;</span>
+<span class="lineNum">     357 </span><span class="lineCov">         17 :             fstream-&gt;socket_cork_set = FALSE;</span>
+<span class="lineNum">     358 </span>            :         }
+<span class="lineNum">     359 </span><span class="lineCov">        391 :         stream-&gt;corked = set;</span>
+<span class="lineNum">     360 </span>            :     }
+<a name="361"><span class="lineNum">     361 </span><span class="lineCov">        391 : }</span></a>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineCov">       1484 : static int o_stream_file_flush(struct ostream_private *stream)</span>
+<span class="lineNum">     364 </span>            : {
+<span class="lineNum">     365 </span><span class="lineCov">       1484 :     struct file_ostream *fstream = (struct file_ostream *) stream;</span>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineCov">       1484 :     return buffer_flush(fstream);</span>
+<span class="lineNum">     368 </span>            : }
+<a name="369"><span class="lineNum">     369 </span>            : </a>
+<span class="lineNum">     370 </span>            : static void
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 : o_stream_file_flush_pending(struct ostream_private *stream, bool set)</span>
+<span class="lineNum">     372 </span>            : {
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :     struct file_ostream *fstream = (struct file_ostream *) stream;</span>
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     fstream-&gt;flush_pending = set;</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     if (set &amp;&amp; !stream-&gt;corked &amp;&amp; fstream-&gt;io == NULL) {</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         fstream-&gt;io = io_add(fstream-&gt;fd, IO_WRITE,</span>
+<span class="lineNum">     378 </span>            :                      stream_send_io, fstream);
+<span class="lineNum">     379 </span>            :     }
+<a name="380"><span class="lineNum">     380 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span><span class="lineCov">       3230 : static size_t get_unused_space(const struct file_ostream *fstream)</span>
+<span class="lineNum">     383 </span>            : {
+<span class="lineNum">     384 </span><span class="lineCov">       3230 :     if (fstream-&gt;head &gt; fstream-&gt;tail) {</span>
+<span class="lineNum">     385 </span>            :         /* XXXT...HXXX */
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         return fstream-&gt;head - fstream-&gt;tail;</span>
+<span class="lineNum">     387 </span><span class="lineCov">       3230 :     } else if (fstream-&gt;head &lt; fstream-&gt;tail) {</span>
+<span class="lineNum">     388 </span>            :         /* ...HXXXT... */
+<span class="lineNum">     389 </span><span class="lineCov">        382 :         return (fstream-&gt;buffer_size - fstream-&gt;tail) + fstream-&gt;head;</span>
+<span class="lineNum">     390 </span>            :     } else {
+<span class="lineNum">     391 </span>            :         /* either fully unused or fully used */
+<span class="lineNum">     392 </span><span class="lineCov">       2848 :         return fstream-&gt;full ? 0 : fstream-&gt;buffer_size;</span>
+<span class="lineNum">     393 </span>            :     }
+<a name="394"><span class="lineNum">     394 </span>            : }</a>
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span><span class="lineCov">       1099 : static size_t o_stream_file_get_used_size(const struct ostream_private *stream)</span>
+<span class="lineNum">     397 </span>            : {
+<span class="lineNum">     398 </span><span class="lineCov">       1099 :     const struct file_ostream *fstream =</span>
+<span class="lineNum">     399 </span>            :         (const struct file_ostream *)stream;
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineCov">       1099 :     return fstream-&gt;buffer_size - get_unused_space(fstream);</span>
+<a name="402"><span class="lineNum">     402 </span>            : }</a>
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span><span class="lineCov">          2 : static int o_stream_file_seek(struct ostream_private *stream, uoff_t offset)</span>
+<span class="lineNum">     405 </span>            : {
+<span class="lineNum">     406 </span><span class="lineCov">          2 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span><span class="lineCov">          2 :     if (offset &gt; OFF_T_MAX) {</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         stream-&gt;ostream.stream_errno = EINVAL;</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     411 </span>            :     }
+<span class="lineNum">     412 </span><span class="lineCov">          2 :     if (!fstream-&gt;file) {</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :         stream-&gt;ostream.stream_errno = ESPIPE;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     415 </span>            :     }
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineCov">          2 :     if (buffer_flush(fstream) &lt; 0)</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span><span class="lineCov">          2 :     stream-&gt;ostream.offset = offset;</span>
+<span class="lineNum">     421 </span><span class="lineCov">          2 :     fstream-&gt;buffer_offset = offset;</span>
+<span class="lineNum">     422 </span><span class="lineCov">          2 :     return 1;</span>
+<a name="423"><span class="lineNum">     423 </span>            : }</a>
+<span class="lineNum">     424 </span>            : 
+<span class="lineNum">     425 </span><span class="lineCov">        245 : static void o_stream_grow_buffer(struct file_ostream *fstream, size_t bytes)</span>
+<span class="lineNum">     426 </span>            : {
+<span class="lineNum">     427 </span>            :     size_t size, new_size, end_size;
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineCov">        245 :     size = nearest_power(fstream-&gt;buffer_size + bytes);</span>
+<span class="lineNum">     430 </span><span class="lineCov">        245 :     if (size &gt; fstream-&gt;ostream.max_buffer_size) {</span>
+<span class="lineNum">     431 </span>            :         /* limit the size */
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         size = fstream-&gt;ostream.max_buffer_size;</span>
+<span class="lineNum">     433 </span><span class="lineCov">        245 :     } else if (fstream-&gt;ostream.corked) {</span>
+<span class="lineNum">     434 </span>            :         /* try to use optimal buffer size with corking */
+<span class="lineNum">     435 </span><span class="lineCov">        244 :         new_size = I_MIN(fstream-&gt;optimal_block_size,</span>
+<span class="lineNum">     436 </span>            :                  fstream-&gt;ostream.max_buffer_size);
+<span class="lineNum">     437 </span><span class="lineCov">        244 :         if (new_size &gt; size)</span>
+<span class="lineNum">     438 </span><span class="lineCov">        186 :             size = new_size;</span>
+<span class="lineNum">     439 </span>            :     }
+<span class="lineNum">     440 </span>            : 
+<span class="lineNum">     441 </span><span class="lineCov">        245 :     if (size &lt;= fstream-&gt;buffer_size)</span>
+<span class="lineNum">     442 </span><span class="lineCov">        245 :         return;</span>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineCov">        245 :     fstream-&gt;buffer = i_realloc(fstream-&gt;buffer,</span>
+<span class="lineNum">     445 </span>            :                     fstream-&gt;buffer_size, size);
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineCov">        245 :     if (fstream-&gt;tail &lt;= fstream-&gt;head &amp;&amp; !IS_STREAM_EMPTY(fstream)) {</span>
+<span class="lineNum">     448 </span>            :         /* move head forward to end of buffer */
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         end_size = fstream-&gt;buffer_size - fstream-&gt;head;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         memmove(fstream-&gt;buffer + size - end_size,</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :             fstream-&gt;buffer + fstream-&gt;head, end_size);</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :         fstream-&gt;head = size - end_size;</span>
+<span class="lineNum">     453 </span>            :     }
+<span class="lineNum">     454 </span>            : 
+<span class="lineNum">     455 </span><span class="lineCov">        245 :     fstream-&gt;full = FALSE;</span>
+<span class="lineNum">     456 </span><span class="lineCov">        245 :     fstream-&gt;buffer_size = size;</span>
+<a name="457"><span class="lineNum">     457 </span>            : }</a>
+<span class="lineNum">     458 </span>            : 
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 : static void stream_send_io(struct file_ostream *fstream)</span>
+<span class="lineNum">     460 </span>            : {
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     struct ostream *ostream = &amp;fstream-&gt;ostream.ostream;</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     bool use_cork = !fstream-&gt;ostream.corked;</span>
+<span class="lineNum">     463 </span>            :     int ret;
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span>            :     /* Set flush_pending = FALSE first before calling the flush callback,
+<span class="lineNum">     466 </span>            :        and change it to TRUE only if callback returns 0. That way the
+<span class="lineNum">     467 </span>            :        callback can call o_stream_set_flush_pending() again and we don't
+<span class="lineNum">     468 </span>            :        forget it even if flush callback returns 1. */
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :     fstream-&gt;flush_pending = FALSE;</span>
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     o_stream_ref(ostream);</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :     if (use_cork)</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         o_stream_cork(ostream);</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :     if (fstream-&gt;ostream.callback != NULL)</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :         ret = fstream-&gt;ostream.callback(fstream-&gt;ostream.context);</span>
+<span class="lineNum">     476 </span>            :     else
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         ret = o_stream_file_flush(&amp;fstream-&gt;ostream);</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :     if (use_cork)</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :         o_stream_uncork(ostream);</span>
+<span class="lineNum">     480 </span>            : 
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :     if (ret == 0)</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         fstream-&gt;flush_pending = TRUE;</span>
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     if (!fstream-&gt;flush_pending &amp;&amp; IS_STREAM_EMPTY(fstream)) {</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         io_remove(&amp;fstream-&gt;io);</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :     } else if (!fstream-&gt;ostream.ostream.closed) {</span>
+<span class="lineNum">     487 </span>            :         /* Add the IO handler if it's not there already. Callback
+<span class="lineNum">     488 </span>            :            might have just returned 0 without there being any data
+<span class="lineNum">     489 </span>            :            to be sent. */
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :         if (fstream-&gt;io == NULL) {</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :             fstream-&gt;io = io_add(fstream-&gt;fd, IO_WRITE,</span>
+<span class="lineNum">     492 </span>            :                          stream_send_io, fstream);
+<span class="lineNum">     493 </span>            :         }
+<span class="lineNum">     494 </span>            :     }
+<span class="lineNum">     495 </span>            : 
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;ostream);</span>
+<a name="497"><span class="lineNum">     497 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span><span class="lineCov">        439 : static size_t o_stream_add(struct file_ostream *fstream,</span>
+<span class="lineNum">     500 </span>            :                const void *data, size_t size)
+<span class="lineNum">     501 </span>            : {
+<span class="lineNum">     502 </span>            :     size_t unused, sent;
+<span class="lineNum">     503 </span>            :     int i;
+<span class="lineNum">     504 </span>            : 
+<span class="lineNum">     505 </span><span class="lineCov">        439 :     unused = get_unused_space(fstream);</span>
+<span class="lineNum">     506 </span><span class="lineCov">        439 :     if (unused &lt; size)</span>
+<span class="lineNum">     507 </span><span class="lineCov">        244 :         o_stream_grow_buffer(fstream, size-unused);</span>
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineCov">        439 :     sent = 0;</span>
+<span class="lineNum">     510 </span><span class="lineCov">        878 :     for (i = 0; i &lt; 2 &amp;&amp; sent &lt; size &amp;&amp; !fstream-&gt;full; i++) {</span>
+<span class="lineNum">     511 </span><span class="lineCov">        878 :         unused = fstream-&gt;tail &gt;= fstream-&gt;head ?</span>
+<span class="lineNum">     512 </span><span class="lineCov">        439 :             fstream-&gt;buffer_size - fstream-&gt;tail :</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :             fstream-&gt;head - fstream-&gt;tail;</span>
+<span class="lineNum">     514 </span>            : 
+<span class="lineNum">     515 </span><span class="lineCov">        439 :         if (unused &gt; size-sent)</span>
+<span class="lineNum">     516 </span><span class="lineCov">        439 :             unused = size-sent;</span>
+<span class="lineNum">     517 </span><span class="lineCov">        439 :         memcpy(fstream-&gt;buffer + fstream-&gt;tail,</span>
+<span class="lineNum">     518 </span><span class="lineCov">        439 :                CONST_PTR_OFFSET(data, sent), unused);</span>
+<span class="lineNum">     519 </span><span class="lineCov">        439 :         sent += unused;</span>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineCov">        439 :         fstream-&gt;tail += unused;</span>
+<span class="lineNum">     522 </span><span class="lineCov">        439 :         if (fstream-&gt;tail == fstream-&gt;buffer_size)</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :             fstream-&gt;tail = 0;</span>
+<span class="lineNum">     524 </span>            : 
+<span class="lineNum">     525 </span><span class="lineCov">        439 :         if (fstream-&gt;head == fstream-&gt;tail &amp;&amp;</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :             fstream-&gt;buffer_size &gt; 0)</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :             fstream-&gt;full = TRUE;</span>
+<span class="lineNum">     528 </span>            :     }
+<span class="lineNum">     529 </span>            : 
+<span class="lineNum">     530 </span><span class="lineCov">        878 :     if (sent != 0 &amp;&amp; fstream-&gt;io == NULL &amp;&amp;</span>
+<span class="lineNum">     531 </span><span class="lineCov">        439 :         !fstream-&gt;ostream.corked &amp;&amp; !fstream-&gt;file) {</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :         fstream-&gt;io = io_add(fstream-&gt;fd, IO_WRITE, stream_send_io,</span>
+<span class="lineNum">     533 </span>            :                      fstream);
+<span class="lineNum">     534 </span>            :     }
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineCov">        439 :     return sent;</span>
+<a name="537"><span class="lineNum">     537 </span>            : }</a>
+<span class="lineNum">     538 </span>            : 
+<span class="lineNum">     539 </span><span class="lineCov">       1692 : ssize_t o_stream_file_sendv(struct ostream_private *stream,</span>
+<span class="lineNum">     540 </span>            :                    const struct const_iovec *iov,
+<span class="lineNum">     541 </span>            :                    unsigned int iov_count)
+<span class="lineNum">     542 </span>            : {
+<span class="lineNum">     543 </span><span class="lineCov">       1692 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">     544 </span>            :     size_t size, total_size, added, optimal_size;
+<span class="lineNum">     545 </span>            :     unsigned int i;
+<span class="lineNum">     546 </span><span class="lineCov">       1692 :     ssize_t ret = 0;</span>
+<span class="lineNum">     547 </span>            : 
+<span class="lineNum">     548 </span><span class="lineCov">       4401 :     for (i = 0, size = 0; i &lt; iov_count; i++)</span>
+<span class="lineNum">     549 </span><span class="lineCov">       2709 :         size += iov[i].iov_len;</span>
+<span class="lineNum">     550 </span><span class="lineCov">       1692 :     total_size = size;</span>
+<span class="lineNum">     551 </span>            : 
+<span class="lineNum">     552 </span><span class="lineCov">       1692 :     if (size &gt; get_unused_space(fstream) &amp;&amp; !IS_STREAM_EMPTY(fstream)) {</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :         if (o_stream_file_flush(stream) &lt; 0)</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     555 </span>            :     }
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineCov">       1692 :     optimal_size = I_MIN(fstream-&gt;optimal_block_size,</span>
+<span class="lineNum">     558 </span>            :                  fstream-&gt;ostream.max_buffer_size);
+<span class="lineNum">     559 </span><span class="lineCov">       3193 :     if (IS_STREAM_EMPTY(fstream) &amp;&amp;</span>
+<span class="lineNum">     560 </span><span class="lineCov">       1749 :         (!stream-&gt;corked || size &gt;= optimal_size)) {</span>
+<span class="lineNum">     561 </span>            :         /* send immediately */
+<span class="lineNum">     562 </span><span class="lineCov">       1253 :         ret = o_stream_file_writev_full(fstream, iov, iov_count);</span>
+<span class="lineNum">     563 </span><span class="lineCov">       1253 :         if (ret &lt; 0)</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     565 </span>            : 
+<span class="lineNum">     566 </span><span class="lineCov">       1253 :         size = ret;</span>
+<span class="lineNum">     567 </span><span class="lineCov">       4776 :         while (size &gt; 0 &amp;&amp; iov_count &gt; 0 &amp;&amp; size &gt;= iov[0].iov_len) {</span>
+<span class="lineNum">     568 </span><span class="lineCov">       2270 :             size -= iov[0].iov_len;</span>
+<span class="lineNum">     569 </span><span class="lineCov">       2270 :             iov++;</span>
+<span class="lineNum">     570 </span><span class="lineCov">       2270 :             iov_count--;</span>
+<span class="lineNum">     571 </span>            :         }
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineCov">       1253 :         if (iov_count == 0)</span>
+<span class="lineNum">     574 </span><span class="lineCov">       1253 :             i_assert(size == 0);</span>
+<span class="lineNum">     575 </span>            :         else {
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :             added = o_stream_add(fstream,</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :                     CONST_PTR_OFFSET(iov[0].iov_base, size),</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :                     iov[0].iov_len - size);</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :             ret += added;</span>
+<span class="lineNum">     580 </span>            : 
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :             if (added != iov[0].iov_len - size) {</span>
+<span class="lineNum">     582 </span>            :                 /* buffer full */
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :                 stream-&gt;ostream.offset += ret;</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :                 return ret;</span>
+<span class="lineNum">     585 </span>            :             }
+<span class="lineNum">     586 </span>            : 
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :             iov++;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :             iov_count--;</span>
+<span class="lineNum">     589 </span>            :         }
+<span class="lineNum">     590 </span>            :     }
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span>            :     /* buffer it, at least partly */
+<span class="lineNum">     593 </span><span class="lineCov">       2131 :     for (i = 0; i &lt; iov_count; i++) {</span>
+<span class="lineNum">     594 </span><span class="lineCov">        439 :         added = o_stream_add(fstream, iov[i].iov_base, iov[i].iov_len);</span>
+<span class="lineNum">     595 </span><span class="lineCov">        439 :         ret += added;</span>
+<span class="lineNum">     596 </span><span class="lineCov">        439 :         if (added != iov[i].iov_len)</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     598 </span>            :     }
+<span class="lineNum">     599 </span><span class="lineCov">       1692 :     stream-&gt;ostream.offset += ret;</span>
+<span class="lineNum">     600 </span><span class="lineCov">       1692 :     i_assert((size_t)ret &lt;= total_size);</span>
+<span class="lineNum">     601 </span><span class="lineCov">       1692 :     i_assert((size_t)ret == total_size || !fstream-&gt;file);</span>
+<span class="lineNum">     602 </span><span class="lineCov">       1692 :     return ret;</span>
+<span class="lineNum">     603 </span>            : }
+<a name="604"><span class="lineNum">     604 </span>            : </a>
+<span class="lineNum">     605 </span>            : static size_t
+<span class="lineNum">     606 </span><span class="lineCov">         22 : o_stream_file_update_buffer(struct file_ostream *fstream,</span>
+<span class="lineNum">     607 </span>            :                 const void *data, size_t size, size_t pos)
+<span class="lineNum">     608 </span>            : {
+<span class="lineNum">     609 </span>            :     size_t avail, copy_size;
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineCov">         22 :     if (fstream-&gt;head &lt; fstream-&gt;tail) {</span>
+<span class="lineNum">     612 </span>            :         /* ...HXXXT... */
+<span class="lineNum">     613 </span><span class="lineCov">         22 :         i_assert(pos &lt; fstream-&gt;tail);</span>
+<span class="lineNum">     614 </span><span class="lineCov">         22 :         avail = fstream-&gt;tail - pos;</span>
+<span class="lineNum">     615 </span>            :     } else {
+<span class="lineNum">     616 </span>            :         /* XXXT...HXXX */
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :         avail = fstream-&gt;buffer_size - pos;</span>
+<span class="lineNum">     618 </span>            :     }
+<span class="lineNum">     619 </span><span class="lineCov">         22 :     copy_size = I_MIN(size, avail);</span>
+<span class="lineNum">     620 </span><span class="lineCov">         22 :     memcpy(fstream-&gt;buffer + pos, data, copy_size);</span>
+<span class="lineNum">     621 </span><span class="lineCov">         22 :     data = CONST_PTR_OFFSET(data, copy_size);</span>
+<span class="lineNum">     622 </span><span class="lineCov">         22 :     size -= copy_size;</span>
+<span class="lineNum">     623 </span>            : 
+<span class="lineNum">     624 </span><span class="lineCov">         22 :     if (size &gt; 0 &amp;&amp; fstream-&gt;head &gt;= fstream-&gt;tail) {</span>
+<span class="lineNum">     625 </span>            :         /* wraps to beginning of the buffer */
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :         copy_size = I_MIN(size, fstream-&gt;tail);</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :         memcpy(fstream-&gt;buffer, data, copy_size);</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :         size -= copy_size;</span>
+<span class="lineNum">     629 </span>            :     }
+<span class="lineNum">     630 </span><span class="lineCov">         22 :     return size;</span>
+<span class="lineNum">     631 </span>            : }
+<a name="632"><span class="lineNum">     632 </span>            : </a>
+<span class="lineNum">     633 </span>            : static int
+<span class="lineNum">     634 </span><span class="lineCov">       1000 : o_stream_file_write_at(struct ostream_private *stream,</span>
+<span class="lineNum">     635 </span>            :                const void *data, size_t size, uoff_t offset)
+<span class="lineNum">     636 </span>            : {
+<span class="lineNum">     637 </span><span class="lineCov">       1000 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">     638 </span>            :     size_t used, pos, skip, left;
+<span class="lineNum">     639 </span>            : 
+<span class="lineNum">     640 </span>            :     /* update buffer if the write overlaps it */
+<span class="lineNum">     641 </span><span class="lineCov">       1000 :     used = file_buffer_get_used_size(fstream);</span>
+<span class="lineNum">     642 </span><span class="lineCov">       1113 :     if (used &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     643 </span><span class="lineCov">        226 :         fstream-&gt;buffer_offset &lt; offset + size &amp;&amp;</span>
+<span class="lineNum">     644 </span><span class="lineCov">        113 :         fstream-&gt;buffer_offset + used &gt; offset) {</span>
+<span class="lineNum">     645 </span><span class="lineCov">         22 :         if (fstream-&gt;buffer_offset &lt;= offset) {</span>
+<span class="lineNum">     646 </span>            :             /* updating from the beginning */
+<span class="lineNum">     647 </span><span class="lineCov">         22 :             skip = 0;</span>
+<span class="lineNum">     648 </span>            :         } else {
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :             skip = fstream-&gt;buffer_offset - offset;</span>
+<span class="lineNum">     650 </span>            :         }
+<span class="lineNum">     651 </span><span class="lineCov">         44 :         pos = (fstream-&gt;head + offset + skip - fstream-&gt;buffer_offset) %</span>
+<span class="lineNum">     652 </span><span class="lineCov">         22 :             fstream-&gt;buffer_size;</span>
+<span class="lineNum">     653 </span><span class="lineCov">         44 :         left = o_stream_file_update_buffer(fstream,</span>
+<span class="lineNum">     654 </span><span class="lineCov">         22 :                 CONST_PTR_OFFSET(data, skip), size - skip, pos);</span>
+<span class="lineNum">     655 </span><span class="lineCov">         22 :         if (left &gt; 0) {</span>
+<span class="lineNum">     656 </span>            :             /* didn't write all of it */
+<span class="lineNum">     657 </span><span class="lineCov">          9 :             if (skip &gt; 0) {</span>
+<span class="lineNum">     658 </span>            :                 /* we also have to write a prefix. don't
+<span class="lineNum">     659 </span>            :                    bother with two syscalls, just write all
+<span class="lineNum">     660 </span>            :                    of it in one pwrite(). */
+<span class="lineNum">     661 </span>            :             } else {
+<span class="lineNum">     662 </span>            :                 /* write only the suffix */
+<span class="lineNum">     663 </span><span class="lineCov">          9 :                 size_t update_count = size - left;</span>
+<span class="lineNum">     664 </span>            : 
+<span class="lineNum">     665 </span><span class="lineCov">          9 :                 data = CONST_PTR_OFFSET(data, update_count);</span>
+<span class="lineNum">     666 </span><span class="lineCov">          9 :                 size -= update_count;</span>
+<span class="lineNum">     667 </span><span class="lineCov">          9 :                 offset += update_count;</span>
+<span class="lineNum">     668 </span>            :             }
+<span class="lineNum">     669 </span><span class="lineCov">         13 :         } else if (skip == 0) {</span>
+<span class="lineNum">     670 </span>            :             /* everything done */
+<span class="lineNum">     671 </span><span class="lineCov">         13 :             return 0;</span>
+<span class="lineNum">     672 </span>            :         } else {
+<span class="lineNum">     673 </span>            :             /* still have to write prefix */
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :             size = skip;</span>
+<span class="lineNum">     675 </span>            :         }
+<span class="lineNum">     676 </span>            :     }
+<span class="lineNum">     677 </span>            : 
+<span class="lineNum">     678 </span>            :     /* we couldn't write everything to the buffer. flush the buffer
+<span class="lineNum">     679 </span>            :        and pwrite() the rest. */
+<span class="lineNum">     680 </span><span class="lineCov">        987 :     if (o_stream_file_flush(stream) &lt; 0)</span>
+<span class="lineNum">     681 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     682 </span>            : 
+<span class="lineNum">     683 </span><span class="lineCov">        987 :     if (pwrite_full(fstream-&gt;fd, data, size, offset) &lt; 0) {</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :         stream-&gt;ostream.stream_errno = errno;</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         stream_closed(fstream);</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     687 </span>            :     }
+<span class="lineNum">     688 </span><span class="lineCov">        987 :     return 0;</span>
+<span class="lineNum">     689 </span>            : }
+<a name="690"><span class="lineNum">     690 </span>            : </a>
+<span class="lineNum">     691 </span>            : static bool
+<span class="lineNum">     692 </span><span class="lineCov">          1 : io_stream_sendfile(struct ostream_private *outstream,</span>
+<span class="lineNum">     693 </span>            :            struct istream *instream, int in_fd,
+<span class="lineNum">     694 </span>            :            enum ostream_send_istream_result *res_r)
+<span class="lineNum">     695 </span>            : {
+<span class="lineNum">     696 </span><span class="lineCov">          1 :     struct file_ostream *foutstream = (struct file_ostream *)outstream;</span>
+<span class="lineNum">     697 </span>            :     uoff_t in_size, offset, send_size, v_offset, abs_start_offset;
+<span class="lineNum">     698 </span>            :     ssize_t ret;
+<span class="lineNum">     699 </span><span class="lineCov">          1 :     bool sendfile_not_supported = FALSE;</span>
+<span class="lineNum">     700 </span>            : 
+<span class="lineNum">     701 </span><span class="lineCov">          1 :     if ((ret = i_stream_get_size(instream, TRUE, &amp;in_size)) &lt; 0) {</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_ERROR_INPUT;</span>
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     704 </span>            :     }
+<span class="lineNum">     705 </span><span class="lineCov">          1 :     if (ret == 0) {</span>
+<span class="lineNum">     706 </span>            :         /* size unknown. we can't use sendfile(). */
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     708 </span>            :     }
+<span class="lineNum">     709 </span>            : 
+<span class="lineNum">     710 </span><span class="lineCov">          1 :     o_stream_socket_cork(foutstream);</span>
+<span class="lineNum">     711 </span>            : 
+<span class="lineNum">     712 </span>            :     /* flush out any data in buffer */
+<span class="lineNum">     713 </span><span class="lineCov">          1 :     if ((ret = buffer_flush(foutstream)) &lt; 0) {</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_ERROR_OUTPUT;</span>
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     716 </span><span class="lineCov">          1 :     } else if (ret == 0) {</span>
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_WAIT_OUTPUT;</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     719 </span>            :     }
+<span class="lineNum">     720 </span>            : 
+<span class="lineNum">     721 </span><span class="lineCov">          1 :     if (o_stream_lseek(foutstream) &lt; 0) {</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_ERROR_OUTPUT;</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     724 </span>            :     }
+<span class="lineNum">     725 </span>            : 
+<span class="lineNum">     726 </span><span class="lineCov">          1 :     v_offset = instream-&gt;v_offset;</span>
+<span class="lineNum">     727 </span><span class="lineCov">          1 :     abs_start_offset = i_stream_get_absolute_offset(instream) - v_offset;</span>
+<span class="lineNum">     728 </span><span class="lineCov">          3 :     while (v_offset &lt; in_size) {</span>
+<span class="lineNum">     729 </span><span class="lineCov">          1 :         offset = abs_start_offset + v_offset;</span>
+<span class="lineNum">     730 </span><span class="lineCov">          1 :         send_size = in_size - v_offset;</span>
+<span class="lineNum">     731 </span>            : 
+<span class="lineNum">     732 </span><span class="lineCov">          1 :         ret = safe_sendfile(foutstream-&gt;fd, in_fd, &amp;offset,</span>
+<span class="lineNum">     733 </span><span class="lineCov">          1 :                     MAX_SSIZE_T(send_size));</span>
+<span class="lineNum">     734 </span><span class="lineCov">          1 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :             if (ret == 0)</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :             if (foutstream-&gt;file) {</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :                 if (errno == EINTR) {</span>
+<span class="lineNum">     739 </span>            :                     /* automatically retry */
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :                     continue;</span>
+<span class="lineNum">     741 </span>            :                 }
+<span class="lineNum">     742 </span>            :             } else {
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :                 if (errno == EINTR || errno == EAGAIN) {</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :                     ret = 0;</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     746 </span>            :                 }
+<span class="lineNum">     747 </span>            :             }
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :             if (errno == EINVAL)</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :                 sendfile_not_supported = TRUE;</span>
+<span class="lineNum">     750 </span>            :             else {
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :                 io_stream_set_error(&amp;outstream-&gt;iostream,</span>
+<span class="lineNum">     752 </span>            :                             &quot;sendfile() failed: %m&quot;);
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :                 outstream-&gt;ostream.stream_errno = errno;</span>
+<span class="lineNum">     754 </span>            :                 /* close only if error wasn't because
+<span class="lineNum">     755 </span>            :                    sendfile() isn't supported */
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :                 stream_closed(foutstream);</span>
+<span class="lineNum">     757 </span>            :             }
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     759 </span>            :         }
+<span class="lineNum">     760 </span>            : 
+<span class="lineNum">     761 </span><span class="lineCov">          1 :         v_offset += ret;</span>
+<span class="lineNum">     762 </span><span class="lineCov">          1 :         foutstream-&gt;real_offset += ret;</span>
+<span class="lineNum">     763 </span><span class="lineCov">          1 :         foutstream-&gt;buffer_offset += ret;</span>
+<span class="lineNum">     764 </span><span class="lineCov">          1 :         outstream-&gt;ostream.offset += ret;</span>
+<span class="lineNum">     765 </span>            :     }
+<span class="lineNum">     766 </span>            : 
+<span class="lineNum">     767 </span><span class="lineCov">          1 :     i_stream_seek(instream, v_offset);</span>
+<span class="lineNum">     768 </span><span class="lineCov">          1 :     if (v_offset == in_size) {</span>
+<span class="lineNum">     769 </span><span class="lineCov">          1 :         instream-&gt;eof = TRUE;</span>
+<span class="lineNum">     770 </span><span class="lineCov">          1 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_FINISHED;</span>
+<span class="lineNum">     771 </span><span class="lineCov">          1 :         return TRUE;</span>
+<span class="lineNum">     772 </span>            :     }
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :     i_assert(ret &lt;= 0);</span>
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :     if (sendfile_not_supported)</span>
+<span class="lineNum">     775 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :     if (ret &lt; 0)</span>
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_ERROR_OUTPUT;</span>
+<span class="lineNum">     778 </span>            :     else
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :         *res_r = OSTREAM_SEND_ISTREAM_RESULT_WAIT_OUTPUT;</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     781 </span>            : }
+<a name="782"><span class="lineNum">     782 </span>            : </a>
+<span class="lineNum">     783 </span>            : static enum ostream_send_istream_result
+<span class="lineNum">     784 </span><span class="lineCov">          1 : io_stream_copy_backwards(struct ostream_private *outstream,</span>
+<span class="lineNum">     785 </span>            :              struct istream *instream, uoff_t in_size)
+<span class="lineNum">     786 </span>            : {
+<span class="lineNum">     787 </span><span class="lineCov">          1 :     struct file_ostream *foutstream = (struct file_ostream *)outstream;</span>
+<span class="lineNum">     788 </span>            :     uoff_t in_start_offset, in_offset, in_limit, out_offset;
+<span class="lineNum">     789 </span>            :     const unsigned char *data;
+<span class="lineNum">     790 </span>            :     size_t buffer_size, size, read_size;
+<span class="lineNum">     791 </span>            :     ssize_t ret;
+<span class="lineNum">     792 </span>            : 
+<span class="lineNum">     793 </span><span class="lineCov">          1 :     i_assert(IS_STREAM_EMPTY(foutstream));</span>
+<span class="lineNum">     794 </span>            : 
+<span class="lineNum">     795 </span>            :     /* figure out optimal buffer size */
+<span class="lineNum">     796 </span><span class="lineCov">          1 :     buffer_size = instream-&gt;real_stream-&gt;buffer_size;</span>
+<span class="lineNum">     797 </span><span class="lineCov">          1 :     if (buffer_size == 0 || buffer_size &gt; foutstream-&gt;buffer_size) {</span>
+<span class="lineNum">     798 </span><span class="lineCov">          1 :         if (foutstream-&gt;optimal_block_size &gt; foutstream-&gt;buffer_size) {</span>
+<span class="lineNum">     799 </span><span class="lineCov">          1 :             o_stream_grow_buffer(foutstream,</span>
+<span class="lineNum">     800 </span><span class="lineCov">          1 :                          foutstream-&gt;optimal_block_size -</span>
+<span class="lineNum">     801 </span><span class="lineCov">          1 :                          foutstream-&gt;buffer_size);</span>
+<span class="lineNum">     802 </span>            :         }
+<span class="lineNum">     803 </span>            : 
+<span class="lineNum">     804 </span><span class="lineCov">          1 :         buffer_size = foutstream-&gt;buffer_size;</span>
+<span class="lineNum">     805 </span>            :     }
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span><span class="lineCov">          1 :     in_start_offset = instream-&gt;v_offset;</span>
+<span class="lineNum">     808 </span><span class="lineCov">          1 :     in_offset = in_limit = in_size;</span>
+<span class="lineNum">     809 </span><span class="lineCov">          1 :     out_offset = outstream-&gt;ostream.offset + (in_offset - in_start_offset);</span>
+<span class="lineNum">     810 </span>            : 
+<span class="lineNum">     811 </span><span class="lineCov">          3 :     while (in_offset &gt; in_start_offset) {</span>
+<span class="lineNum">     812 </span><span class="lineCov">          1 :         if (in_offset - in_start_offset &lt;= buffer_size)</span>
+<span class="lineNum">     813 </span><span class="lineCov">          1 :             read_size = in_offset - in_start_offset;</span>
+<span class="lineNum">     814 </span>            :         else
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :             read_size = buffer_size;</span>
+<span class="lineNum">     816 </span><span class="lineCov">          1 :         in_offset -= read_size;</span>
+<span class="lineNum">     817 </span><span class="lineCov">          1 :         out_offset -= read_size;</span>
+<span class="lineNum">     818 </span>            : 
+<span class="lineNum">     819 </span>            :         for (;;) {
+<span class="lineNum">     820 </span><span class="lineCov">          1 :             i_assert(in_offset &lt;= in_limit);</span>
+<span class="lineNum">     821 </span>            : 
+<span class="lineNum">     822 </span><span class="lineCov">          1 :             i_stream_seek(instream, in_offset);</span>
+<span class="lineNum">     823 </span><span class="lineCov">          1 :             read_size = in_limit - in_offset;</span>
+<span class="lineNum">     824 </span>            : 
+<span class="lineNum">     825 </span>            :             /* FIXME: something's wrong here */
+<span class="lineNum">     826 </span><span class="lineCov">          1 :             if (i_stream_read_bytes(instream, &amp;data, &amp;size,</span>
+<span class="lineNum">     827 </span>            :                         read_size) == 0)
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :                 i_unreached();</span>
+<span class="lineNum">     829 </span><span class="lineCov">          1 :             if (size &gt;= read_size) {</span>
+<span class="lineNum">     830 </span><span class="lineCov">          1 :                 size = read_size;</span>
+<span class="lineNum">     831 </span><span class="lineCov">          1 :                 if (instream-&gt;mmaped) {</span>
+<span class="lineNum">     832 </span>            :                     /* we'll have to write it through
+<span class="lineNum">     833 </span>            :                        buffer or the file gets corrupted */
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :                     i_assert(size &lt;=</span>
+<span class="lineNum">     835 </span>            :                          foutstream-&gt;buffer_size);
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :                     memcpy(foutstream-&gt;buffer, data, size);</span>
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :                     data = foutstream-&gt;buffer;</span>
+<span class="lineNum">     838 </span>            :                 }
+<span class="lineNum">     839 </span><span class="lineCov">          1 :                 break;</span>
+<span class="lineNum">     840 </span>            :             }
+<span class="lineNum">     841 </span>            : 
+<span class="lineNum">     842 </span>            :             /* buffer too large probably, try with smaller */
+<span class="lineNum">     843 </span><span class="lineNoCov">          0 :             read_size -= size;</span>
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :             in_offset += read_size;</span>
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :             out_offset += read_size;</span>
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 :             buffer_size -= read_size;</span>
+<span class="lineNum">     847 </span><span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     848 </span><span class="lineCov">          1 :         in_limit -= size;</span>
+<span class="lineNum">     849 </span>            : 
+<span class="lineNum">     850 </span><span class="lineCov">          1 :         ret = pwrite_full(foutstream-&gt;fd, data, size, out_offset);</span>
+<span class="lineNum">     851 </span><span class="lineCov">          1 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     852 </span>            :             /* error */
+<span class="lineNum">     853 </span><span class="lineNoCov">          0 :             outstream-&gt;ostream.stream_errno = errno;</span>
+<span class="lineNum">     854 </span><span class="lineNoCov">          0 :             return OSTREAM_SEND_ISTREAM_RESULT_WAIT_OUTPUT;</span>
+<span class="lineNum">     855 </span>            :         }
+<span class="lineNum">     856 </span><span class="lineCov">          1 :         i_stream_skip(instream, size);</span>
+<span class="lineNum">     857 </span>            :     }
+<span class="lineNum">     858 </span>            :     /* make it visible that we're at instream's EOF */
+<span class="lineNum">     859 </span><span class="lineCov">          1 :     i_stream_seek(instream, in_size);</span>
+<span class="lineNum">     860 </span><span class="lineCov">          1 :     instream-&gt;eof = TRUE;</span>
+<span class="lineNum">     861 </span>            : 
+<span class="lineNum">     862 </span><span class="lineCov">          1 :     outstream-&gt;ostream.offset += in_size - in_start_offset;</span>
+<span class="lineNum">     863 </span><span class="lineCov">          1 :     return OSTREAM_SEND_ISTREAM_RESULT_FINISHED;</span>
+<span class="lineNum">     864 </span>            : }
+<a name="865"><span class="lineNum">     865 </span>            : </a>
+<span class="lineNum">     866 </span>            : static enum ostream_send_istream_result
+<span class="lineNum">     867 </span><span class="lineCov">          2 : io_stream_copy_same_stream(struct ostream_private *outstream,</span>
+<span class="lineNum">     868 </span>            :                struct istream *instream)
+<span class="lineNum">     869 </span>            : {
+<span class="lineNum">     870 </span>            :     uoff_t in_size;
+<span class="lineNum">     871 </span><span class="lineCov">          2 :     off_t in_abs_offset, ret = 0;</span>
+<span class="lineNum">     872 </span>            : 
+<span class="lineNum">     873 </span>            :     /* copying data within same fd. we'll have to be careful with
+<span class="lineNum">     874 </span>            :        seeks and overlapping writes. */
+<span class="lineNum">     875 </span><span class="lineCov">          2 :     if ((ret = i_stream_get_size(instream, TRUE, &amp;in_size)) &lt; 0)</span>
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 :         return OSTREAM_SEND_ISTREAM_RESULT_ERROR_INPUT;</span>
+<span class="lineNum">     877 </span><span class="lineCov">          2 :     if (ret == 0) {</span>
+<span class="lineNum">     878 </span>            :         /* if we couldn't find out the size, it means that instream
+<span class="lineNum">     879 </span>            :            isn't a regular file_istream. we can be reasonably sure that
+<span class="lineNum">     880 </span>            :            we can copy it safely the regular way. (there's really no
+<span class="lineNum">     881 </span>            :            other possibility, other than failing completely.) */
+<span class="lineNum">     882 </span><span class="lineNoCov">          0 :         return io_stream_copy(&amp;outstream-&gt;ostream, instream);</span>
+<span class="lineNum">     883 </span>            :     }
+<span class="lineNum">     884 </span><span class="lineCov">          2 :     i_assert(instream-&gt;v_offset &lt;= in_size);</span>
+<span class="lineNum">     885 </span>            : 
+<span class="lineNum">     886 </span><span class="lineCov">          2 :     in_abs_offset = i_stream_get_absolute_offset(instream);</span>
+<span class="lineNum">     887 </span><span class="lineCov">          2 :     ret = (off_t)outstream-&gt;ostream.offset - in_abs_offset;</span>
+<span class="lineNum">     888 </span><span class="lineCov">          2 :     if (ret == 0) {</span>
+<span class="lineNum">     889 </span>            :         /* copying data over itself. we don't really
+<span class="lineNum">     890 </span>            :            need to do that, just fake it. */
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 :         return OSTREAM_SEND_ISTREAM_RESULT_FINISHED;</span>
+<span class="lineNum">     892 </span>            :     }
+<span class="lineNum">     893 </span><span class="lineCov">          2 :     if (ret &gt; 0 &amp;&amp; in_size &gt; (uoff_t)ret) {</span>
+<span class="lineNum">     894 </span>            :         /* overlapping */
+<span class="lineNum">     895 </span><span class="lineCov">          1 :         i_assert(instream-&gt;seekable);</span>
+<span class="lineNum">     896 </span><span class="lineCov">          1 :         return io_stream_copy_backwards(outstream, instream, in_size);</span>
+<span class="lineNum">     897 </span>            :     } else {
+<span class="lineNum">     898 </span>            :         /* non-overlapping */
+<span class="lineNum">     899 </span><span class="lineCov">          1 :         return io_stream_copy(&amp;outstream-&gt;ostream, instream);</span>
+<span class="lineNum">     900 </span>            :     }
+<span class="lineNum">     901 </span>            : }
+<a name="902"><span class="lineNum">     902 </span>            : </a>
+<span class="lineNum">     903 </span>            : static enum ostream_send_istream_result
+<span class="lineNum">     904 </span><span class="lineCov">         11 : o_stream_file_send_istream(struct ostream_private *outstream,</span>
+<span class="lineNum">     905 </span>            :                struct istream *instream)
+<span class="lineNum">     906 </span>            : {
+<span class="lineNum">     907 </span><span class="lineCov">         11 :     struct file_ostream *foutstream = (struct file_ostream *)outstream;</span>
+<span class="lineNum">     908 </span>            :     bool same_stream;
+<span class="lineNum">     909 </span>            :     int in_fd;
+<span class="lineNum">     910 </span>            :     enum ostream_send_istream_result res;
+<span class="lineNum">     911 </span>            : 
+<span class="lineNum">     912 </span><span class="lineCov">         11 :     in_fd = !instream-&gt;readable_fd ? -1 : i_stream_get_fd(instream);</span>
+<span class="lineNum">     913 </span><span class="lineCov">         15 :     if (!foutstream-&gt;no_sendfile &amp;&amp; in_fd != -1 &amp;&amp;</span>
+<span class="lineNum">     914 </span><span class="lineCov">          8 :         in_fd != foutstream-&gt;fd &amp;&amp; instream-&gt;seekable) {</span>
+<span class="lineNum">     915 </span><span class="lineCov">          1 :         if (io_stream_sendfile(outstream, instream, in_fd, &amp;res))</span>
+<span class="lineNum">     916 </span><span class="lineCov">          1 :             return res;</span>
+<span class="lineNum">     917 </span>            : 
+<span class="lineNum">     918 </span>            :         /* sendfile() not supported (with this fd), fallback to
+<span class="lineNum">     919 </span>            :            regular sending. */
+<span class="lineNum">     920 </span><span class="lineNoCov">          0 :         foutstream-&gt;no_sendfile = TRUE;</span>
+<span class="lineNum">     921 </span>            :     }
+<span class="lineNum">     922 </span>            : 
+<span class="lineNum">     923 </span><span class="lineCov">         12 :     same_stream = i_stream_get_fd(instream) == foutstream-&gt;fd &amp;&amp;</span>
+<span class="lineNum">     924 </span><span class="lineCov">          2 :         foutstream-&gt;fd != -1;</span>
+<span class="lineNum">     925 </span><span class="lineCov">         10 :     if (!same_stream)</span>
+<span class="lineNum">     926 </span><span class="lineCov">          8 :         return io_stream_copy(&amp;outstream-&gt;ostream, instream);</span>
+<span class="lineNum">     927 </span><span class="lineCov">          2 :     return io_stream_copy_same_stream(outstream, instream);</span>
+<a name="928"><span class="lineNum">     928 </span>            : }</a>
+<span class="lineNum">     929 </span>            : 
+<span class="lineNum">     930 </span><span class="lineCov">         35 : static void o_stream_file_switch_ioloop(struct ostream_private *stream)</span>
+<span class="lineNum">     931 </span>            : {
+<span class="lineNum">     932 </span><span class="lineCov">         35 :     struct file_ostream *fstream = (struct file_ostream *)stream;</span>
+<span class="lineNum">     933 </span>            : 
+<span class="lineNum">     934 </span><span class="lineCov">         35 :     if (fstream-&gt;io != NULL)</span>
+<span class="lineNum">     935 </span><span class="lineNoCov">          0 :         fstream-&gt;io = io_loop_move_io(&amp;fstream-&gt;io);</span>
+<span class="lineNum">     936 </span><span class="lineCov">         35 : }</span>
+<a name="937"><span class="lineNum">     937 </span>            : </a>
+<span class="lineNum">     938 </span>            : struct ostream *
+<span class="lineNum">     939 </span><span class="lineCov">        283 : o_stream_create_file_common(struct file_ostream *fstream,</span>
+<span class="lineNum">     940 </span>            :     int fd, size_t max_buffer_size, bool autoclose_fd)
+<span class="lineNum">     941 </span>            : {
+<span class="lineNum">     942 </span>            :     struct ostream *ostream;
+<span class="lineNum">     943 </span>            : 
+<span class="lineNum">     944 </span><span class="lineCov">        283 :     fstream-&gt;fd = fd;</span>
+<span class="lineNum">     945 </span><span class="lineCov">        283 :     fstream-&gt;autoclose_fd = autoclose_fd;</span>
+<span class="lineNum">     946 </span><span class="lineCov">        283 :     fstream-&gt;optimal_block_size = DEFAULT_OPTIMAL_BLOCK_SIZE;</span>
+<span class="lineNum">     947 </span>            : 
+<span class="lineNum">     948 </span><span class="lineCov">        283 :     fstream-&gt;ostream.iostream.close = o_stream_file_close;</span>
+<span class="lineNum">     949 </span><span class="lineCov">        283 :     fstream-&gt;ostream.iostream.destroy = o_stream_file_destroy;</span>
+<span class="lineNum">     950 </span>            : 
+<span class="lineNum">     951 </span><span class="lineCov">        283 :     fstream-&gt;ostream.cork = o_stream_file_cork;</span>
+<span class="lineNum">     952 </span><span class="lineCov">        283 :     fstream-&gt;ostream.flush = o_stream_file_flush;</span>
+<span class="lineNum">     953 </span><span class="lineCov">        283 :     fstream-&gt;ostream.flush_pending = o_stream_file_flush_pending;</span>
+<span class="lineNum">     954 </span><span class="lineCov">        283 :     fstream-&gt;ostream.get_used_size = o_stream_file_get_used_size;</span>
+<span class="lineNum">     955 </span><span class="lineCov">        283 :     fstream-&gt;ostream.seek = o_stream_file_seek;</span>
+<span class="lineNum">     956 </span><span class="lineCov">        283 :     fstream-&gt;ostream.sendv = o_stream_file_sendv;</span>
+<span class="lineNum">     957 </span><span class="lineCov">        283 :     fstream-&gt;ostream.write_at = o_stream_file_write_at;</span>
+<span class="lineNum">     958 </span><span class="lineCov">        283 :     fstream-&gt;ostream.send_istream = o_stream_file_send_istream;</span>
+<span class="lineNum">     959 </span><span class="lineCov">        283 :     fstream-&gt;ostream.switch_ioloop = o_stream_file_switch_ioloop;</span>
+<span class="lineNum">     960 </span>            : 
+<span class="lineNum">     961 </span><span class="lineCov">        283 :     fstream-&gt;writev = o_stream_file_writev;</span>
+<span class="lineNum">     962 </span>            : 
+<span class="lineNum">     963 </span><span class="lineCov">        283 :     fstream-&gt;ostream.max_buffer_size = max_buffer_size;</span>
+<span class="lineNum">     964 </span><span class="lineCov">        283 :     ostream = o_stream_create(&amp;fstream-&gt;ostream, NULL, fd);</span>
+<span class="lineNum">     965 </span>            : 
+<span class="lineNum">     966 </span><span class="lineCov">        283 :     if (max_buffer_size == 0)</span>
+<span class="lineNum">     967 </span><span class="lineCov">        135 :         fstream-&gt;ostream.max_buffer_size = fstream-&gt;optimal_block_size;</span>
+<span class="lineNum">     968 </span>            : 
+<span class="lineNum">     969 </span><span class="lineCov">        283 :     return ostream;</span>
+<a name="970"><span class="lineNum">     970 </span>            : }</a>
+<span class="lineNum">     971 </span>            : 
+<span class="lineNum">     972 </span><span class="lineCov">        234 : static void fstream_init_file(struct file_ostream *fstream)</span>
+<span class="lineNum">     973 </span>            : {
+<span class="lineNum">     974 </span>            :     struct stat st;
+<span class="lineNum">     975 </span>            : 
+<span class="lineNum">     976 </span><span class="lineCov">        234 :     fstream-&gt;no_sendfile = TRUE;</span>
+<span class="lineNum">     977 </span><span class="lineCov">        234 :     if (fstat(fstream-&gt;fd, &amp;st) &lt; 0)</span>
+<span class="lineNum">     978 </span><span class="lineCov">        234 :         return;</span>
+<span class="lineNum">     979 </span>            : 
+<span class="lineNum">     980 </span><span class="lineCov">        234 :     if ((uoff_t)st.st_blksize &gt; fstream-&gt;optimal_block_size) {</span>
+<span class="lineNum">     981 </span>            :         /* use the optimal block size, but with a reasonable limit */
+<span class="lineNum">     982 </span><span class="lineNoCov">          0 :         fstream-&gt;optimal_block_size =</span>
+<span class="lineNum">     983 </span><span class="lineNoCov">          0 :             I_MIN(st.st_blksize, MAX_OPTIMAL_BLOCK_SIZE);</span>
+<span class="lineNum">     984 </span>            :     }
+<span class="lineNum">     985 </span>            : 
+<span class="lineNum">     986 </span><span class="lineCov">        234 :     if (S_ISREG(st.st_mode)) {</span>
+<span class="lineNum">     987 </span><span class="lineCov">        234 :         fstream-&gt;no_socket_cork = TRUE;</span>
+<span class="lineNum">     988 </span><span class="lineCov">        234 :         fstream-&gt;file = TRUE;</span>
+<span class="lineNum">     989 </span>            :     }
+<span class="lineNum">     990 </span>            : }
+<a name="991"><span class="lineNum">     991 </span>            : </a>
+<span class="lineNum">     992 </span>            : static
+<span class="lineNum">     993 </span><span class="lineCov">        231 : struct ostream * o_stream_create_fd_common(int fd, size_t max_buffer_size,</span>
+<span class="lineNum">     994 </span>            :         bool autoclose_fd)
+<span class="lineNum">     995 </span>            : {
+<span class="lineNum">     996 </span>            :     struct file_ostream *fstream;
+<span class="lineNum">     997 </span>            :     struct ostream *ostream;
+<span class="lineNum">     998 </span>            :     off_t offset;
+<span class="lineNum">     999 </span>            : 
+<span class="lineNum">    1000 </span><span class="lineCov">        231 :     fstream = i_new(struct file_ostream, 1);</span>
+<span class="lineNum">    1001 </span><span class="lineCov">        231 :     ostream = o_stream_create_file_common</span>
+<span class="lineNum">    1002 </span><span class="lineCov">        231 :         (fstream, fd, max_buffer_size, autoclose_fd);</span>
+<span class="lineNum">    1003 </span>            : 
+<span class="lineNum">    1004 </span><span class="lineCov">        231 :     offset = lseek(fd, 0, SEEK_CUR);</span>
+<span class="lineNum">    1005 </span><span class="lineCov">        231 :     if (offset &gt;= 0) {</span>
+<span class="lineNum">    1006 </span><span class="lineCov">        182 :         ostream-&gt;offset = offset;</span>
+<span class="lineNum">    1007 </span><span class="lineCov">        182 :         fstream-&gt;real_offset = offset;</span>
+<span class="lineNum">    1008 </span><span class="lineCov">        182 :         fstream-&gt;buffer_offset = offset;</span>
+<span class="lineNum">    1009 </span><span class="lineCov">        182 :         fstream_init_file(fstream);</span>
+<span class="lineNum">    1010 </span>            :     } else {
+<span class="lineNum">    1011 </span><span class="lineCov">         49 :         if (net_getsockname(fd, NULL, NULL) &lt; 0) {</span>
+<span class="lineNum">    1012 </span><span class="lineCov">          7 :             fstream-&gt;no_sendfile = TRUE;</span>
+<span class="lineNum">    1013 </span><span class="lineCov">          7 :             fstream-&gt;no_socket_cork = TRUE;</span>
+<span class="lineNum">    1014 </span>            :         }
+<span class="lineNum">    1015 </span>            :     }
+<span class="lineNum">    1016 </span>            : 
+<span class="lineNum">    1017 </span><span class="lineCov">        231 :     return ostream;</span>
+<span class="lineNum">    1018 </span>            : }
+<a name="1019"><span class="lineNum">    1019 </span>            : </a>
+<span class="lineNum">    1020 </span>            : struct ostream *
+<span class="lineNum">    1021 </span><span class="lineCov">        230 : o_stream_create_fd(int fd, size_t max_buffer_size)</span>
+<span class="lineNum">    1022 </span>            : {
+<span class="lineNum">    1023 </span><span class="lineCov">        230 :     return o_stream_create_fd_common(fd, max_buffer_size, FALSE);</span>
+<span class="lineNum">    1024 </span>            : }
+<a name="1025"><span class="lineNum">    1025 </span>            : </a>
+<span class="lineNum">    1026 </span>            : struct ostream *
+<span class="lineNum">    1027 </span><span class="lineCov">          1 : o_stream_create_fd_autoclose(int *fd, size_t max_buffer_size)</span>
+<span class="lineNum">    1028 </span>            : {
+<span class="lineNum">    1029 </span><span class="lineCov">          1 :     struct ostream *ostream = o_stream_create_fd_common(*fd,</span>
+<span class="lineNum">    1030 </span>            :             max_buffer_size, TRUE);
+<span class="lineNum">    1031 </span><span class="lineCov">          1 :     *fd = -1;</span>
+<span class="lineNum">    1032 </span><span class="lineCov">          1 :     return ostream;</span>
+<span class="lineNum">    1033 </span>            : }
+<a name="1034"><span class="lineNum">    1034 </span>            : </a>
+<span class="lineNum">    1035 </span>            : struct ostream *
+<span class="lineNum">    1036 </span><span class="lineCov">         52 : o_stream_create_fd_file(int fd, uoff_t offset, bool autoclose_fd)</span>
+<span class="lineNum">    1037 </span>            : {
+<span class="lineNum">    1038 </span>            :     struct file_ostream *fstream;
+<span class="lineNum">    1039 </span>            :     struct ostream *ostream;
+<span class="lineNum">    1040 </span>            : 
+<span class="lineNum">    1041 </span><span class="lineCov">         52 :     if (offset == (uoff_t)-1)</span>
+<span class="lineNum">    1042 </span><span class="lineCov">          2 :         offset = lseek(fd, 0, SEEK_CUR);</span>
+<span class="lineNum">    1043 </span>            : 
+<span class="lineNum">    1044 </span><span class="lineCov">         52 :     fstream = i_new(struct file_ostream, 1);</span>
+<span class="lineNum">    1045 </span><span class="lineCov">         52 :     ostream = o_stream_create_file_common(fstream, fd, 0, autoclose_fd);</span>
+<span class="lineNum">    1046 </span><span class="lineCov">         52 :     fstream_init_file(fstream);</span>
+<span class="lineNum">    1047 </span><span class="lineCov">         52 :     fstream-&gt;real_offset = offset;</span>
+<span class="lineNum">    1048 </span><span class="lineCov">         52 :     fstream-&gt;buffer_offset = offset;</span>
+<span class="lineNum">    1049 </span><span class="lineCov">         52 :     ostream-&gt;blocking = fstream-&gt;file;</span>
+<span class="lineNum">    1050 </span><span class="lineCov">         52 :     ostream-&gt;offset = offset;</span>
+<span class="lineNum">    1051 </span><span class="lineCov">         52 :     return ostream;</span>
+<a name="1052"><span class="lineNum">    1052 </span>            : }</a>
+<span class="lineNum">    1053 </span>            : 
+<span class="lineNum">    1054 </span><span class="lineNoCov">          0 : struct ostream *o_stream_create_fd_file_autoclose(int *fd, uoff_t offset)</span>
+<span class="lineNum">    1055 </span>            : {
+<span class="lineNum">    1056 </span>            :     struct ostream *output;
+<span class="lineNum">    1057 </span>            : 
+<span class="lineNum">    1058 </span><span class="lineNoCov">          0 :     output = o_stream_create_fd_file(*fd, offset, TRUE);</span>
+<span class="lineNum">    1059 </span><span class="lineNoCov">          0 :     *fd = -1;</span>
+<span class="lineNum">    1060 </span><span class="lineNoCov">          0 :     return output;</span>
+<span class="lineNum">    1061 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

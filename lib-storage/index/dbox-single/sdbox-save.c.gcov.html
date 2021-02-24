@@ -1,0 +1,469 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/dbox-single/sdbox-save.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/dbox-single</a> - sdbox-save.c<span style="font-size: 80%;"> (source / <a href="sdbox-save.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">194</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2007-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;fdatasync-path.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;hex-dec.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;istream-crlf.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;mail-copy.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;index-pop3-uidl.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;dbox-attachment.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;dbox-save.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;sdbox-storage.h&quot;
+<span class="lineNum">      19 </span>            : #include &quot;sdbox-file.h&quot;
+<span class="lineNum">      20 </span>            : #include &quot;sdbox-sync.h&quot;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : struct sdbox_save_context {
+<span class="lineNum">      24 </span>            :     struct dbox_save_context ctx;
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            :     struct sdbox_mailbox *mbox;
+<span class="lineNum">      27 </span>            :     struct sdbox_sync_context *sync_ctx;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :     struct dbox_file *cur_file;
+<span class="lineNum">      30 </span>            :     struct dbox_file_append_context *append_ctx;
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            :     uint32_t first_saved_seq;
+<span class="lineNum">      33 </span>            :     ARRAY(struct dbox_file *) files;
+<span class="lineNum">      34 </span>            : };
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : #define SDBOX_SAVECTX(s)    container_of(DBOX_SAVECTX(s), struct sdbox_save_context, ctx)
+<a name="37"><span class="lineNum">      37 </span>            : </a>
+<span class="lineNum">      38 </span>            : struct dbox_file *
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 : sdbox_save_file_get_file(struct mailbox_transaction_context *t, uint32_t seq)</span>
+<span class="lineNum">      40 </span>            : {
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(t-&gt;save_ctx);</span>
+<span class="lineNum">      42 </span>            :     struct dbox_file *const *files, *file;
+<span class="lineNum">      43 </span>            :     unsigned int count;
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :     i_assert(seq &gt;= ctx-&gt;first_saved_seq);</span>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     files = array_get(&amp;ctx-&gt;files, &amp;count);</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     i_assert(count &gt; 0);</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :     i_assert(seq - ctx-&gt;first_saved_seq &lt; count);</span>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     file = files[seq - ctx-&gt;first_saved_seq];</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     i_assert(((struct sdbox_file *)file)-&gt;written_to_disk);</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :     return file;</span>
+<span class="lineNum">      54 </span>            : }
+<a name="55"><span class="lineNum">      55 </span>            : </a>
+<span class="lineNum">      56 </span>            : struct mail_save_context *
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 : sdbox_save_alloc(struct mailbox_transaction_context *t)</span>
+<span class="lineNum">      58 </span>            : {
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     struct sdbox_mailbox *mbox = SDBOX_MAILBOX(t-&gt;box);</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(t-&gt;save_ctx);</span>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     i_assert((t-&gt;flags &amp; MAILBOX_TRANSACTION_FLAG_EXTERNAL) != 0);</span>
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     if (ctx != NULL) {</span>
+<span class="lineNum">      65 </span>            :         /* use the existing allocated structure */
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         ctx-&gt;cur_file = NULL;</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.failed = FALSE;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.finished = FALSE;</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.dbox_output = NULL;</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :         return &amp;ctx-&gt;ctx.ctx;</span>
+<span class="lineNum">      71 </span>            :     }
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     ctx = i_new(struct sdbox_save_context, 1);</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.ctx.transaction = t;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.trans = t-&gt;itrans;</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox = mbox;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     i_array_init(&amp;ctx-&gt;files, 32);</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     t-&gt;save_ctx = &amp;ctx-&gt;ctx.ctx;</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     return t-&gt;save_ctx;</span>
+<a name="80"><span class="lineNum">      80 </span>            : }</a>
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 : void sdbox_save_add_file(struct mail_save_context *_ctx, struct dbox_file *file)</span>
+<span class="lineNum">      83 </span>            : {
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">      85 </span>            :     struct dbox_file *const *files;
+<span class="lineNum">      86 </span>            :     unsigned int count;
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     if (ctx-&gt;first_saved_seq == 0)</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         ctx-&gt;first_saved_seq = ctx-&gt;ctx.seq;</span>
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     files = array_get(&amp;ctx-&gt;files, &amp;count);</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     if (count &gt; 0) {</span>
+<span class="lineNum">      93 </span>            :         /* a plugin may leave a previously saved file open.
+<span class="lineNum">      94 </span>            :            we'll close it here to avoid eating too many fds. */
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         dbox_file_close(files[count-1]);</span>
+<span class="lineNum">      96 </span>            :     }
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     array_append(&amp;ctx-&gt;files, &amp;file, 1);</span>
+<a name="98"><span class="lineNum">      98 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 : int sdbox_save_begin(struct mail_save_context *_ctx, struct istream *input)</span>
+<span class="lineNum">     101 </span>            : {
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     103 </span>            :     struct dbox_file *file;
+<span class="lineNum">     104 </span>            :     int ret;
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     file = sdbox_file_create(ctx-&gt;mbox);</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     ctx-&gt;append_ctx = dbox_file_append_init(file);</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     ret = dbox_file_get_append_stream(ctx-&gt;append_ctx,</span>
+<span class="lineNum">     109 </span>            :                       &amp;ctx-&gt;ctx.dbox_output);
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         i_assert(ret != 0);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         dbox_file_append_rollback(&amp;ctx-&gt;append_ctx);</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :         dbox_file_unref(&amp;file);</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.failed = TRUE;</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     116 </span>            :     }
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     ctx-&gt;cur_file = file;</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     dbox_save_begin(&amp;ctx-&gt;ctx, input);</span>
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     sdbox_save_add_file(_ctx, file);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     return ctx-&gt;ctx.failed ? -1 : 0;</span>
+<a name="122"><span class="lineNum">     122 </span>            : }</a>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 : static int dbox_save_mail_write_metadata(struct dbox_save_context *ctx,</span>
+<span class="lineNum">     125 </span>            :                      struct dbox_file *file)
+<span class="lineNum">     126 </span>            : {
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     struct sdbox_file *sfile = (struct sdbox_file *)file;</span>
+<span class="lineNum">     128 </span>            :     const ARRAY_TYPE(mail_attachment_extref) *extrefs_arr;
+<span class="lineNum">     129 </span>            :     const struct mail_attachment_extref *extrefs;
+<span class="lineNum">     130 </span>            :     struct dbox_message_header dbox_msg_hdr;
+<span class="lineNum">     131 </span>            :     uoff_t message_size;
+<span class="lineNum">     132 </span>            :     guid_128_t guid_128;
+<span class="lineNum">     133 </span>            :     unsigned int i, count;
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     i_assert(file-&gt;msg_header_size == sizeof(dbox_msg_hdr));</span>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     message_size = ctx-&gt;dbox_output-&gt;offset -</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         file-&gt;msg_header_size - file-&gt;file_header_size;</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     dbox_save_write_metadata(&amp;ctx-&gt;ctx, ctx-&gt;dbox_output,</span>
+<span class="lineNum">     141 </span>            :                  message_size, NULL, guid_128);
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :     dbox_msg_header_fill(&amp;dbox_msg_hdr, message_size);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     if (o_stream_pwrite(ctx-&gt;dbox_output, &amp;dbox_msg_hdr,</span>
+<span class="lineNum">     144 </span>            :                 sizeof(dbox_msg_hdr),
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :                 file-&gt;file_header_size) &lt; 0) {</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         dbox_file_set_syscall_error(file, &quot;pwrite()&quot;);</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     148 </span>            :     }
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     sfile-&gt;written_to_disk = TRUE;</span>
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span>            :     /* remember the attachment paths until commit time */
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     extrefs_arr = index_attachment_save_get_extrefs(&amp;ctx-&gt;ctx);</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     if (extrefs_arr != NULL)</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         extrefs = array_get(extrefs_arr, &amp;count);</span>
+<span class="lineNum">     155 </span>            :     else {
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         extrefs = NULL;</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         count = 0;</span>
+<span class="lineNum">     158 </span>            :     }
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     if (count &gt; 0) {</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         sfile-&gt;attachment_pool =</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :             pool_alloconly_create(&quot;sdbox attachment paths&quot;, 512);</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         p_array_init(&amp;sfile-&gt;attachment_paths,</span>
+<span class="lineNum">     163 </span>            :                  sfile-&gt;attachment_pool, count);
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :             const char *path = p_strdup(sfile-&gt;attachment_pool,</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :                             extrefs[i].path);</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :             array_append(&amp;sfile-&gt;attachment_paths, &amp;path, 1);</span>
+<span class="lineNum">     168 </span>            :         }
+<span class="lineNum">     169 </span>            :     }
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="171"><span class="lineNum">     171 </span>            : }</a>
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 : static int dbox_save_finish_write(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     174 </span>            : {
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = (struct sdbox_save_context *)_ctx;</span>
+<span class="lineNum">     176 </span>            :     struct dbox_file **files;
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.finished = TRUE;</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     if (ctx-&gt;ctx.dbox_output == NULL)</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     if (_ctx-&gt;data.save_date != (time_t)-1) {</span>
+<span class="lineNum">     183 </span>            :         /* we can't change ctime, but we can add the date to cache */
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         struct index_mail *mail = (struct index_mail *)_ctx-&gt;dest_mail;</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :         uint32_t t = _ctx-&gt;data.save_date;</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :         index_mail_cache_add(mail, MAIL_CACHE_SAVE_DATE, &amp;t, sizeof(t));</span>
+<span class="lineNum">     188 </span>            :     }
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     dbox_save_end(&amp;ctx-&gt;ctx);</span>
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     files = array_idx_modifiable(&amp;ctx-&gt;files, array_count(&amp;ctx-&gt;files) - 1);</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;ctx.failed) T_BEGIN {</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :         if (dbox_save_mail_write_metadata(&amp;ctx-&gt;ctx, *files) &lt; 0)</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :             ctx-&gt;ctx.failed = TRUE;</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     if (ctx-&gt;ctx.failed) {</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :         index_storage_save_abort_last(&amp;ctx-&gt;ctx.ctx, ctx-&gt;ctx.seq);</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :         dbox_file_append_rollback(&amp;ctx-&gt;append_ctx);</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         dbox_file_unlink(*files);</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         dbox_file_unref(files);</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         array_delete(&amp;ctx-&gt;files, array_count(&amp;ctx-&gt;files) - 1, 1);</span>
+<span class="lineNum">     203 </span>            :     } else {
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :         dbox_file_append_checkpoint(ctx-&gt;append_ctx);</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :         if (dbox_file_append_commit(&amp;ctx-&gt;append_ctx) &lt; 0)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :             ctx-&gt;ctx.failed = TRUE;</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         dbox_file_close(*files);</span>
+<span class="lineNum">     208 </span>            :     }
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;ctx-&gt;ctx.input);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     ctx-&gt;ctx.dbox_output = NULL;</span>
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     return ctx-&gt;ctx.failed ? -1 : 0;</span>
+<a name="214"><span class="lineNum">     214 </span>            : }</a>
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 : int sdbox_save_finish(struct mail_save_context *ctx)</span>
+<span class="lineNum">     217 </span>            : {
+<span class="lineNum">     218 </span>            :     int ret;
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     ret = dbox_save_finish_write(ctx);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     index_save_context_free(ctx);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="223"><span class="lineNum">     223 </span>            : }</a>
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 : void sdbox_save_cancel(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     226 </span>            : {
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     struct dbox_save_context *ctx = DBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     (void)sdbox_save_finish(_ctx);</span>
+<a name="231"><span class="lineNum">     231 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 : static int dbox_save_assign_uids(struct sdbox_save_context *ctx,</span>
+<span class="lineNum">     234 </span>            :                  const ARRAY_TYPE(seq_range) *uids)
+<span class="lineNum">     235 </span>            : {
+<span class="lineNum">     236 </span>            :     struct dbox_file *const *files;
+<span class="lineNum">     237 </span>            :     struct seq_range_iter iter;
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     unsigned int i, count, n = 0;</span>
+<span class="lineNum">     239 </span>            :     uint32_t uid;
+<span class="lineNum">     240 </span>            :     bool ret;
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     seq_range_array_iter_init(&amp;iter, uids);</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     files = array_get(&amp;ctx-&gt;files, &amp;count);</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         struct sdbox_file *sfile = (struct sdbox_file *)files[i];</span>
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         ret = seq_range_array_iter_nth(&amp;iter, n++, &amp;uid);</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         i_assert(ret);</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         if (sdbox_file_assign_uid(sfile, uid, FALSE) &lt; 0)</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         if (ctx-&gt;ctx.highest_pop3_uidl_seq == i+1) {</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             index_pop3_uidl_set_max_uid(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     253 </span>            :                 ctx-&gt;ctx.trans, uid);
+<span class="lineNum">     254 </span>            :         }
+<span class="lineNum">     255 </span>            :     }
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     i_assert(!seq_range_array_iter_nth(&amp;iter, n, &amp;uid));</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="258"><span class="lineNum">     258 </span>            : }</a>
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 : static int dbox_save_assign_stub_uids(struct sdbox_save_context *ctx)</span>
+<span class="lineNum">     261 </span>            : {
+<span class="lineNum">     262 </span>            :     struct dbox_file *const *files;
+<span class="lineNum">     263 </span>            :     unsigned int i, count;
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     files = array_get(&amp;ctx-&gt;files, &amp;count);</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         struct sdbox_file *sfile = (struct sdbox_file *)files[i];</span>
+<span class="lineNum">     268 </span>            :         uint32_t uid;
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :         mail_index_lookup_uid(ctx-&gt;ctx.trans-&gt;view,</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :                       ctx-&gt;first_saved_seq + i, &amp;uid);</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         i_assert(uid != 0);</span>
+<span class="lineNum">     273 </span>            : 
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :         if (sdbox_file_assign_uid(sfile, uid, TRUE) &lt; 0)</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     276 </span>            :     }
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="279"><span class="lineNum">     279 </span>            : }</a>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 : static void dbox_save_unref_files(struct sdbox_save_context *ctx)</span>
+<span class="lineNum">     282 </span>            : {
+<span class="lineNum">     283 </span>            :     struct dbox_file **files;
+<span class="lineNum">     284 </span>            :     unsigned int i, count;
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     files = array_get_modifiable(&amp;ctx-&gt;files, &amp;count);</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         if (ctx-&gt;ctx.failed) {</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :             struct sdbox_file *sfile =</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :                 (struct sdbox_file *)files[i];</span>
+<span class="lineNum">     291 </span>            : 
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :             (void)sdbox_file_unlink_aborted_save(sfile);</span>
+<span class="lineNum">     293 </span>            :         }
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         dbox_file_unref(&amp;files[i]);</span>
+<span class="lineNum">     295 </span>            :     }
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     array_free(&amp;ctx-&gt;files);</span>
+<a name="297"><span class="lineNum">     297 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 : int sdbox_transaction_save_commit_pre(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     300 </span>            : {
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     struct mailbox_transaction_context *_t = _ctx-&gt;transaction;</span>
+<span class="lineNum">     303 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;ctx.finished);</span>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     if (array_count(&amp;ctx-&gt;files) == 0) {</span>
+<span class="lineNum">     308 </span>            :         /* the mail must be freed in the commit_pre() */
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     310 </span>            :     }
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     if (sdbox_sync_begin(ctx-&gt;mbox, SDBOX_SYNC_FLAG_FORCE |</span>
+<span class="lineNum">     313 </span>            :                  SDBOX_SYNC_FLAG_FSYNC, &amp;ctx-&gt;sync_ctx) &lt; 0) {
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         sdbox_transaction_save_rollback(_ctx);</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     316 </span>            :     }
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span>            :     /* update dbox header flags */
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     dbox_save_update_header_flags(&amp;ctx-&gt;ctx, ctx-&gt;sync_ctx-&gt;sync_view,</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;hdr_ext_id, offsetof(struct sdbox_index_header, flags));</span>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(ctx-&gt;sync_ctx-&gt;sync_view);</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     if ((_ctx-&gt;transaction-&gt;flags &amp; MAILBOX_TRANSACTION_FLAG_FILL_IN_STUB) == 0) {</span>
+<span class="lineNum">     325 </span>            :         /* assign UIDs for new messages */
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :         mail_index_append_finish_uids(ctx-&gt;ctx.trans, hdr-&gt;next_uid,</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :                           &amp;_t-&gt;changes-&gt;saved_uids);</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         if (dbox_save_assign_uids(ctx, &amp;_t-&gt;changes-&gt;saved_uids) &lt; 0) {</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :             sdbox_transaction_save_rollback(_ctx);</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     331 </span>            :         }
+<span class="lineNum">     332 </span>            :     } else {
+<span class="lineNum">     333 </span>            :         /* assign UIDs that we stashed away */
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         if (dbox_save_assign_stub_uids(ctx) &lt; 0) {</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             sdbox_transaction_save_rollback(_ctx);</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     337 </span>            :         }
+<span class="lineNum">     338 </span>            :     }
+<span class="lineNum">     339 </span>            : 
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :     _t-&gt;changes-&gt;uid_validity = hdr-&gt;uid_validity;</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="342"><span class="lineNum">     342 </span>            : }</a>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 : void sdbox_transaction_save_commit_post(struct mail_save_context *_ctx,</span>
+<span class="lineNum">     345 </span>            :                     struct mail_index_transaction_commit_result *result)
+<span class="lineNum">     346 </span>            : {
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     struct mail_storage *storage = _ctx-&gt;transaction-&gt;box-&gt;storage;</span>
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :     _ctx-&gt;transaction = NULL; /* transaction is already freed */</span>
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     if (array_count(&amp;ctx-&gt;files) == 0) {</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         sdbox_transaction_save_rollback(_ctx);</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     355 </span>            :     }
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     mail_index_sync_set_commit_result(ctx-&gt;sync_ctx-&gt;index_sync_ctx,</span>
+<span class="lineNum">     358 </span>            :                       result);
+<span class="lineNum">     359 </span>            : 
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     if (sdbox_sync_finish(&amp;ctx-&gt;sync_ctx, TRUE) &lt; 0)</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.failed = TRUE;</span>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     if (storage-&gt;set-&gt;parsed_fsync_mode != FSYNC_MODE_NEVER) {</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         const char *box_path = mailbox_get_path(&amp;ctx-&gt;mbox-&gt;box);</span>
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         if (fdatasync_path(box_path) &lt; 0) {</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :             mail_set_critical(_ctx-&gt;dest_mail,</span>
+<span class="lineNum">     368 </span>            :                 &quot;fdatasync_path(%s) failed: %m&quot;, box_path);
+<span class="lineNum">     369 </span>            :         }
+<span class="lineNum">     370 </span>            :     }
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     sdbox_transaction_save_rollback(_ctx);</span>
+<a name="372"><span class="lineNum">     372 </span>            : }</a>
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 : void sdbox_transaction_save_rollback(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     375 </span>            : {
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     struct sdbox_save_context *ctx = SDBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     377 </span>            : 
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;ctx.finished)</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :         sdbox_save_cancel(_ctx);</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     dbox_save_unref_files(ctx);</span>
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     if (ctx-&gt;sync_ctx != NULL)</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         (void)sdbox_sync_finish(&amp;ctx-&gt;sync_ctx, FALSE);</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

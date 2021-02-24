@@ -1,0 +1,424 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-mail/mail-html2text.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-mail</a> - mail-html2text.c<span style="font-size: 80%;"> (source / <a href="mail-html2text.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">176</td>
+            <td class="headerCovTableEntry">178</td>
+            <td class="headerCovTableEntryHi">98.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2011-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;unichar.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mail-html2text.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : /* Zero-width space (&amp;#x200B;) apparently also belongs here, but that gets a
+<span class="lineNum">      10 </span>            :    bit tricky to handle.. is it actually used anywhere? */
+<span class="lineNum">      11 </span>            : #define HTML_WHITESPACE(c) \
+<span class="lineNum">      12 </span>            :     ((c) == ' ' || (c) == '\t' || (c) == '\r' || (c) == '\n')
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : enum html_state {
+<span class="lineNum">      15 </span>            :     /* regular text */
+<span class="lineNum">      16 </span>            :     HTML_STATE_TEXT,
+<span class="lineNum">      17 </span>            :     /* tag outside &quot;quoted string&quot; */
+<span class="lineNum">      18 </span>            :     HTML_STATE_TAG,
+<span class="lineNum">      19 </span>            :     /* tag inside &quot;double quoted string&quot; */
+<span class="lineNum">      20 </span>            :     HTML_STATE_TAG_DQUOTED,
+<span class="lineNum">      21 </span>            :     /* tag -&gt; &quot;escape\ */
+<span class="lineNum">      22 </span>            :     HTML_STATE_TAG_DQUOTED_ESCAPE,
+<span class="lineNum">      23 </span>            :     /* tag inside 'single quoted string' */
+<span class="lineNum">      24 </span>            :     HTML_STATE_TAG_SQUOTED,
+<span class="lineNum">      25 </span>            :     /* tag -&gt; 'escape\ */
+<span class="lineNum">      26 </span>            :     HTML_STATE_TAG_SQUOTED_ESCAPE,
+<span class="lineNum">      27 </span>            :     /* comment */
+<span class="lineNum">      28 </span>            :     HTML_STATE_COMMENT,
+<span class="lineNum">      29 </span>            :     /* comment is ending, we've seen &quot;--&quot; and now just waiting for &quot;&gt;&quot; */
+<span class="lineNum">      30 </span>            :     HTML_STATE_COMMENT_END,
+<span class="lineNum">      31 </span>            :     /* (java)script */
+<span class="lineNum">      32 </span>            :     HTML_STATE_SCRIPT,
+<span class="lineNum">      33 </span>            :     /* CSS style */
+<span class="lineNum">      34 </span>            :     HTML_STATE_STYLE,
+<span class="lineNum">      35 </span>            :     /* &lt;![CDATA[...]]&gt; */
+<span class="lineNum">      36 </span>            :     HTML_STATE_CDATA
+<span class="lineNum">      37 </span>            : };
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : struct mail_html2text {
+<span class="lineNum">      40 </span>            :     enum mail_html2text_flags flags;
+<span class="lineNum">      41 </span>            :     enum html_state state;
+<span class="lineNum">      42 </span>            :     buffer_t *input;
+<span class="lineNum">      43 </span>            :     unsigned int quote_level;
+<span class="lineNum">      44 </span>            :     bool ignore_next_text;
+<span class="lineNum">      45 </span>            : };
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            : static struct {
+<span class="lineNum">      48 </span>            :     const char *name;
+<span class="lineNum">      49 </span>            :     unichar_t chr;
+<span class="lineNum">      50 </span>            : } html_entities[] = {
+<span class="lineNum">      51 </span>            : #include &quot;html-entities.h&quot;
+<span class="lineNum">      52 </span>            : };
+<a name="53"><span class="lineNum">      53 </span>            : </a>
+<span class="lineNum">      54 </span>            : struct mail_html2text *
+<span class="lineNum">      55 </span><span class="lineCov">       1024 : mail_html2text_init(enum mail_html2text_flags flags)</span>
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span>            :     struct mail_html2text *ht;
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span><span class="lineCov">       1024 :     ht = i_new(struct mail_html2text, 1);</span>
+<span class="lineNum">      60 </span><span class="lineCov">       1024 :     ht-&gt;flags = flags;</span>
+<span class="lineNum">      61 </span><span class="lineCov">       1024 :     ht-&gt;input = buffer_create_dynamic(default_pool, 512);</span>
+<span class="lineNum">      62 </span><span class="lineCov">       1024 :     return ht;</span>
+<span class="lineNum">      63 </span>            : }
+<a name="64"><span class="lineNum">      64 </span>            : </a>
+<span class="lineNum">      65 </span>            : static size_t
+<span class="lineNum">      66 </span><span class="lineCov">      20130 : parse_tag_name(struct mail_html2text *ht,</span>
+<span class="lineNum">      67 </span>            :            const unsigned char *data, size_t size)
+<span class="lineNum">      68 </span>            : {
+<span class="lineNum">      69 </span>            :     size_t i;
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineCov">      20130 :     if (size &gt;= 3 &amp;&amp; memcmp(data, &quot;!--&quot;, 3) == 0) {</span>
+<span class="lineNum">      72 </span><span class="lineCov">          1 :         ht-&gt;state = HTML_STATE_COMMENT;</span>
+<span class="lineNum">      73 </span><span class="lineCov">          1 :         return 3 + 1;</span>
+<span class="lineNum">      74 </span>            :     }
+<span class="lineNum">      75 </span><span class="lineCov">      20132 :     if (size &gt;= 7 &amp;&amp; i_memcasecmp(data, &quot;script&quot;, 6) == 0 &amp;&amp;</span>
+<span class="lineNum">      76 </span><span class="lineCov">          6 :         (HTML_WHITESPACE(data[6]) || data[6] == '&gt;')) {</span>
+<span class="lineNum">      77 </span><span class="lineCov">          1 :         ht-&gt;state = HTML_STATE_SCRIPT;</span>
+<span class="lineNum">      78 </span><span class="lineCov">          1 :         return 7 + 1;</span>
+<span class="lineNum">      79 </span>            :     }
+<span class="lineNum">      80 </span><span class="lineCov">      20131 :     if (size &gt;= 6 &amp;&amp; i_memcasecmp(data, &quot;style&quot;, 5) == 0 &amp;&amp;</span>
+<span class="lineNum">      81 </span><span class="lineCov">          6 :         (HTML_WHITESPACE(data[5]) || data[5] == '&gt;')) {</span>
+<span class="lineNum">      82 </span><span class="lineCov">          1 :         ht-&gt;state = HTML_STATE_STYLE;</span>
+<span class="lineNum">      83 </span><span class="lineCov">          1 :         return 6 + 1;</span>
+<span class="lineNum">      84 </span>            :     }
+<span class="lineNum">      85 </span><span class="lineCov">      20127 :     if (size &gt;= 8 &amp;&amp; i_memcasecmp(data, &quot;![CDATA[&quot;, 8) == 0) {</span>
+<span class="lineNum">      86 </span><span class="lineCov">          3 :         ht-&gt;state = HTML_STATE_CDATA;</span>
+<span class="lineNum">      87 </span><span class="lineCov">          3 :         return 8 + 1;</span>
+<span class="lineNum">      88 </span>            :     }
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span><span class="lineCov">      20124 :     if ((ht-&gt;flags &amp; MAIL_HTML2TEXT_FLAG_SKIP_QUOTED) != 0) {</span>
+<span class="lineNum">      91 </span><span class="lineCov">        203 :         if (size &gt;= 10 &amp;&amp; i_memcasecmp(data, &quot;blockquote&quot;, 10) == 0 &amp;&amp;</span>
+<span class="lineNum">      92 </span><span class="lineCov">         16 :             (HTML_WHITESPACE(data[10]) || data[10] == '&gt;')) {</span>
+<span class="lineNum">      93 </span><span class="lineCov">          5 :             ht-&gt;quote_level++;</span>
+<span class="lineNum">      94 </span><span class="lineCov">          5 :             ht-&gt;state = HTML_STATE_TAG;</span>
+<span class="lineNum">      95 </span><span class="lineCov">          5 :             return 1;</span>
+<span class="lineNum">      96 </span><span class="lineCov">        190 :         } else if (ht-&gt;quote_level &gt; 0 &amp;&amp;</span>
+<span class="lineNum">      97 </span><span class="lineCov">          4 :                size &gt;= 12 &amp;&amp; i_memcasecmp(data, &quot;/blockquote&gt;&quot;, 12) == 0) {</span>
+<span class="lineNum">      98 </span><span class="lineCov">          4 :             if (--ht-&gt;quote_level == 0)</span>
+<span class="lineNum">      99 </span><span class="lineCov">          3 :                 ht-&gt;ignore_next_text = FALSE;</span>
+<span class="lineNum">     100 </span><span class="lineCov">          4 :             ht-&gt;state = HTML_STATE_TAG;</span>
+<span class="lineNum">     101 </span><span class="lineCov">          4 :             return 1;</span>
+<span class="lineNum">     102 </span>            :         }
+<span class="lineNum">     103 </span>            :     }
+<span class="lineNum">     104 </span><span class="lineCov">      20115 :     if (size &lt; 12) {</span>
+<span class="lineNum">     105 </span>            :         /* can we see the whole tag name? */
+<span class="lineNum">     106 </span><span class="lineCov">     101057 :         for (i = 0; i &lt; size; i++) {</span>
+<span class="lineNum">     107 </span><span class="lineCov">      84751 :             if (HTML_WHITESPACE(data[i]) || data[i] == '&gt;')</span>
+<span class="lineNum">     108 </span>            :                 break;
+<span class="lineNum">     109 </span>            :         }
+<span class="lineNum">     110 </span><span class="lineCov">      18876 :         if (i == size) {</span>
+<span class="lineNum">     111 </span>            :             /* need more data */
+<span class="lineNum">     112 </span><span class="lineCov">      16306 :             return 0;</span>
+<span class="lineNum">     113 </span>            :         }
+<span class="lineNum">     114 </span>            :     }
+<span class="lineNum">     115 </span><span class="lineCov">       3809 :     ht-&gt;state = HTML_STATE_TAG;</span>
+<span class="lineNum">     116 </span><span class="lineCov">       3809 :     return 1;</span>
+<a name="117"><span class="lineNum">     117 </span>            : }</a>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineCov">       2275 : static bool html_entity_get_unichar(const char *name, unichar_t *chr_r)</span>
+<span class="lineNum">     120 </span>            : {
+<span class="lineNum">     121 </span>            :     unichar_t chr;
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineCov">     576598 :     for (size_t i = 0; i &lt; N_ELEMENTS(html_entities); i++) {</span>
+<span class="lineNum">     124 </span><span class="lineCov">     574329 :         if (strcasecmp(html_entities[i].name, name) == 0) {</span>
+<span class="lineNum">     125 </span><span class="lineCov">          6 :             *chr_r = html_entities[i].chr;</span>
+<span class="lineNum">     126 </span><span class="lineCov">          6 :             return TRUE;</span>
+<span class="lineNum">     127 </span>            :         }
+<span class="lineNum">     128 </span>            :     }
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span>            :     /* maybe it's just encoded binary byte
+<span class="lineNum">     131 </span>            :        it can be &amp;#nnn; or &amp;#xnnn;
+<span class="lineNum">     132 </span>            :     */
+<span class="lineNum">     133 </span><span class="lineCov">       2273 :     if (name[0] == '#' &amp;&amp;</span>
+<span class="lineNum">     134 </span><span class="lineCov">          5 :         ((name[1] == 'x' &amp;&amp;</span>
+<span class="lineNum">     135 </span><span class="lineCov">          4 :           str_to_uint32_hex(name+2, &amp;chr) == 0) ||</span>
+<span class="lineNum">     136 </span><span class="lineCov">          9 :          str_to_uint32(name+1, &amp;chr) == 0) &amp;&amp;</span>
+<span class="lineNum">     137 </span><span class="lineCov">          3 :          uni_is_valid_ucs4(chr)) {</span>
+<span class="lineNum">     138 </span><span class="lineCov">          3 :         *chr_r = chr;</span>
+<span class="lineNum">     139 </span><span class="lineCov">          3 :         return TRUE;</span>
+<span class="lineNum">     140 </span>            :     }
+<span class="lineNum">     141 </span>            : 
+<span class="lineNum">     142 </span><span class="lineCov">       2266 :     return FALSE;</span>
+<a name="143"><span class="lineNum">     143 </span>            : }</a>
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">      20205 : static size_t parse_entity(const unsigned char *data, size_t size,</span>
+<span class="lineNum">     146 </span>            :                buffer_t *output)
+<span class="lineNum">     147 </span>            : {
+<span class="lineNum">     148 </span>            :     char entity[10];
+<span class="lineNum">     149 </span>            :     unichar_t chr;
+<span class="lineNum">     150 </span>            :     size_t i;
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineCov">     114900 :     for (i = 0; i &lt; size; i++) {</span>
+<span class="lineNum">     153 </span><span class="lineCov">      98497 :         if (HTML_WHITESPACE(data[i]) || i &gt;= sizeof(entity)) {</span>
+<span class="lineNum">     154 </span>            :             /* broken entity */
+<span class="lineNum">     155 </span><span class="lineCov">       1527 :             return 1;</span>
+<span class="lineNum">     156 </span>            :         }
+<span class="lineNum">     157 </span><span class="lineCov">      96970 :         if (data[i] == ';')</span>
+<span class="lineNum">     158 </span><span class="lineCov">       2275 :             break;</span>
+<span class="lineNum">     159 </span>            :     }
+<span class="lineNum">     160 </span><span class="lineCov">      18678 :     if (i == size)</span>
+<span class="lineNum">     161 </span><span class="lineCov">      16403 :         return 0;</span>
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">       2275 :     i_assert(i &lt; sizeof(entity));</span>
+<span class="lineNum">     164 </span><span class="lineCov">       2275 :     memcpy(entity, data, i); entity[i] = '\0';</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineCov">       2275 :     if (html_entity_get_unichar(entity, &amp;chr))</span>
+<span class="lineNum">     167 </span><span class="lineCov">          9 :         uni_ucs4_to_utf8_c(chr, output);</span>
+<span class="lineNum">     168 </span><span class="lineCov">       2275 :     return i + 1 + 1;</span>
+<a name="169"><span class="lineNum">     169 </span>            : }</a>
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineCov">       3252 : static void mail_html2text_add_space(buffer_t *output)</span>
+<span class="lineNum">     172 </span>            : {
+<span class="lineNum">     173 </span><span class="lineCov">       3252 :     const unsigned char *data = output-&gt;data;</span>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">       3252 :     if (output-&gt;used &gt; 0 &amp;&amp; data[output-&gt;used-1] != ' ')</span>
+<span class="lineNum">     176 </span><span class="lineCov">       2846 :         buffer_append_c(output, ' ');</span>
+<span class="lineNum">     177 </span><span class="lineCov">       3252 : }</span>
+<a name="178"><span class="lineNum">     178 </span>            : </a>
+<span class="lineNum">     179 </span>            : static size_t
+<span class="lineNum">     180 </span><span class="lineCov">     107251 : parse_data(struct mail_html2text *ht,</span>
+<span class="lineNum">     181 </span>            :        const unsigned char *data, size_t size, buffer_t *output)
+<span class="lineNum">     182 </span>            : {
+<span class="lineNum">     183 </span>            :     size_t i, ret;
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">     245767 :     for (i = 0; i &lt; size; i++) {</span>
+<span class="lineNum">     186 </span><span class="lineCov">     171250 :         char c = data[i];</span>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineCov">     171250 :         switch (ht-&gt;state) {</span>
+<span class="lineNum">     189 </span>            :         case HTML_STATE_TEXT:
+<span class="lineNum">     190 </span><span class="lineCov">      71081 :             if (c == '&lt;') {</span>
+<span class="lineNum">     191 </span><span class="lineCov">      20130 :                 ret = parse_tag_name(ht, data+i+1, size-i-1);</span>
+<span class="lineNum">     192 </span><span class="lineCov">      20130 :                 if (ret == 0)</span>
+<span class="lineNum">     193 </span><span class="lineCov">      16306 :                     return i;</span>
+<span class="lineNum">     194 </span><span class="lineCov">       3824 :                 i += ret - 1;</span>
+<span class="lineNum">     195 </span><span class="lineCov">      50951 :             } else if (c == '&amp;') {</span>
+<span class="lineNum">     196 </span><span class="lineCov">      20205 :                 ret = parse_entity(data+i+1, size-i-1, output);</span>
+<span class="lineNum">     197 </span><span class="lineCov">      20205 :                 if (ret == 0)</span>
+<span class="lineNum">     198 </span><span class="lineCov">      16403 :                     return i;</span>
+<span class="lineNum">     199 </span><span class="lineCov">       3802 :                 i += ret - 1;</span>
+<span class="lineNum">     200 </span><span class="lineCov">      30746 :             } else if (ht-&gt;quote_level == 0) {</span>
+<span class="lineNum">     201 </span><span class="lineCov">      30680 :                 buffer_append_c(output, c);</span>
+<span class="lineNum">     202 </span>            :             }
+<span class="lineNum">     203 </span><span class="lineCov">      38372 :             break;</span>
+<span class="lineNum">     204 </span>            :         case HTML_STATE_TAG:
+<span class="lineNum">     205 </span><span class="lineCov">      32925 :             if (c == '&quot;')</span>
+<span class="lineNum">     206 </span><span class="lineCov">       3273 :                 ht-&gt;state = HTML_STATE_TAG_DQUOTED;</span>
+<span class="lineNum">     207 </span><span class="lineCov">      29652 :             else if (c == '\'')</span>
+<span class="lineNum">     208 </span><span class="lineCov">       3321 :                 ht-&gt;state = HTML_STATE_TAG_SQUOTED;</span>
+<span class="lineNum">     209 </span><span class="lineCov">      26331 :             else if (c == '&gt;') {</span>
+<span class="lineNum">     210 </span><span class="lineCov">       3250 :                 ht-&gt;state = HTML_STATE_TEXT;</span>
+<span class="lineNum">     211 </span><span class="lineCov">       3250 :                 mail_html2text_add_space(output);</span>
+<span class="lineNum">     212 </span>            :             }
+<span class="lineNum">     213 </span><span class="lineCov">      32925 :             break;</span>
+<span class="lineNum">     214 </span>            :         case HTML_STATE_TAG_DQUOTED:
+<span class="lineNum">     215 </span><span class="lineCov">      30544 :             if (c == '&quot;')</span>
+<span class="lineNum">     216 </span><span class="lineCov">       3050 :                 ht-&gt;state = HTML_STATE_TAG;</span>
+<span class="lineNum">     217 </span><span class="lineCov">      27494 :             else if (c == '\\')</span>
+<span class="lineNum">     218 </span><span class="lineCov">       2951 :                 ht-&gt;state = HTML_STATE_TAG_DQUOTED_ESCAPE;</span>
+<span class="lineNum">     219 </span><span class="lineCov">      30544 :             break;</span>
+<span class="lineNum">     220 </span>            :         case HTML_STATE_TAG_DQUOTED_ESCAPE:
+<span class="lineNum">     221 </span><span class="lineCov">       2928 :             ht-&gt;state = HTML_STATE_TAG_DQUOTED;</span>
+<span class="lineNum">     222 </span><span class="lineCov">       2928 :             break;</span>
+<span class="lineNum">     223 </span>            :         case HTML_STATE_TAG_SQUOTED:
+<span class="lineNum">     224 </span><span class="lineCov">      30578 :             if (c == '\'')</span>
+<span class="lineNum">     225 </span><span class="lineCov">       3131 :                 ht-&gt;state = HTML_STATE_TAG;</span>
+<span class="lineNum">     226 </span><span class="lineCov">      27447 :             else if (c == '\\')</span>
+<span class="lineNum">     227 </span><span class="lineCov">       3061 :                 ht-&gt;state = HTML_STATE_TAG_SQUOTED_ESCAPE;</span>
+<span class="lineNum">     228 </span><span class="lineCov">      30578 :             break;</span>
+<span class="lineNum">     229 </span>            :         case HTML_STATE_TAG_SQUOTED_ESCAPE:
+<span class="lineNum">     230 </span><span class="lineCov">       3044 :             ht-&gt;state = HTML_STATE_TAG_SQUOTED;</span>
+<span class="lineNum">     231 </span><span class="lineCov">       3044 :             break;</span>
+<span class="lineNum">     232 </span>            :         case HTML_STATE_COMMENT:
+<span class="lineNum">     233 </span><span class="lineCov">         50 :             if (c == '-') {</span>
+<span class="lineNum">     234 </span><span class="lineCov">          2 :                 if (i+1 == size)</span>
+<span class="lineNum">     235 </span><span class="lineCov">          1 :                     return i;</span>
+<span class="lineNum">     236 </span><span class="lineCov">          1 :                 if (data[i+1] == '-') {</span>
+<span class="lineNum">     237 </span><span class="lineCov">          1 :                     ht-&gt;state = HTML_STATE_COMMENT_END;</span>
+<span class="lineNum">     238 </span><span class="lineCov">          1 :                     i++;</span>
+<span class="lineNum">     239 </span>            :                 }
+<span class="lineNum">     240 </span>            :             }
+<span class="lineNum">     241 </span><span class="lineCov">         49 :             break;</span>
+<span class="lineNum">     242 </span>            :         case HTML_STATE_COMMENT_END:
+<span class="lineNum">     243 </span><span class="lineCov">          1 :             if (c == '&gt;')</span>
+<span class="lineNum">     244 </span><span class="lineCov">          1 :                 ht-&gt;state = HTML_STATE_TEXT;</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :             else if (!HTML_WHITESPACE(c))</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :                 ht-&gt;state = HTML_STATE_COMMENT;</span>
+<span class="lineNum">     247 </span><span class="lineCov">          1 :             break;</span>
+<span class="lineNum">     248 </span>            :         case HTML_STATE_SCRIPT:
+<span class="lineNum">     249 </span><span class="lineCov">         41 :             if (c == '&lt;') {</span>
+<span class="lineNum">     250 </span><span class="lineCov">         14 :                 unsigned int max_len = I_MIN(size-i, 9);</span>
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span><span class="lineCov">         14 :                 if (i_memcasecmp(data+i, &quot;&lt;/script&gt;&quot;, max_len) == 0) {</span>
+<span class="lineNum">     253 </span><span class="lineCov">         12 :                     if (max_len &lt; 9)</span>
+<span class="lineNum">     254 </span><span class="lineCov">         11 :                         return i;</span>
+<span class="lineNum">     255 </span><span class="lineCov">          1 :                     mail_html2text_add_space(output);</span>
+<span class="lineNum">     256 </span><span class="lineCov">          1 :                     ht-&gt;state = HTML_STATE_TEXT;</span>
+<span class="lineNum">     257 </span><span class="lineCov">          1 :                     i += 8;</span>
+<span class="lineNum">     258 </span>            :                 }
+<span class="lineNum">     259 </span>            :             }
+<span class="lineNum">     260 </span><span class="lineCov">         30 :             break;</span>
+<span class="lineNum">     261 </span>            :         case HTML_STATE_STYLE:
+<span class="lineNum">     262 </span><span class="lineCov">         29 :             if (c == '&lt;') {</span>
+<span class="lineNum">     263 </span><span class="lineCov">          8 :                 unsigned int max_len = I_MIN(size-i, 8);</span>
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineCov">          8 :                 if (i_memcasecmp(data+i, &quot;&lt;/style&gt;&quot;, max_len) == 0) {</span>
+<span class="lineNum">     266 </span><span class="lineCov">          8 :                     if (max_len &lt; 8)</span>
+<span class="lineNum">     267 </span><span class="lineCov">          7 :                         return i;</span>
+<span class="lineNum">     268 </span><span class="lineCov">          1 :                     mail_html2text_add_space(output);</span>
+<span class="lineNum">     269 </span><span class="lineCov">          1 :                     ht-&gt;state = HTML_STATE_TEXT;</span>
+<span class="lineNum">     270 </span><span class="lineCov">          1 :                     i += 7;</span>
+<span class="lineNum">     271 </span>            :                 }
+<span class="lineNum">     272 </span>            :             }
+<span class="lineNum">     273 </span><span class="lineCov">         22 :             break;</span>
+<span class="lineNum">     274 </span>            :         case HTML_STATE_CDATA:
+<span class="lineNum">     275 </span><span class="lineCov">         29 :             if (c == ']') {</span>
+<span class="lineNum">     276 </span><span class="lineCov">          9 :                 unsigned int max_len = I_MIN(size-i, 3);</span>
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineCov">          9 :                 if (i_memcasecmp(data+i, &quot;]]&gt;&quot;, max_len) == 0) {</span>
+<span class="lineNum">     279 </span><span class="lineCov">          7 :                     if (max_len &lt; 3)</span>
+<span class="lineNum">     280 </span><span class="lineCov">          6 :                         return i;</span>
+<span class="lineNum">     281 </span><span class="lineCov">          1 :                     ht-&gt;state = HTML_STATE_TEXT;</span>
+<span class="lineNum">     282 </span><span class="lineCov">          1 :                     i += 2;</span>
+<span class="lineNum">     283 </span><span class="lineCov">          1 :                     break;</span>
+<span class="lineNum">     284 </span>            :                 }
+<span class="lineNum">     285 </span>            :             }
+<span class="lineNum">     286 </span><span class="lineCov">         22 :             if (ht-&gt;quote_level == 0)</span>
+<span class="lineNum">     287 </span><span class="lineCov">         22 :                 buffer_append_c(output, c);</span>
+<span class="lineNum">     288 </span><span class="lineCov">         22 :             break;</span>
+<span class="lineNum">     289 </span>            :         }
+<span class="lineNum">     290 </span>            :     }
+<span class="lineNum">     291 </span><span class="lineCov">      74517 :     return i;</span>
+<a name="292"><span class="lineNum">     292 </span>            : }</a>
+<span class="lineNum">     293 </span>            : 
+<span class="lineNum">     294 </span><span class="lineCov">     100431 : void mail_html2text_more(struct mail_html2text *ht,</span>
+<span class="lineNum">     295 </span>            :              const unsigned char *data, size_t size,
+<span class="lineNum">     296 </span>            :              buffer_t *output)
+<span class="lineNum">     297 </span>            : {
+<span class="lineNum">     298 </span>            :     size_t pos, inc_size, buf_orig_size;
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineCov">     100431 :     i_assert(size &gt; 0);</span>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">     207682 :     while (ht-&gt;input-&gt;used &gt; 0) {</span>
+<span class="lineNum">     303 </span>            :         /* we didn't get enough input the last time to know
+<span class="lineNum">     304 </span>            :            what to do. */
+<span class="lineNum">     305 </span><span class="lineCov">      32144 :         buf_orig_size = ht-&gt;input-&gt;used;</span>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineCov">      32144 :         inc_size = I_MIN(size, 128);</span>
+<span class="lineNum">     308 </span><span class="lineCov">      32144 :         buffer_append(ht-&gt;input, data, inc_size);</span>
+<span class="lineNum">     309 </span><span class="lineCov">      32144 :         pos = parse_data(ht, ht-&gt;input-&gt;data,</span>
+<span class="lineNum">     310 </span><span class="lineCov">      32144 :                  ht-&gt;input-&gt;used, output);</span>
+<span class="lineNum">     311 </span><span class="lineCov">      32144 :         if (pos == 0) {</span>
+<span class="lineNum">     312 </span>            :             /* we need to add more data into buffer */
+<span class="lineNum">     313 </span><span class="lineCov">      25324 :             data += inc_size;</span>
+<span class="lineNum">     314 </span><span class="lineCov">      25324 :             size -= inc_size;</span>
+<span class="lineNum">     315 </span><span class="lineCov">      25324 :             if (size == 0)</span>
+<span class="lineNum">     316 </span><span class="lineCov">     125755 :                 return;</span>
+<span class="lineNum">     317 </span><span class="lineCov">       6820 :         } else if (pos &gt;= buf_orig_size) {</span>
+<span class="lineNum">     318 </span>            :             /* we parsed forward */
+<span class="lineNum">     319 </span><span class="lineCov">       5865 :             data += pos - buf_orig_size;</span>
+<span class="lineNum">     320 </span><span class="lineCov">       5865 :             size -= pos - buf_orig_size;</span>
+<span class="lineNum">     321 </span><span class="lineCov">       5865 :             buffer_set_used_size(ht-&gt;input, 0);</span>
+<span class="lineNum">     322 </span>            :         } else {
+<span class="lineNum">     323 </span>            :             /* invalid input - eat away what we parsed so far
+<span class="lineNum">     324 </span>            :                and retry */
+<span class="lineNum">     325 </span><span class="lineCov">        955 :             buffer_set_used_size(ht-&gt;input, buf_orig_size);</span>
+<span class="lineNum">     326 </span><span class="lineCov">        955 :             buffer_delete(ht-&gt;input, 0, pos);</span>
+<span class="lineNum">     327 </span>            :         }
+<span class="lineNum">     328 </span>            :     }
+<span class="lineNum">     329 </span><span class="lineCov">      75107 :     pos = parse_data(ht, data, size, output);</span>
+<span class="lineNum">     330 </span><span class="lineCov">      75107 :     buffer_append(ht-&gt;input, data + pos, size - pos);</span>
+<a name="331"><span class="lineNum">     331 </span>            : }</a>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineCov">       1024 : void mail_html2text_deinit(struct mail_html2text **_ht)</span>
+<span class="lineNum">     334 </span>            : {
+<span class="lineNum">     335 </span><span class="lineCov">       1024 :     struct mail_html2text *ht = *_ht;</span>
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineCov">       1024 :     *_ht = NULL;</span>
+<span class="lineNum">     338 </span><span class="lineCov">       1024 :     buffer_free(&amp;ht-&gt;input);</span>
+<span class="lineNum">     339 </span><span class="lineCov">       1024 :     i_free(ht);</span>
+<span class="lineNum">     340 </span><span class="lineCov">       1024 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

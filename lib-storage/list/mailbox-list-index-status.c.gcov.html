@@ -1,0 +1,951 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/list/mailbox-list-index-status.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">lib-storage/list</a> - mailbox-list-index-status.c<span style="font-size: 80%;"> (source / <a href="mailbox-list-index-status.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">132</td>
+            <td class="headerCovTableEntry">418</td>
+            <td class="headerCovTableEntryLo">31.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntry">24</td>
+            <td class="headerCovTableEntryLo">54.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2006-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;mail-index-modseq.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;mailbox-list-index-storage.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mailbox-list-index.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #define CACHED_STATUS_ITEMS \
+<span class="lineNum">      10 </span>            :     (STATUS_MESSAGES | STATUS_UNSEEN | STATUS_RECENT | \
+<span class="lineNum">      11 </span>            :      STATUS_UIDNEXT | STATUS_UIDVALIDITY | STATUS_HIGHESTMODSEQ)
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : struct index_list_changes {
+<span class="lineNum">      14 </span>            :     struct mailbox_status status;
+<span class="lineNum">      15 </span>            :     guid_128_t guid;
+<span class="lineNum">      16 </span>            :     uint32_t seq;
+<span class="lineNum">      17 </span>            :     struct mailbox_index_vsize vsize;
+<span class="lineNum">      18 </span>            :     uint32_t first_uid;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :     bool rec_changed;
+<span class="lineNum">      21 </span>            :     bool msgs_changed;
+<span class="lineNum">      22 </span>            :     bool hmodseq_changed;
+<span class="lineNum">      23 </span>            :     bool vsize_changed;
+<span class="lineNum">      24 </span>            :     bool first_saved_changed;
+<span class="lineNum">      25 </span>            : };
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : struct index_list_storage_module index_list_storage_module =
+<span class="lineNum">      28 </span>            :     MODULE_CONTEXT_INIT(&amp;mail_storage_module_register);
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : /* Should the STATUS information for this mailbox not be written to the
+<span class="lineNum">      31 </span>            :    mailbox list index? */
+<span class="lineNum">      32 </span>            : #define MAILBOX_IS_NEVER_IN_INDEX(box) \
+<span class="lineNum">      33 </span>            :     ((box)-&gt;inbox_any &amp;&amp; !(box)-&gt;storage-&gt;set-&gt;mailbox_list_index_include_inbox)
+<a name="34"><span class="lineNum">      34 </span>            : </a>
+<span class="lineNum">      35 </span>            : static int
+<span class="lineNum">      36 </span><span class="lineCov">          3 : index_list_open_view(struct mailbox *box, bool status_check,</span>
+<span class="lineNum">      37 </span>            :              struct mail_index_view **view_r, uint32_t *seq_r)
+<span class="lineNum">      38 </span>            : {
+<span class="lineNum">      39 </span><span class="lineCov">          3 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">      40 </span>            :     struct mailbox_list_index_node *node;
+<span class="lineNum">      41 </span>            :     struct mail_index_view *view;
+<span class="lineNum">      42 </span>            :     uint32_t seq;
+<span class="lineNum">      43 </span>            :     int ret;
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span><span class="lineCov">          3 :     if (MAILBOX_IS_NEVER_IN_INDEX(box) &amp;&amp; status_check)</span>
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      47 </span><span class="lineCov">          3 :     if (mailbox_list_index_refresh(box-&gt;list) &lt; 0)</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineCov">          3 :     node = mailbox_list_index_lookup(box-&gt;list, box-&gt;name);</span>
+<span class="lineNum">      51 </span><span class="lineCov">          3 :     if (node == NULL) {</span>
+<span class="lineNum">      52 </span>            :         /* mailbox not found */
+<span class="lineNum">      53 </span><span class="lineCov">          3 :         return 0;</span>
+<span class="lineNum">      54 </span>            :     }
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :     view = mail_index_view_open(ilist-&gt;index);</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     if (mailbox_list_index_need_refresh(ilist, view)) {</span>
+<span class="lineNum">      58 </span>            :         /* mailbox_list_index_refresh_later() was called.
+<span class="lineNum">      59 </span>            :            Can't trust the index's contents. */
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :         ret = 1;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     } else if (!mail_index_lookup_seq(view, node-&gt;uid, &amp;seq)) {</span>
+<span class="lineNum">      62 </span>            :         /* our in-memory tree is out of sync */
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         ret = 1;</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     } else if (!status_check) {</span>
+<span class="lineNum">      65 </span>            :         /* this operation doesn't need the index to be up-to-date */
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         ret = 0;</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     } else T_BEGIN {</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         ret = box-&gt;v.list_index_has_changed == NULL ? 0 :</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :             box-&gt;v.list_index_has_changed(box, view, seq, FALSE);</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     if (ret != 0) {</span>
+<span class="lineNum">      73 </span>            :         /* error / mailbox has changed. we'll need to sync it. */
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :             mailbox_list_index_refresh_later(box-&gt;list);</span>
+<span class="lineNum">      76 </span>            :         else
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :             ilist-&gt;index_last_check_changed = TRUE;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;view);</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         return ret &lt; 0 ? -1 : 0;</span>
+<span class="lineNum">      80 </span>            :     }
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     *view_r = view;</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     *seq_r = seq;</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">      85 </span>            : }
+<a name="86"><span class="lineNum">      86 </span>            : </a>
+<span class="lineNum">      87 </span>            : static int
+<span class="lineNum">      88 </span><span class="lineCov">          3 : index_list_exists(struct mailbox *box, bool auto_boxes,</span>
+<span class="lineNum">      89 </span>            :           enum mailbox_existence *existence_r)
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span><span class="lineCov">          3 :     struct index_list_mailbox *ibox = INDEX_LIST_STORAGE_CONTEXT(box);</span>
+<span class="lineNum">      92 </span>            :     struct mail_index_view *view;
+<span class="lineNum">      93 </span>            :     const struct mail_index_record *rec;
+<span class="lineNum">      94 </span>            :     enum mailbox_list_index_flags flags;
+<span class="lineNum">      95 </span>            :     uint32_t seq;
+<span class="lineNum">      96 </span>            :     int ret;
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineCov">          3 :     if ((ret = index_list_open_view(box, FALSE, &amp;view, &amp;seq)) &lt;= 0) {</span>
+<span class="lineNum">      99 </span>            :         /* failure / not found. fallback to the real storage check
+<span class="lineNum">     100 </span>            :            just in case to see if the mailbox was just created. */
+<span class="lineNum">     101 </span><span class="lineCov">          6 :         return ibox-&gt;module_ctx.super.</span>
+<span class="lineNum">     102 </span><span class="lineCov">          3 :             exists(box, auto_boxes, existence_r);</span>
+<span class="lineNum">     103 </span>            :     }
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     rec = mail_index_lookup(view, seq);</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :     flags = rec-&gt;flags;</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     if ((flags &amp; MAILBOX_LIST_INDEX_FLAG_NONEXISTENT) != 0)</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         *existence_r = MAILBOX_EXISTENCE_NONE;</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     else if ((flags &amp; MAILBOX_LIST_INDEX_FLAG_NOSELECT) != 0)</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         *existence_r = MAILBOX_EXISTENCE_NOSELECT;</span>
+<span class="lineNum">     112 </span>            :     else
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :         *existence_r = MAILBOX_EXISTENCE_SELECT;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="115"><span class="lineNum">     115 </span>            : }</a>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span><span class="lineCov">          5 : bool mailbox_list_index_status(struct mailbox_list *list,</span>
+<span class="lineNum">     118 </span>            :                    struct mail_index_view *view,
+<span class="lineNum">     119 </span>            :                    uint32_t seq, enum mailbox_status_items items,
+<span class="lineNum">     120 </span>            :                    struct mailbox_status *status_r,
+<span class="lineNum">     121 </span>            :                    uint8_t *mailbox_guid,
+<span class="lineNum">     122 </span>            :                    struct mailbox_index_vsize *vsize_r)
+<span class="lineNum">     123 </span>            : {
+<span class="lineNum">     124 </span><span class="lineCov">          5 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(list);</span>
+<span class="lineNum">     125 </span>            :     const void *data;
+<span class="lineNum">     126 </span>            :     bool expunged;
+<span class="lineNum">     127 </span><span class="lineCov">          5 :     bool ret = TRUE;</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">          5 :     if ((items &amp; STATUS_UIDVALIDITY) != 0 || mailbox_guid != NULL) {</span>
+<span class="lineNum">     130 </span>            :         const struct mailbox_list_index_record *rec;
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineCov">          5 :         mail_index_lookup_ext(view, seq, ilist-&gt;ext_id,</span>
+<span class="lineNum">     133 </span>            :                       &amp;data, &amp;expunged);
+<span class="lineNum">     134 </span><span class="lineCov">          5 :         rec = data;</span>
+<span class="lineNum">     135 </span><span class="lineCov">          5 :         if (rec == NULL)</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :             ret = FALSE;</span>
+<span class="lineNum">     137 </span>            :         else {
+<span class="lineNum">     138 </span><span class="lineCov">         10 :             if ((items &amp; STATUS_UIDVALIDITY) != 0 &amp;&amp;</span>
+<span class="lineNum">     139 </span><span class="lineCov">          5 :                 rec-&gt;uid_validity == 0)</span>
+<span class="lineNum">     140 </span><span class="lineCov">          5 :                 ret = FALSE;</span>
+<span class="lineNum">     141 </span>            :             else
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :                 status_r-&gt;uidvalidity = rec-&gt;uid_validity;</span>
+<span class="lineNum">     143 </span><span class="lineCov">          5 :             if (mailbox_guid != NULL)</span>
+<span class="lineNum">     144 </span><span class="lineCov">          5 :                 memcpy(mailbox_guid, rec-&gt;guid, GUID_128_SIZE);</span>
+<span class="lineNum">     145 </span>            :         }
+<span class="lineNum">     146 </span>            :     }
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineCov">          5 :     if ((items &amp; (STATUS_MESSAGES | STATUS_UNSEEN |</span>
+<span class="lineNum">     149 </span>            :               STATUS_RECENT | STATUS_UIDNEXT)) != 0) {
+<span class="lineNum">     150 </span>            :         const struct mailbox_list_index_msgs_record *rec;
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineCov">          5 :         mail_index_lookup_ext(view, seq, ilist-&gt;msgs_ext_id,</span>
+<span class="lineNum">     153 </span>            :                       &amp;data, &amp;expunged);
+<span class="lineNum">     154 </span><span class="lineCov">          5 :         rec = data;</span>
+<span class="lineNum">     155 </span><span class="lineCov">          5 :         if (rec == NULL || rec-&gt;uidnext == 0)</span>
+<span class="lineNum">     156 </span><span class="lineCov">          5 :             ret = FALSE;</span>
+<span class="lineNum">     157 </span>            :         else {
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :             status_r-&gt;messages = rec-&gt;messages;</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :             status_r-&gt;unseen = rec-&gt;unseen;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :             status_r-&gt;recent = rec-&gt;recent;</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :             status_r-&gt;uidnext = rec-&gt;uidnext;</span>
+<span class="lineNum">     162 </span>            :         }
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span><span class="lineCov">          5 :     if ((items &amp; STATUS_HIGHESTMODSEQ) != 0) {</span>
+<span class="lineNum">     165 </span>            :         const uint64_t *rec;
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineCov">          5 :         mail_index_lookup_ext(view, seq, ilist-&gt;hmodseq_ext_id,</span>
+<span class="lineNum">     168 </span>            :                       &amp;data, &amp;expunged);
+<span class="lineNum">     169 </span><span class="lineCov">          5 :         rec = data;</span>
+<span class="lineNum">     170 </span><span class="lineCov">          5 :         if (rec == NULL || *rec == 0)</span>
+<span class="lineNum">     171 </span><span class="lineCov">          5 :             ret = FALSE;</span>
+<span class="lineNum">     172 </span>            :         else
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :             status_r-&gt;highest_modseq = *rec;</span>
+<span class="lineNum">     174 </span>            :     }
+<span class="lineNum">     175 </span><span class="lineCov">          5 :     if (vsize_r != NULL) {</span>
+<span class="lineNum">     176 </span><span class="lineCov">          5 :         mail_index_lookup_ext(view, seq, ilist-&gt;vsize_ext_id,</span>
+<span class="lineNum">     177 </span>            :                       &amp;data, &amp;expunged);
+<span class="lineNum">     178 </span><span class="lineCov">          5 :         if (data == NULL)</span>
+<span class="lineNum">     179 </span><span class="lineCov">          5 :             ret = FALSE;</span>
+<span class="lineNum">     180 </span>            :         else
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             memcpy(vsize_r, data, sizeof(*vsize_r));</span>
+<span class="lineNum">     182 </span>            :     }
+<span class="lineNum">     183 </span><span class="lineCov">          5 :     return ret;</span>
+<span class="lineNum">     184 </span>            : }
+<a name="185"><span class="lineNum">     185 </span>            : </a>
+<span class="lineNum">     186 </span>            : static int
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 : index_list_get_cached_status(struct mailbox *box,</span>
+<span class="lineNum">     188 </span>            :                  enum mailbox_status_items items,
+<span class="lineNum">     189 </span>            :                  struct mailbox_status *status_r)
+<span class="lineNum">     190 </span>            : {
+<span class="lineNum">     191 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     192 </span>            :     uint32_t seq;
+<span class="lineNum">     193 </span>            :     int ret;
+<span class="lineNum">     194 </span>            : 
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     if (items == 0)</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     if ((items &amp; STATUS_UNSEEN) != 0 &amp;&amp;</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :         (mailbox_get_private_flags_mask(box) &amp; MAIL_SEEN) != 0) {</span>
+<span class="lineNum">     200 </span>            :         /* can't get UNSEEN from list index, since each user has
+<span class="lineNum">     201 </span>            :            different \Seen flags */
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     if ((ret = index_list_open_view(box, TRUE, &amp;view, &amp;seq)) &lt;= 0)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     ret = mailbox_list_index_status(box-&gt;list, view, seq, items,</span>
+<span class="lineNum">     209 </span>            :                     status_r, NULL, NULL) ? 1 : 0;
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     212 </span>            : }
+<a name="213"><span class="lineNum">     213 </span>            : </a>
+<span class="lineNum">     214 </span>            : static int
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 : index_list_get_status(struct mailbox *box, enum mailbox_status_items items,</span>
+<span class="lineNum">     216 </span>            :               struct mailbox_status *status_r)
+<span class="lineNum">     217 </span>            : {
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     struct index_list_mailbox *ibox = INDEX_LIST_STORAGE_CONTEXT(box);</span>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     if ((items &amp; ~CACHED_STATUS_ITEMS) == 0 &amp;&amp; !box-&gt;opened) {</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         if (index_list_get_cached_status(box, items, status_r) &gt; 0)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     223 </span>            :         /* nonsynced / error, fallback to doing it the slow way */
+<span class="lineNum">     224 </span>            :     }
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     return ibox-&gt;module_ctx.super.get_status(box, items, status_r);</span>
+<span class="lineNum">     226 </span>            : }
+<a name="227"><span class="lineNum">     227 </span>            : </a>
+<span class="lineNum">     228 </span>            : static int
+<span class="lineNum">     229 </span><span class="lineCov">          1 : index_list_get_cached_guid(struct mailbox *box, guid_128_t guid_r)</span>
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span><span class="lineCov">          1 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     232 </span>            :     struct mailbox_status status;
+<span class="lineNum">     233 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     234 </span>            :     uint32_t seq;
+<span class="lineNum">     235 </span>            :     int ret;
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineCov">          1 :     if (ilist-&gt;syncing) {</span>
+<span class="lineNum">     238 </span>            :         /* syncing wants to know the GUID for a new mailbox. */
+<span class="lineNum">     239 </span><span class="lineCov">          1 :         return 0;</span>
+<span class="lineNum">     240 </span>            :     }
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     if ((ret = index_list_open_view(box, FALSE, &amp;view, &amp;seq)) &lt;= 0)</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     ret = mailbox_list_index_status(box-&gt;list, view, seq, 0,</span>
+<span class="lineNum">     246 </span>            :                     &amp;status, guid_r, NULL) ? 1 : 0;
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :     if (ret &gt; 0 &amp;&amp; guid_128_is_empty(guid_r))</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         ret = 0;</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="251"><span class="lineNum">     251 </span>            : }</a>
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 : static int index_list_get_cached_vsize(struct mailbox *box, uoff_t *vsize_r)</span>
+<span class="lineNum">     254 </span>            : {
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     256 </span>            :     struct mailbox_status status;
+<span class="lineNum">     257 </span>            :     struct mailbox_index_vsize vsize;
+<span class="lineNum">     258 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     259 </span>            :     uint32_t seq;
+<span class="lineNum">     260 </span>            :     int ret;
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     i_assert(!ilist-&gt;syncing);</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     if ((ret = index_list_open_view(box, TRUE, &amp;view, &amp;seq)) &lt;= 0)</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     ret = mailbox_list_index_status(box-&gt;list, view, seq,</span>
+<span class="lineNum">     268 </span>            :                     STATUS_MESSAGES | STATUS_UIDNEXT,
+<span class="lineNum">     269 </span>            :                     &amp;status, NULL, &amp;vsize) ? 1 : 0;
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     if (ret &gt; 0 &amp;&amp; status.messages == 0 &amp;&amp; status.uidnext &gt; 0) {</span>
+<span class="lineNum">     271 </span>            :         /* mailbox is empty. its size has to be zero, regardless of
+<span class="lineNum">     272 </span>            :            what the vsize header says. */
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         vsize.vsize = 0;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :     } else if (ret &gt; 0 &amp;&amp; (vsize.highest_uid + 1 != status.uidnext ||</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :                    vsize.message_count != status.messages)) {</span>
+<span class="lineNum">     276 </span>            :         /* out of date vsize info */
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         ret = 0;</span>
+<span class="lineNum">     278 </span>            :     }
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     if (ret &gt; 0)</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         *vsize_r = vsize.vsize;</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     283 </span>            : }
+<a name="284"><span class="lineNum">     284 </span>            : </a>
+<span class="lineNum">     285 </span>            : static int
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 : index_list_get_cached_first_saved(struct mailbox *box,</span>
+<span class="lineNum">     287 </span>            :                   struct mailbox_index_first_saved *first_saved_r)
+<span class="lineNum">     288 </span>            : {
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     290 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     291 </span>            :     struct mailbox_status status;
+<span class="lineNum">     292 </span>            :     const void *data;
+<span class="lineNum">     293 </span>            :     bool expunged;
+<span class="lineNum">     294 </span>            :     uint32_t seq;
+<span class="lineNum">     295 </span>            :     int ret;
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     i_zero(first_saved_r);</span>
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     if ((ret = index_list_open_view(box, TRUE, &amp;view, &amp;seq)) &lt;= 0)</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     mail_index_lookup_ext(view, seq, ilist-&gt;first_saved_ext_id,</span>
+<span class="lineNum">     303 </span>            :                   &amp;data, &amp;expunged);
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     if (data != NULL)</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         memcpy(first_saved_r, data, sizeof(*first_saved_r));</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     if (first_saved_r-&gt;timestamp != 0 &amp;&amp; first_saved_r-&gt;uid == 0) {</span>
+<span class="lineNum">     307 </span>            :         /* mailbox was empty the last time we updated this.
+<span class="lineNum">     308 </span>            :            we'll need to verify if it still is. */
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         if (!mailbox_list_index_status(box-&gt;list, view, seq,</span>
+<span class="lineNum">     310 </span>            :                            STATUS_MESSAGES,
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :                            &amp;status, NULL, NULL) ||</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :             status.messages != 0)</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :             first_saved_r-&gt;timestamp = 0;</span>
+<span class="lineNum">     314 </span>            :     }
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     return first_saved_r-&gt;timestamp != 0 ? 1 : 0;</span>
+<span class="lineNum">     317 </span>            : }
+<a name="318"><span class="lineNum">     318 </span>            : </a>
+<span class="lineNum">     319 </span>            : static int
+<span class="lineNum">     320 </span><span class="lineCov">         30 : index_list_try_get_metadata(struct mailbox *box,</span>
+<span class="lineNum">     321 </span>            :                 enum mailbox_metadata_items items,
+<span class="lineNum">     322 </span>            :                 struct mailbox_metadata *metadata_r)
+<span class="lineNum">     323 </span>            : {
+<span class="lineNum">     324 </span>            :     enum mailbox_metadata_items noncached_items;
+<span class="lineNum">     325 </span>            :     int ret;
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span><span class="lineCov">         30 :     i_assert(metadata_r != NULL);</span>
+<span class="lineNum">     328 </span>            : 
+<span class="lineNum">     329 </span><span class="lineCov">         30 :     if (box-&gt;opened) {</span>
+<span class="lineNum">     330 </span>            :         /* if mailbox is already opened, don't bother using the values
+<span class="lineNum">     331 </span>            :            in mailbox list index. they have a higher chance of being
+<span class="lineNum">     332 </span>            :            wrong. */
+<span class="lineNum">     333 </span><span class="lineCov">         29 :         return 0;</span>
+<span class="lineNum">     334 </span>            :     }
+<span class="lineNum">     335 </span>            :     /* see if we have a chance of fulfilling this without opening
+<span class="lineNum">     336 </span>            :        the mailbox. */
+<span class="lineNum">     337 </span><span class="lineCov">          1 :     noncached_items = items &amp; ~(MAILBOX_METADATA_GUID |</span>
+<span class="lineNum">     338 </span>            :                     MAILBOX_METADATA_VIRTUAL_SIZE |
+<span class="lineNum">     339 </span>            :                     MAILBOX_METADATA_FIRST_SAVE_DATE);
+<span class="lineNum">     340 </span><span class="lineCov">          1 :     if ((noncached_items &amp; MAILBOX_METADATA_PHYSICAL_SIZE) != 0 &amp;&amp;</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :         box-&gt;mail_vfuncs-&gt;get_physical_size ==</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :         box-&gt;mail_vfuncs-&gt;get_virtual_size)</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :         noncached_items = items &amp; ~MAILBOX_METADATA_PHYSICAL_SIZE;</span>
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span><span class="lineCov">          1 :     if (noncached_items != 0)</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineCov">          1 :     if ((items &amp; MAILBOX_METADATA_GUID) != 0) {</span>
+<span class="lineNum">     349 </span><span class="lineCov">          1 :         if ((ret = index_list_get_cached_guid(box, metadata_r-&gt;guid)) &lt;= 0)</span>
+<span class="lineNum">     350 </span><span class="lineCov">          1 :             return ret;</span>
+<span class="lineNum">     351 </span>            :     }
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     if ((items &amp; (MAILBOX_METADATA_VIRTUAL_SIZE |</span>
+<span class="lineNum">     353 </span>            :               MAILBOX_METADATA_PHYSICAL_SIZE)) != 0) {
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         if ((ret = index_list_get_cached_vsize(box, &amp;metadata_r-&gt;virtual_size)) &lt;= 0)</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         if ((items &amp; MAILBOX_METADATA_PHYSICAL_SIZE) != 0)</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :             metadata_r-&gt;physical_size = metadata_r-&gt;virtual_size;</span>
+<span class="lineNum">     358 </span>            :     }
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     if ((items &amp; MAILBOX_METADATA_FIRST_SAVE_DATE) != 0) {</span>
+<span class="lineNum">     360 </span>            :         struct mailbox_index_first_saved first_saved;
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span>            :         /* start writing first_saved to mailbox list index if it wasn't
+<span class="lineNum">     363 </span>            :            there already. */
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         box-&gt;update_first_saved = TRUE;</span>
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         if ((ret = index_list_get_cached_first_saved(box, &amp;first_saved)) &lt;= 0)</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         metadata_r-&gt;first_save_date =</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :             first_saved.timestamp == (uint32_t)-1 ? (time_t)-1 :</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :             (time_t)first_saved.timestamp;</span>
+<span class="lineNum">     371 </span>            :     }
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     373 </span>            : }
+<a name="374"><span class="lineNum">     374 </span>            : </a>
+<span class="lineNum">     375 </span>            : static int
+<span class="lineNum">     376 </span><span class="lineCov">         30 : index_list_get_metadata(struct mailbox *box,</span>
+<span class="lineNum">     377 </span>            :             enum mailbox_metadata_items items,
+<span class="lineNum">     378 </span>            :             struct mailbox_metadata *metadata_r)
+<span class="lineNum">     379 </span>            : {
+<span class="lineNum">     380 </span><span class="lineCov">         30 :     struct index_list_mailbox *ibox = INDEX_LIST_STORAGE_CONTEXT(box);</span>
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span><span class="lineCov">         30 :     if (index_list_try_get_metadata(box, items, metadata_r) != 0)</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     384 </span><span class="lineCov">         30 :     return ibox-&gt;module_ctx.super.get_metadata(box, items, metadata_r);</span>
+<span class="lineNum">     385 </span>            : }
+<a name="386"><span class="lineNum">     386 </span>            : </a>
+<span class="lineNum">     387 </span>            : static void
+<span class="lineNum">     388 </span><span class="lineCov">          5 : index_list_update_fill_vsize(struct mailbox *box,</span>
+<span class="lineNum">     389 </span>            :                  struct mail_index_view *view,
+<span class="lineNum">     390 </span>            :                  struct index_list_changes *changes_r)
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span>            :     const void *data;
+<span class="lineNum">     393 </span>            :     size_t size;
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span><span class="lineCov">          5 :     mail_index_get_header_ext(view, box-&gt;vsize_hdr_ext_id,</span>
+<span class="lineNum">     396 </span>            :                   &amp;data, &amp;size);
+<span class="lineNum">     397 </span><span class="lineCov">          5 :     if (size == sizeof(changes_r-&gt;vsize))</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         memcpy(&amp;changes_r-&gt;vsize, data, sizeof(changes_r-&gt;vsize));</span>
+<span class="lineNum">     399 </span><span class="lineCov">          5 : }</span>
+<a name="400"><span class="lineNum">     400 </span>            : </a>
+<span class="lineNum">     401 </span>            : static bool
+<span class="lineNum">     402 </span><span class="lineCov">          5 : index_list_update_fill_changes(struct mailbox *box,</span>
+<span class="lineNum">     403 </span>            :                    struct mail_index_view *list_view,
+<span class="lineNum">     404 </span>            :                    struct index_list_changes *changes_r)
+<span class="lineNum">     405 </span>            : {
+<span class="lineNum">     406 </span>            :     struct mailbox_list_index_node *node;
+<span class="lineNum">     407 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     408 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     409 </span>            :     struct mailbox_metadata metadata;
+<span class="lineNum">     410 </span>            :     uint32_t seq1, seq2;
+<span class="lineNum">     411 </span>            : 
+<span class="lineNum">     412 </span><span class="lineCov">          5 :     i_zero(changes_r);</span>
+<span class="lineNum">     413 </span>            : 
+<span class="lineNum">     414 </span><span class="lineCov">          5 :     node = mailbox_list_index_lookup(box-&gt;list, box-&gt;name);</span>
+<span class="lineNum">     415 </span><span class="lineCov">          5 :     if (node == NULL)</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     417 </span><span class="lineCov">          5 :     if (!mail_index_lookup_seq(list_view, node-&gt;uid, &amp;changes_r-&gt;seq))</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span>            :     /* get STATUS info using the latest data in index.
+<span class="lineNum">     421 </span>            :        note that for shared mailboxes (with private indexes) this
+<span class="lineNum">     422 </span>            :        also means that the unseen count is always the owner's
+<span class="lineNum">     423 </span>            :        count, not what exists in the private index. */
+<span class="lineNum">     424 </span><span class="lineCov">          5 :     view = mail_index_view_open(box-&gt;index);</span>
+<span class="lineNum">     425 </span><span class="lineCov">          5 :     hdr = mail_index_get_header(view);</span>
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineCov">          5 :     changes_r-&gt;status.messages = hdr-&gt;messages_count;</span>
+<span class="lineNum">     428 </span><span class="lineCov">          5 :     changes_r-&gt;status.unseen =</span>
+<span class="lineNum">     429 </span><span class="lineCov">          5 :         hdr-&gt;messages_count - hdr-&gt;seen_messages_count;</span>
+<span class="lineNum">     430 </span><span class="lineCov">          5 :     changes_r-&gt;status.uidvalidity = hdr-&gt;uid_validity;</span>
+<span class="lineNum">     431 </span><span class="lineCov">          5 :     changes_r-&gt;status.uidnext = hdr-&gt;next_uid;</span>
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineCov">          5 :     if (!mail_index_lookup_seq_range(view, hdr-&gt;first_recent_uid,</span>
+<span class="lineNum">     434 </span>            :                      (uint32_t)-1, &amp;seq1, &amp;seq2))
+<span class="lineNum">     435 </span><span class="lineCov">          5 :         changes_r-&gt;status.recent = 0;</span>
+<span class="lineNum">     436 </span>            :     else
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         changes_r-&gt;status.recent = seq2 - seq1 + 1;</span>
+<span class="lineNum">     438 </span>            : 
+<span class="lineNum">     439 </span><span class="lineCov">          5 :     changes_r-&gt;status.highest_modseq = mail_index_modseq_get_highest(view);</span>
+<span class="lineNum">     440 </span><span class="lineCov">          5 :     if (changes_r-&gt;status.highest_modseq == 0) {</span>
+<span class="lineNum">     441 </span>            :         /* modseqs not enabled yet, but we can't return 0 */
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :         changes_r-&gt;status.highest_modseq = 1;</span>
+<span class="lineNum">     443 </span>            :     }
+<span class="lineNum">     444 </span><span class="lineCov">          5 :     index_list_update_fill_vsize(box, view, changes_r);</span>
+<span class="lineNum">     445 </span><span class="lineCov">          5 :     mail_index_view_close(&amp;view); hdr = NULL;</span>
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineCov">          5 :     if (mailbox_get_metadata(box, MAILBOX_METADATA_GUID, &amp;metadata) == 0)</span>
+<span class="lineNum">     448 </span><span class="lineCov">          5 :         memcpy(changes_r-&gt;guid, metadata.guid, sizeof(changes_r-&gt;guid));</span>
+<span class="lineNum">     449 </span><span class="lineCov">          5 :     return TRUE;</span>
+<span class="lineNum">     450 </span>            : }
+<a name="451"><span class="lineNum">     451 </span>            : </a>
+<span class="lineNum">     452 </span>            : static void
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 : index_list_first_saved_update_changes(struct mailbox *box,</span>
+<span class="lineNum">     454 </span>            :                       struct mail_index_view *list_view,
+<span class="lineNum">     455 </span>            :                       struct index_list_changes *changes)
+<span class="lineNum">     456 </span>            : {
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     458 </span>            :     struct mailbox_index_first_saved first_saved;
+<span class="lineNum">     459 </span>            :     const void *data;
+<span class="lineNum">     460 </span>            :     bool expunged;
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     mail_index_lookup_ext(list_view, changes-&gt;seq,</span>
+<span class="lineNum">     463 </span>            :                   ilist-&gt;first_saved_ext_id, &amp;data, &amp;expunged);
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :     if (data == NULL)</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         i_zero(&amp;first_saved);</span>
+<span class="lineNum">     466 </span>            :     else
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         memcpy(&amp;first_saved, data, sizeof(first_saved));</span>
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :     if (mail_index_view_get_messages_count(box-&gt;view) &gt; 0)</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         mail_index_lookup_uid(box-&gt;view, 1, &amp;changes-&gt;first_uid);</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :     if (first_saved.uid == 0 &amp;&amp; first_saved.timestamp == 0) {</span>
+<span class="lineNum">     471 </span>            :         /* it's not in the index yet. we'll set it only if we've
+<span class="lineNum">     472 </span>            :            just called MAILBOX_METADATA_FIRST_SAVE_DATE. */
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         changes-&gt;first_saved_changed = box-&gt;update_first_saved;</span>
+<span class="lineNum">     474 </span>            :     } else {
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :         changes-&gt;first_saved_changed =</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :             changes-&gt;first_uid != first_saved.uid;</span>
+<span class="lineNum">     477 </span>            :     }
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 : }</span>
+<a name="479"><span class="lineNum">     479 </span>            : </a>
+<span class="lineNum">     480 </span>            : static bool
+<span class="lineNum">     481 </span><span class="lineCov">          5 : index_list_has_changed(struct mailbox *box, struct mail_index_view *list_view,</span>
+<span class="lineNum">     482 </span>            :                struct index_list_changes *changes)
+<span class="lineNum">     483 </span>            : {
+<span class="lineNum">     484 </span>            :     struct mailbox_status old_status;
+<span class="lineNum">     485 </span>            :     struct mailbox_index_vsize old_vsize;
+<span class="lineNum">     486 </span>            :     guid_128_t old_guid;
+<span class="lineNum">     487 </span>            : 
+<span class="lineNum">     488 </span><span class="lineCov">          5 :     i_zero(&amp;old_status);</span>
+<span class="lineNum">     489 </span><span class="lineCov">          5 :     i_zero(&amp;old_vsize);</span>
+<span class="lineNum">     490 </span><span class="lineCov">          5 :     memset(old_guid, 0, sizeof(old_guid));</span>
+<span class="lineNum">     491 </span><span class="lineCov">          5 :     (void)mailbox_list_index_status(box-&gt;list, list_view, changes-&gt;seq,</span>
+<span class="lineNum">     492 </span>            :                     CACHED_STATUS_ITEMS,
+<span class="lineNum">     493 </span>            :                     &amp;old_status, old_guid, &amp;old_vsize);
+<span class="lineNum">     494 </span>            : 
+<span class="lineNum">     495 </span><span class="lineCov">          5 :     changes-&gt;rec_changed =</span>
+<span class="lineNum">     496 </span><span class="lineCov">          5 :         old_status.uidvalidity != changes-&gt;status.uidvalidity &amp;&amp;</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :         changes-&gt;status.uidvalidity != 0;</span>
+<span class="lineNum">     498 </span><span class="lineCov">          5 :     if (!guid_128_equals(changes-&gt;guid, old_guid) &amp;&amp;</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :         !guid_128_is_empty(changes-&gt;guid))</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         changes-&gt;rec_changed = TRUE;</span>
+<span class="lineNum">     501 </span>            : 
+<span class="lineNum">     502 </span><span class="lineCov">          5 :     if (MAILBOX_IS_NEVER_IN_INDEX(box)) {</span>
+<span class="lineNum">     503 </span>            :         /* check only UIDVALIDITY and GUID changes for INBOX */
+<span class="lineNum">     504 </span><span class="lineCov">          5 :         return changes-&gt;rec_changed;</span>
+<span class="lineNum">     505 </span>            :     }
+<span class="lineNum">     506 </span>            : 
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     changes-&gt;msgs_changed =</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :         old_status.messages != changes-&gt;status.messages ||</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :         old_status.unseen != changes-&gt;status.unseen ||</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         old_status.recent != changes-&gt;status.recent ||</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :         old_status.uidnext != changes-&gt;status.uidnext;</span>
+<span class="lineNum">     512 </span>            :     /* update highest-modseq only if they're ever been used */
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     if (old_status.highest_modseq == changes-&gt;status.highest_modseq) {</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :         changes-&gt;hmodseq_changed = FALSE;</span>
+<span class="lineNum">     515 </span>            :     } else {
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         changes-&gt;hmodseq_changed = TRUE;</span>
+<span class="lineNum">     517 </span>            :     }
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :     if (memcmp(&amp;old_vsize, &amp;changes-&gt;vsize, sizeof(old_vsize)) != 0)</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :         changes-&gt;vsize_changed = TRUE;</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :     index_list_first_saved_update_changes(box, list_view, changes);</span>
+<span class="lineNum">     521 </span>            : 
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :     return changes-&gt;rec_changed || changes-&gt;msgs_changed ||</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :         changes-&gt;hmodseq_changed || changes-&gt;vsize_changed ||</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         changes-&gt;first_saved_changed;</span>
+<span class="lineNum">     525 </span>            : }
+<a name="526"><span class="lineNum">     526 </span>            : </a>
+<span class="lineNum">     527 </span>            : static void
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 : index_list_update_first_saved(struct mailbox *box,</span>
+<span class="lineNum">     529 </span>            :                   struct mail_index_transaction *list_trans,
+<span class="lineNum">     530 </span>            :                   const struct index_list_changes *changes)
+<span class="lineNum">     531 </span>            : {
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     533 </span>            :     struct mailbox_transaction_context *t;
+<span class="lineNum">     534 </span>            :     struct mail *mail;
+<span class="lineNum">     535 </span>            :     struct mailbox_index_first_saved first_saved;
+<span class="lineNum">     536 </span>            :     uint32_t seq, messages_count;
+<span class="lineNum">     537 </span>            :     time_t save_date;
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     539 </span>            : 
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :     i_zero(&amp;first_saved);</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :     first_saved.timestamp = (uint32_t)-1;</span>
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     if (changes-&gt;first_uid != 0) {</span>
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :         t = mailbox_transaction_begin(box, 0, __func__);</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :         mail = mail_alloc(t, MAIL_FETCH_SAVE_DATE, NULL);</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         messages_count = mail_index_view_get_messages_count(box-&gt;view);</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :         for (seq = 1; seq &lt;= messages_count; seq++) {</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :             mail_set_seq(mail, seq);</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :             if (mail_get_save_date(mail, &amp;save_date) == 0) {</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :                 first_saved.uid = mail-&gt;uid;</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :                 first_saved.timestamp = save_date;</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     553 </span>            :             }
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             if (mailbox_get_last_mail_error(box) != MAIL_ERROR_EXPUNGED) {</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :                 ret = -1;</span>
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     557 </span>            :             }
+<span class="lineNum">     558 </span>            :         }
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :         mail_free(&amp;mail);</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         (void)mailbox_transaction_commit(&amp;t);</span>
+<span class="lineNum">     561 </span>            :     }
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :         mail_index_update_ext(list_trans, changes-&gt;seq,</span>
+<span class="lineNum">     564 </span>            :                       ilist-&gt;first_saved_ext_id,
+<span class="lineNum">     565 </span>            :                       &amp;first_saved, NULL);
+<span class="lineNum">     566 </span>            :     }
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     568 </span>            : 
+<a name="569"><span class="lineNum">     569 </span>            : </a>
+<span class="lineNum">     570 </span>            : static void
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 : index_list_update(struct mailbox *box, struct mail_index_view *list_view,</span>
+<span class="lineNum">     572 </span>            :           struct mail_index_transaction *list_trans,
+<span class="lineNum">     573 </span>            :           const struct index_list_changes *changes)
+<span class="lineNum">     574 </span>            : {
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     if (changes-&gt;rec_changed) {</span>
+<span class="lineNum">     578 </span>            :         struct mailbox_list_index_record rec;
+<span class="lineNum">     579 </span>            :         const void *old_data;
+<span class="lineNum">     580 </span>            :         bool expunged;
+<span class="lineNum">     581 </span>            : 
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :         mail_index_lookup_ext(list_view, changes-&gt;seq, ilist-&gt;ext_id,</span>
+<span class="lineNum">     583 </span>            :                       &amp;old_data, &amp;expunged);
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :         i_assert(old_data != NULL);</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         memcpy(&amp;rec, old_data, sizeof(rec));</span>
+<span class="lineNum">     586 </span>            : 
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         if (changes-&gt;status.uidvalidity != 0)</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :             rec.uid_validity = changes-&gt;status.uidvalidity;</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :         if (!guid_128_is_empty(changes-&gt;guid))</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :             memcpy(rec.guid, changes-&gt;guid, sizeof(rec.guid));</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         mail_index_update_ext(list_trans, changes-&gt;seq, ilist-&gt;ext_id,</span>
+<span class="lineNum">     592 </span>            :                       &amp;rec, NULL);
+<span class="lineNum">     593 </span>            :     }
+<span class="lineNum">     594 </span>            : 
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :     if (changes-&gt;msgs_changed) {</span>
+<span class="lineNum">     596 </span>            :         struct mailbox_list_index_msgs_record msgs;
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :         i_zero(&amp;msgs);</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :         msgs.messages = changes-&gt;status.messages;</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :         msgs.unseen = changes-&gt;status.unseen;</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         msgs.recent = changes-&gt;status.recent;</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         msgs.uidnext = changes-&gt;status.uidnext;</span>
+<span class="lineNum">     603 </span>            : 
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :         mail_index_update_ext(list_trans, changes-&gt;seq,</span>
+<span class="lineNum">     605 </span>            :                       ilist-&gt;msgs_ext_id, &amp;msgs, NULL);
+<span class="lineNum">     606 </span>            :     }
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :     if (changes-&gt;hmodseq_changed) {</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :         mail_index_update_ext(list_trans, changes-&gt;seq,</span>
+<span class="lineNum">     609 </span>            :                       ilist-&gt;hmodseq_ext_id,
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :                       &amp;changes-&gt;status.highest_modseq, NULL);</span>
+<span class="lineNum">     611 </span>            :     }
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     if (changes-&gt;vsize_changed) {</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :         mail_index_update_ext(list_trans, changes-&gt;seq,</span>
+<span class="lineNum">     614 </span>            :                       ilist-&gt;vsize_ext_id,
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :                       &amp;changes-&gt;vsize, NULL);</span>
+<span class="lineNum">     616 </span>            :     }
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :     if (changes-&gt;first_saved_changed)</span>
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :         index_list_update_first_saved(box, list_trans, changes);</span>
+<a name="619"><span class="lineNum">     619 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     620 </span>            : 
+<span class="lineNum">     621 </span><span class="lineCov">          5 : static int index_list_update_mailbox(struct mailbox *box)</span>
+<span class="lineNum">     622 </span>            : {
+<span class="lineNum">     623 </span><span class="lineCov">          5 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     624 </span>            :     struct mail_index_sync_ctx *list_sync_ctx;
+<span class="lineNum">     625 </span>            :     struct mail_index_view *list_view;
+<span class="lineNum">     626 </span>            :     struct mail_index_transaction *list_trans;
+<span class="lineNum">     627 </span>            :     struct index_list_changes changes;
+<span class="lineNum">     628 </span>            :     int ret;
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span><span class="lineCov">          5 :     i_assert(box-&gt;opened);</span>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineCov">          5 :     if (ilist-&gt;syncing || ilist-&gt;updating_status)</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     634 </span><span class="lineCov">          5 :     if (box-&gt;deleting) {</span>
+<span class="lineNum">     635 </span>            :         /* don't update status info while mailbox is being deleted.
+<span class="lineNum">     636 </span>            :            especially not a good idea if we're rolling back a created
+<span class="lineNum">     637 </span>            :            mailbox that somebody else had just created */
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     639 </span>            :     }
+<span class="lineNum">     640 </span>            : 
+<span class="lineNum">     641 </span>            :     /* refresh the mailbox list index once. we can't do this again after
+<span class="lineNum">     642 </span>            :        locking, because it could trigger list syncing. */
+<span class="lineNum">     643 </span><span class="lineCov">          5 :     (void)mailbox_list_index_refresh(box-&gt;list);</span>
+<span class="lineNum">     644 </span>            : 
+<span class="lineNum">     645 </span>            :     /* first do a quick check while unlocked to see if anything changes */
+<span class="lineNum">     646 </span><span class="lineCov">          5 :     list_view = mail_index_view_open(ilist-&gt;index);</span>
+<span class="lineNum">     647 </span><span class="lineCov">          5 :     if (!index_list_update_fill_changes(box, list_view, &amp;changes))</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     649 </span><span class="lineCov">          5 :     else if (index_list_has_changed(box, list_view, &amp;changes))</span>
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :         ret = 1;</span>
+<span class="lineNum">     651 </span>            :     else {
+<span class="lineNum">     652 </span>            :         /* if backend state changed on the last check, update it here
+<span class="lineNum">     653 </span>            :            now. we probably don't need to bother checking again if the
+<span class="lineNum">     654 </span>            :            state had changed? */
+<span class="lineNum">     655 </span><span class="lineCov">          5 :         ret = ilist-&gt;index_last_check_changed ? 1 : 0;</span>
+<span class="lineNum">     656 </span>            :     }
+<span class="lineNum">     657 </span><span class="lineCov">          5 :     mail_index_view_close(&amp;list_view);</span>
+<span class="lineNum">     658 </span><span class="lineCov">          5 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     659 </span><span class="lineCov">          5 :         if (ret &lt; 0)</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :             mailbox_list_index_refresh_later(box-&gt;list);</span>
+<span class="lineNum">     661 </span><span class="lineCov">          5 :         return 0;</span>
+<span class="lineNum">     662 </span>            :     }
+<span class="lineNum">     663 </span>            : 
+<span class="lineNum">     664 </span>            :     /* looks like there are some changes. now lock the list index and do
+<span class="lineNum">     665 </span>            :        the whole thing all over again while locked. this guarantees
+<span class="lineNum">     666 </span>            :        that we'll always write the latest state of the mailbox. */
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     if (mail_index_sync_begin(ilist-&gt;index, &amp;list_sync_ctx,</span>
+<span class="lineNum">     668 </span>            :                   &amp;list_view, &amp;list_trans, 0) &lt; 0) {
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :         mailbox_set_index_error(box);</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     671 </span>            :     }
+<span class="lineNum">     672 </span>            :     /* refresh to latest state of the mailbox now that we're locked */
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :     if (mail_index_refresh(box-&gt;index) &lt; 0) {</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :         mailbox_set_index_error(box);</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :         mail_index_sync_rollback(&amp;list_sync_ctx);</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     677 </span>            :     }
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     if (!index_list_update_fill_changes(box, list_view, &amp;changes))</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :         mailbox_list_index_refresh_later(box-&gt;list);</span>
+<span class="lineNum">     681 </span>            :     else {
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :         ilist-&gt;updating_status = TRUE;</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :         if (index_list_has_changed(box, list_view, &amp;changes))</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :             index_list_update(box, list_view, list_trans, &amp;changes);</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         if (box-&gt;v.list_index_update_sync != NULL &amp;&amp;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :             !MAILBOX_IS_NEVER_IN_INDEX(box)) {</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :             box-&gt;v.list_index_update_sync(box, list_trans,</span>
+<span class="lineNum">     688 </span>            :                               changes.seq);
+<span class="lineNum">     689 </span>            :         }
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :         ilist-&gt;updating_status = FALSE;</span>
+<span class="lineNum">     691 </span>            :     }
+<span class="lineNum">     692 </span>            : 
+<span class="lineNum">     693 </span>            :     struct mail_index_sync_rec sync_rec;
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :     while (mail_index_sync_next(list_sync_ctx, &amp;sync_rec)) ;</span>
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :     if (mail_index_sync_commit(&amp;list_sync_ctx) &lt; 0) {</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :         mailbox_set_index_error(box);</span>
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     698 </span>            :     }
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :     ilist-&gt;index_last_check_changed = FALSE;</span>
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="701"><span class="lineNum">     701 </span>            : }</a>
+<span class="lineNum">     702 </span>            : 
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 : void mailbox_list_index_update_mailbox_index(struct mailbox *box,</span>
+<span class="lineNum">     704 </span>            :                          const struct mailbox_update *update)
+<span class="lineNum">     705 </span>            : {
+<span class="lineNum">     706 </span>            :     struct mail_index_view *list_view;
+<span class="lineNum">     707 </span>            :     struct mail_index_transaction *list_trans;
+<span class="lineNum">     708 </span>            :     struct index_list_changes changes;
+<span class="lineNum">     709 </span>            :     struct mailbox_status status;
+<span class="lineNum">     710 </span>            :     guid_128_t mailbox_guid;
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :     bool guid_changed = FALSE;</span>
+<span class="lineNum">     712 </span>            :     int ret;
+<span class="lineNum">     713 </span>            : 
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     i_zero(&amp;changes);</span>
+<span class="lineNum">     715 </span>            :     /* update the mailbox list index even if it has some other pending
+<span class="lineNum">     716 </span>            :        changes. */
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     if ((ret = index_list_open_view(box, FALSE, &amp;list_view, &amp;changes.seq)) &lt;= 0)</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     719 </span>            : 
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :     guid_128_empty(mailbox_guid);</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :     (void)mailbox_list_index_status(box-&gt;list, list_view, changes.seq,</span>
+<span class="lineNum">     722 </span>            :                     CACHED_STATUS_ITEMS, &amp;status,
+<span class="lineNum">     723 </span>            :                     mailbox_guid, NULL);
+<span class="lineNum">     724 </span>            : 
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     if (update-&gt;uid_validity != 0) {</span>
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :         changes.rec_changed = TRUE;</span>
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :         changes.status.uidvalidity = update-&gt;uid_validity;</span>
+<span class="lineNum">     728 </span>            :     }
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :     if (!guid_128_equals(update-&gt;mailbox_guid, mailbox_guid) &amp;&amp;</span>
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :         !guid_128_is_empty(update-&gt;mailbox_guid)) {</span>
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :         changes.rec_changed = TRUE;</span>
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :         memcpy(changes.guid, update-&gt;mailbox_guid, sizeof(changes.guid));</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :         guid_changed = TRUE;</span>
+<span class="lineNum">     734 </span>            :     }
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     if (guid_changed ||</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         update-&gt;uid_validity != 0 ||</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :         update-&gt;min_next_uid != 0 ||</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :         update-&gt;min_first_recent_uid != 0 ||</span>
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :         update-&gt;min_highest_modseq != 0) {</span>
+<span class="lineNum">     740 </span>            :         /* reset status counters to 0. let the syncing later figure out
+<span class="lineNum">     741 </span>            :            their correct values. */
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :         changes.msgs_changed = TRUE;</span>
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :         changes.hmodseq_changed = TRUE;</span>
+<span class="lineNum">     744 </span>            :     }
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :     list_trans = mail_index_transaction_begin(list_view,</span>
+<span class="lineNum">     746 </span>            :                     MAIL_INDEX_TRANSACTION_FLAG_EXTERNAL);
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 :     index_list_update(box, list_view, list_trans, &amp;changes);</span>
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     (void)mail_index_transaction_commit(&amp;list_trans);</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;list_view);</span>
+<a name="750"><span class="lineNum">     750 </span>            : }</a>
+<span class="lineNum">     751 </span>            : 
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 : void mailbox_list_index_status_sync_init(struct mailbox *box)</span>
+<span class="lineNum">     753 </span>            : {
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :     struct index_list_mailbox *ibox = INDEX_LIST_STORAGE_CONTEXT(box);</span>
+<span class="lineNum">     755 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     756 </span>            : 
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(box-&gt;view);</span>
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :     ibox-&gt;pre_sync_log_file_seq = hdr-&gt;log_file_seq;</span>
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :     ibox-&gt;pre_sync_log_file_head_offset = hdr-&gt;log_file_head_offset;</span>
+<a name="760"><span class="lineNum">     760 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     761 </span>            : 
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 : void mailbox_list_index_status_sync_deinit(struct mailbox *box)</span>
+<span class="lineNum">     763 </span>            : {
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     struct index_list_mailbox *ibox = INDEX_LIST_STORAGE_CONTEXT(box);</span>
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     766 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     767 </span>            : 
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(box-&gt;view);</span>
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 :     if (!ilist-&gt;opened &amp;&amp;</span>
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :         ibox-&gt;pre_sync_log_file_head_offset == hdr-&gt;log_file_head_offset &amp;&amp;</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :         ibox-&gt;pre_sync_log_file_seq == hdr-&gt;log_file_seq) {</span>
+<span class="lineNum">     772 </span>            :         /* List index isn't open and sync changed nothing.
+<span class="lineNum">     773 </span>            :            Don't bother opening the list index. */
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     775 </span>            :     }
+<span class="lineNum">     776 </span>            : 
+<span class="lineNum">     777 </span>            :     /* it probably doesn't matter much here if we push/pop the error,
+<span class="lineNum">     778 </span>            :        but might as well do it. */
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :     mail_storage_last_error_push(mailbox_get_storage(box));</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :     (void)index_list_update_mailbox(box);</span>
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :     mail_storage_last_error_pop(mailbox_get_storage(box));</span>
+<span class="lineNum">     782 </span>            : }
+<a name="783"><span class="lineNum">     783 </span>            : </a>
+<span class="lineNum">     784 </span>            : static int
+<span class="lineNum">     785 </span><span class="lineCov">          5 : index_list_transaction_commit(struct mailbox_transaction_context *t,</span>
+<span class="lineNum">     786 </span>            :                   struct mail_transaction_commit_changes *changes_r)
+<span class="lineNum">     787 </span>            : {
+<span class="lineNum">     788 </span><span class="lineCov">          5 :     struct mailbox *box = t-&gt;box;</span>
+<span class="lineNum">     789 </span><span class="lineCov">          5 :     struct index_list_mailbox *ibox = INDEX_LIST_STORAGE_CONTEXT(box);</span>
+<span class="lineNum">     790 </span>            : 
+<span class="lineNum">     791 </span><span class="lineCov">          5 :     if (ibox-&gt;module_ctx.super.transaction_commit(t, changes_r) &lt; 0)</span>
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     793 </span><span class="lineCov">          5 :     t = NULL;</span>
+<span class="lineNum">     794 </span>            : 
+<span class="lineNum">     795 </span><span class="lineCov">          5 :     if (!changes_r-&gt;changed)</span>
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     797 </span>            : 
+<span class="lineNum">     798 </span>            :     /* this transaction commit may have been done in error handling path
+<span class="lineNum">     799 </span>            :        and the caller still wants to access the current error. make sure
+<span class="lineNum">     800 </span>            :        that whatever we do here won't change the error. */
+<span class="lineNum">     801 </span><span class="lineCov">          5 :     mail_storage_last_error_push(mailbox_get_storage(box));</span>
+<span class="lineNum">     802 </span><span class="lineCov">          5 :     (void)index_list_update_mailbox(box);</span>
+<span class="lineNum">     803 </span><span class="lineCov">          5 :     mail_storage_last_error_pop(mailbox_get_storage(box));</span>
+<span class="lineNum">     804 </span><span class="lineCov">          5 :     return 0;</span>
+<a name="805"><span class="lineNum">     805 </span>            : }</a>
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span><span class="lineNoCov">          0 : void mailbox_list_index_status_set_info_flags(struct mailbox *box, uint32_t uid,</span>
+<span class="lineNum">     808 </span>            :                           enum mailbox_info_flags *flags)
+<span class="lineNum">     809 </span>            : {
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(box-&gt;list);</span>
+<span class="lineNum">     811 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     812 </span>            :     struct mailbox_status status;
+<span class="lineNum">     813 </span>            :     uint32_t seq;
+<span class="lineNum">     814 </span>            :     int ret;
+<span class="lineNum">     815 </span>            : 
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :     view = mail_index_view_open(ilist-&gt;index);</span>
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :     if (!mail_index_lookup_seq(view, uid, &amp;seq)) {</span>
+<span class="lineNum">     818 </span>            :         /* our in-memory tree is out of sync */
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :         ret = 1;</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :     } else T_BEGIN {</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :         ret = box-&gt;v.list_index_has_changed == NULL ? 0 :</span>
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :             box-&gt;v.list_index_has_changed(box, view, seq, TRUE);</span>
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     824 </span>            : 
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :     if (ret != 0) {</span>
+<span class="lineNum">     826 </span>            :         /* error / not up to date. don't waste time with it. */
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     829 </span>            :     }
+<span class="lineNum">     830 </span>            : 
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :     status.recent = 0;</span>
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :     (void)mailbox_list_index_status(box-&gt;list, view, seq, STATUS_RECENT,</span>
+<span class="lineNum">     833 </span>            :                     &amp;status, NULL, NULL);
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     835 </span>            : 
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :     if (status.recent != 0)</span>
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :         *flags |= MAILBOX_MARKED;</span>
+<span class="lineNum">     838 </span>            :     else
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :         *flags |= MAILBOX_UNMARKED;</span>
+<a name="840"><span class="lineNum">     840 </span>            : }</a>
+<span class="lineNum">     841 </span>            : 
+<span class="lineNum">     842 </span><span class="lineCov">         13 : void mailbox_list_index_status_init_mailbox(struct mailbox_vfuncs *v)</span>
+<span class="lineNum">     843 </span>            : {
+<span class="lineNum">     844 </span><span class="lineCov">         13 :     v-&gt;exists = index_list_exists;</span>
+<span class="lineNum">     845 </span><span class="lineCov">         13 :     v-&gt;get_status = index_list_get_status;</span>
+<span class="lineNum">     846 </span><span class="lineCov">         13 :     v-&gt;get_metadata = index_list_get_metadata;</span>
+<span class="lineNum">     847 </span><span class="lineCov">         13 :     v-&gt;transaction_commit = index_list_transaction_commit;</span>
+<a name="848"><span class="lineNum">     848 </span><span class="lineCov">         13 : }</span></a>
+<span class="lineNum">     849 </span>            : 
+<span class="lineNum">     850 </span><span class="lineCov">          1 : void mailbox_list_index_status_init_finish(struct mailbox_list *list)</span>
+<span class="lineNum">     851 </span>            : {
+<span class="lineNum">     852 </span><span class="lineCov">          1 :     struct mailbox_list_index *ilist = INDEX_LIST_CONTEXT_REQUIRE(list);</span>
+<span class="lineNum">     853 </span>            : 
+<span class="lineNum">     854 </span><span class="lineCov">          1 :     ilist-&gt;msgs_ext_id = mail_index_ext_register(ilist-&gt;index, &quot;msgs&quot;, 0,</span>
+<span class="lineNum">     855 </span>            :         sizeof(struct mailbox_list_index_msgs_record),
+<span class="lineNum">     856 </span>            :         sizeof(uint32_t));
+<span class="lineNum">     857 </span>            : 
+<span class="lineNum">     858 </span><span class="lineCov">          1 :     ilist-&gt;hmodseq_ext_id =</span>
+<span class="lineNum">     859 </span><span class="lineCov">          1 :         mail_index_ext_register(ilist-&gt;index, &quot;hmodseq&quot;, 0,</span>
+<span class="lineNum">     860 </span>            :                     sizeof(uint64_t), sizeof(uint64_t));
+<span class="lineNum">     861 </span><span class="lineCov">          1 :     ilist-&gt;vsize_ext_id =</span>
+<span class="lineNum">     862 </span><span class="lineCov">          1 :         mail_index_ext_register(ilist-&gt;index, &quot;vsize&quot;, 0,</span>
+<span class="lineNum">     863 </span>            :             sizeof(struct mailbox_index_vsize), sizeof(uint64_t));
+<span class="lineNum">     864 </span><span class="lineCov">          1 :     ilist-&gt;first_saved_ext_id =</span>
+<span class="lineNum">     865 </span><span class="lineCov">          1 :         mail_index_ext_register(ilist-&gt;index, &quot;1saved&quot;, 0,</span>
+<span class="lineNum">     866 </span>            :             sizeof(struct mailbox_index_first_saved), sizeof(uint32_t));
+<span class="lineNum">     867 </span><span class="lineCov">          1 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

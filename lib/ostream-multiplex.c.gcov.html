@@ -1,0 +1,303 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/ostream-multiplex.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - ostream-multiplex.c<span style="font-size: 80%;"> (source / <a href="ostream-multiplex.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">93</td>
+            <td class="headerCovTableEntry">112</td>
+            <td class="headerCovTableEntryMed">83.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntryMed">83.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2017-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;ostream-private.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;ostream-multiplex.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : /* all multiplex packets are [1 byte cid][4 byte length][data] */
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : struct multiplex_ostream;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : struct multiplex_ochannel {
+<span class="lineNum">      14 </span>            :     struct ostream_private ostream;
+<span class="lineNum">      15 </span>            :     struct multiplex_ostream *mstream;
+<span class="lineNum">      16 </span>            :     uint8_t cid;
+<span class="lineNum">      17 </span>            :     buffer_t *buf;
+<span class="lineNum">      18 </span>            :     time_t last_sent;
+<span class="lineNum">      19 </span>            :     bool closed:1;
+<span class="lineNum">      20 </span>            : };
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : struct multiplex_ostream {
+<span class="lineNum">      23 </span>            :     struct ostream *parent;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            :     /* channel 0 is main channel */
+<span class="lineNum">      26 </span>            :     uint8_t cur_channel;
+<span class="lineNum">      27 </span>            :     unsigned int remain;
+<span class="lineNum">      28 </span>            :     buffer_t *wbuf;
+<span class="lineNum">      29 </span>            :     size_t bufsize;
+<span class="lineNum">      30 </span>            :     ARRAY(struct multiplex_ochannel *) channels;
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            :     bool destroyed:1;
+<span class="lineNum">      33 </span>            : };
+<a name="34"><span class="lineNum">      34 </span>            : </a>
+<span class="lineNum">      35 </span>            : static struct multiplex_ochannel *
+<span class="lineNum">      36 </span><span class="lineCov">          3 : get_channel(struct multiplex_ostream *mstream, uint8_t cid)</span>
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span>            :     struct multiplex_ochannel **channelp;
+<span class="lineNum">      39 </span><span class="lineCov">          3 :     i_assert(mstream != NULL);</span>
+<span class="lineNum">      40 </span><span class="lineCov">          6 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp) {</span>
+<span class="lineNum">      41 </span><span class="lineCov">          3 :         if (*channelp != NULL &amp;&amp; (*channelp)-&gt;cid == cid)</span>
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :             return *channelp;</span>
+<span class="lineNum">      43 </span>            :     }
+<span class="lineNum">      44 </span><span class="lineCov">          3 :     return NULL;</span>
+<a name="45"><span class="lineNum">      45 </span>            : }</a>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 : static void propagate_error(struct multiplex_ostream *mstream, int stream_errno)</span>
+<span class="lineNum">      48 </span>            : {
+<span class="lineNum">      49 </span>            :     struct multiplex_ochannel **channelp;
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :         if (*channelp != NULL)</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :             (*channelp)-&gt;ostream.ostream.stream_errno = stream_errno;</span>
+<a name="53"><span class="lineNum">      53 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineCov">        538 : static struct multiplex_ochannel *get_next_channel(struct multiplex_ostream *mstream)</span>
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span><span class="lineCov">        538 :     time_t oldest = ioloop_time;</span>
+<span class="lineNum">      58 </span><span class="lineCov">        538 :     struct multiplex_ochannel *channel = NULL;</span>
+<span class="lineNum">      59 </span>            :     struct multiplex_ochannel **channelp;
+<span class="lineNum">      60 </span><span class="lineCov">       1614 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">      61 </span><span class="lineCov">       2152 :         if (*channelp != NULL &amp;&amp; (*channelp)-&gt;last_sent &lt;= oldest &amp;&amp;</span>
+<span class="lineNum">      62 </span><span class="lineCov">       1076 :             (*channelp)-&gt;buf-&gt;used &gt; 0)</span>
+<span class="lineNum">      63 </span><span class="lineCov">        269 :             channel = *channelp;</span>
+<span class="lineNum">      64 </span><span class="lineCov">        538 :     return channel;</span>
+<span class="lineNum">      65 </span>            : }
+<a name="66"><span class="lineNum">      66 </span>            : </a>
+<span class="lineNum">      67 </span>            : static ssize_t
+<span class="lineNum">      68 </span><span class="lineCov">        269 : o_stream_multiplex_sendv(struct multiplex_ostream *mstream)</span>
+<span class="lineNum">      69 </span>            : {
+<span class="lineNum">      70 </span>            :     struct multiplex_ochannel *channel;
+<span class="lineNum">      71 </span><span class="lineCov">        269 :     ssize_t ret = 0;</span>
+<span class="lineNum">      72 </span><span class="lineCov">        269 :     if (mstream-&gt;bufsize &lt;= mstream-&gt;wbuf-&gt;used + 5)</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         return -2;</span>
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">        807 :     while((channel = get_next_channel(mstream)) != NULL) {</span>
+<span class="lineNum">      76 </span><span class="lineCov">        269 :         size_t tmp = mstream-&gt;bufsize - mstream-&gt;wbuf-&gt;used - 5;</span>
+<span class="lineNum">      77 </span>            :         /* ensure it fits into 32 bit int */
+<span class="lineNum">      78 </span><span class="lineCov">        269 :         size_t amt = I_MIN(UINT_MAX, I_MIN(tmp, channel-&gt;buf-&gt;used));</span>
+<span class="lineNum">      79 </span><span class="lineCov">        269 :         if (tmp == 0)</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">      81 </span><span class="lineCov">        269 :         uint32_t len = cpu32_to_be(amt);</span>
+<span class="lineNum">      82 </span><span class="lineCov">        269 :         buffer_append(mstream-&gt;wbuf, &amp;channel-&gt;cid, 1);</span>
+<span class="lineNum">      83 </span><span class="lineCov">        269 :         buffer_append(mstream-&gt;wbuf, &amp;len, 4);</span>
+<span class="lineNum">      84 </span><span class="lineCov">        269 :         buffer_append(mstream-&gt;wbuf, channel-&gt;buf-&gt;data, amt);</span>
+<span class="lineNum">      85 </span><span class="lineCov">        269 :         buffer_delete(channel-&gt;buf, 0, amt);</span>
+<span class="lineNum">      86 </span><span class="lineCov">        269 :         channel-&gt;last_sent = ioloop_time;</span>
+<span class="lineNum">      87 </span>            :     }
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">        269 :     if (mstream-&gt;wbuf-&gt;used &gt; 0) {</span>
+<span class="lineNum">      90 </span><span class="lineCov">        269 :         ret = o_stream_send(mstream-&gt;parent, mstream-&gt;wbuf-&gt;data,</span>
+<span class="lineNum">      91 </span><span class="lineCov">        269 :                     mstream-&gt;wbuf-&gt;used);</span>
+<span class="lineNum">      92 </span><span class="lineCov">        269 :         if (ret &lt; 0) {</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :             propagate_error(mstream, mstream-&gt;parent-&gt;stream_errno);</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">      95 </span>            :         }
+<span class="lineNum">      96 </span><span class="lineCov">        269 :         buffer_delete(mstream-&gt;wbuf, 0, ret);</span>
+<span class="lineNum">      97 </span>            :     }
+<span class="lineNum">      98 </span><span class="lineCov">        269 :     return ret;</span>
+<span class="lineNum">      99 </span>            : }
+<a name="100"><span class="lineNum">     100 </span>            : </a>
+<span class="lineNum">     101 </span>            : static ssize_t
+<span class="lineNum">     102 </span><span class="lineCov">        269 : o_stream_multiplex_ochannel_sendv(struct ostream_private *stream,</span>
+<span class="lineNum">     103 </span>            :                  const struct const_iovec *iov, unsigned int iov_count)
+<span class="lineNum">     104 </span>            : {
+<span class="lineNum">     105 </span><span class="lineCov">        269 :     struct multiplex_ochannel *channel = (struct multiplex_ochannel*)stream;</span>
+<span class="lineNum">     106 </span>            :     ssize_t ret;
+<span class="lineNum">     107 </span><span class="lineCov">        269 :     size_t total = 0;</span>
+<span class="lineNum">     108 </span><span class="lineCov">        269 :     if (channel-&gt;mstream-&gt;bufsize &lt;= channel-&gt;buf-&gt;used)</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         return -2;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">        538 :     for(unsigned int i=0; i &lt; iov_count; i++) {</span>
+<span class="lineNum">     112 </span>            :         /* copy data to buffer */
+<span class="lineNum">     113 </span><span class="lineCov">        269 :         size_t tmp = channel-&gt;mstream-&gt;bufsize - channel-&gt;buf-&gt;used;</span>
+<span class="lineNum">     114 </span><span class="lineCov">        269 :         if (tmp == 0)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     116 </span><span class="lineCov">        269 :         buffer_append(channel-&gt;buf, iov[i].iov_base,</span>
+<span class="lineNum">     117 </span><span class="lineCov">        269 :                   I_MIN(tmp, iov[i].iov_len));</span>
+<span class="lineNum">     118 </span><span class="lineCov">        269 :         total += I_MIN(tmp, iov[i].iov_len);</span>
+<span class="lineNum">     119 </span>            :     }
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineCov">        269 :     stream-&gt;ostream.offset += total;</span>
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineCov">        269 :     if ((ret = o_stream_multiplex_sendv(channel-&gt;mstream)) &lt; 0)</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">        269 :     return total;</span>
+<span class="lineNum">     127 </span>            : }
+<a name="128"><span class="lineNum">     128 </span>            : </a>
+<span class="lineNum">     129 </span>            : static void
+<span class="lineNum">     130 </span><span class="lineCov">          6 : o_stream_multiplex_ochannel_close(struct iostream_private *stream, bool close_parent)</span>
+<span class="lineNum">     131 </span>            : {
+<span class="lineNum">     132 </span>            :     struct multiplex_ochannel *const *channelp;
+<span class="lineNum">     133 </span><span class="lineCov">          6 :     struct multiplex_ochannel *channel = (struct multiplex_ochannel*)stream;</span>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineCov">          6 :     channel-&gt;closed = TRUE;</span>
+<span class="lineNum">     136 </span><span class="lineCov">          6 :     if (close_parent) {</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         array_foreach(&amp;channel-&gt;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :             if (*channelp !=NULL &amp;&amp; !(*channelp)-&gt;closed)</span>
+<span class="lineNum">     139 </span><span class="lineCov">          6 :                 return;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         o_stream_close(channel-&gt;mstream-&gt;parent);</span>
+<span class="lineNum">     141 </span>            :     }
+<a name="142"><span class="lineNum">     142 </span>            : }</a>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineCov">          6 : static void o_stream_multiplex_try_destroy(struct multiplex_ostream *mstream)</span>
+<span class="lineNum">     145 </span>            : {
+<span class="lineNum">     146 </span>            :     struct multiplex_ochannel **channelp;
+<span class="lineNum">     147 </span>            :     /* can't do anything until they are all closed */
+<span class="lineNum">     148 </span><span class="lineCov">         13 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">     149 </span><span class="lineCov">         10 :         if (*channelp != NULL)</span>
+<span class="lineNum">     150 </span><span class="lineCov">          9 :             return;</span>
+<span class="lineNum">     151 </span><span class="lineCov">          3 :     o_stream_unref(&amp;mstream-&gt;parent);</span>
+<span class="lineNum">     152 </span><span class="lineCov">          3 :     array_free(&amp;mstream-&gt;channels);</span>
+<span class="lineNum">     153 </span><span class="lineCov">          3 :     buffer_free(&amp;mstream-&gt;wbuf);</span>
+<span class="lineNum">     154 </span><span class="lineCov">          3 :     i_free(mstream);</span>
+<a name="155"><span class="lineNum">     155 </span>            : }</a>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineCov">          6 : static void o_stream_multiplex_ochannel_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span>            :     struct multiplex_ochannel **channelp;
+<span class="lineNum">     160 </span><span class="lineCov">          6 :     struct multiplex_ochannel *channel = (struct multiplex_ochannel*)stream;</span>
+<span class="lineNum">     161 </span><span class="lineCov">          6 :     o_stream_unref(&amp;channel-&gt;ostream.parent);</span>
+<span class="lineNum">     162 </span><span class="lineCov">          6 :     if (channel-&gt;buf != NULL)</span>
+<span class="lineNum">     163 </span><span class="lineCov">          6 :         buffer_free(&amp;channel-&gt;buf);</span>
+<span class="lineNum">     164 </span>            :     /* delete the channel */
+<span class="lineNum">     165 </span><span class="lineCov">          9 :     array_foreach_modifiable(&amp;channel-&gt;mstream-&gt;channels, channelp) {</span>
+<span class="lineNum">     166 </span><span class="lineCov">          9 :         if (*channelp != NULL &amp;&amp; (*channelp)-&gt;cid == channel-&gt;cid) {</span>
+<span class="lineNum">     167 </span><span class="lineCov">          6 :             *channelp = NULL;</span>
+<span class="lineNum">     168 </span><span class="lineCov">          6 :             break;</span>
+<span class="lineNum">     169 </span>            :         }
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span><span class="lineCov">          6 :     o_stream_multiplex_try_destroy(channel-&gt;mstream);</span>
+<span class="lineNum">     172 </span><span class="lineCov">          6 : }</span>
+<a name="173"><span class="lineNum">     173 </span>            : </a>
+<span class="lineNum">     174 </span>            : static struct ostream *
+<span class="lineNum">     175 </span><span class="lineCov">          6 : o_stream_add_channel_real(struct multiplex_ostream *mstream, uint8_t cid)</span>
+<span class="lineNum">     176 </span>            : {
+<span class="lineNum">     177 </span><span class="lineCov">          6 :     struct multiplex_ochannel *channel = i_new(struct multiplex_ochannel, 1);</span>
+<span class="lineNum">     178 </span><span class="lineCov">          6 :     channel-&gt;cid = cid;</span>
+<span class="lineNum">     179 </span><span class="lineCov">          6 :     channel-&gt;buf = buffer_create_dynamic(default_pool, 256);</span>
+<span class="lineNum">     180 </span><span class="lineCov">          6 :     channel-&gt;mstream = mstream;</span>
+<span class="lineNum">     181 </span><span class="lineCov">          6 :     channel-&gt;ostream.sendv = o_stream_multiplex_ochannel_sendv;</span>
+<span class="lineNum">     182 </span><span class="lineCov">          6 :     channel-&gt;ostream.iostream.close = o_stream_multiplex_ochannel_close;</span>
+<span class="lineNum">     183 </span><span class="lineCov">          6 :     channel-&gt;ostream.iostream.destroy = o_stream_multiplex_ochannel_destroy;</span>
+<span class="lineNum">     184 </span><span class="lineCov">          6 :     channel-&gt;ostream.fd = o_stream_get_fd(mstream-&gt;parent);</span>
+<span class="lineNum">     185 </span><span class="lineCov">          6 :     array_append(&amp;channel-&gt;mstream-&gt;channels, &amp;channel, 1);</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineCov">          6 :     return o_stream_create(&amp;channel-&gt;ostream, mstream-&gt;parent,</span>
+<span class="lineNum">     188 </span><span class="lineCov">          6 :                    mstream-&gt;bufsize);</span>
+<a name="189"><span class="lineNum">     189 </span>            : }</a>
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineCov">          3 : struct ostream *o_stream_multiplex_add_channel(struct ostream *stream, uint8_t cid)</span>
+<span class="lineNum">     192 </span>            : {
+<span class="lineNum">     193 </span><span class="lineCov">          3 :     struct multiplex_ochannel *chan =</span>
+<span class="lineNum">     194 </span>            :         (struct multiplex_ochannel *)stream-&gt;real_stream;
+<span class="lineNum">     195 </span><span class="lineCov">          3 :     i_assert(get_channel(chan-&gt;mstream, cid) == NULL);</span>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineCov">          3 :     return o_stream_add_channel_real(chan-&gt;mstream, cid);</span>
+<a name="198"><span class="lineNum">     198 </span>            : }</a>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineCov">          3 : struct ostream *o_stream_create_multiplex(struct ostream *parent, size_t bufsize)</span>
+<span class="lineNum">     201 </span>            : {
+<span class="lineNum">     202 </span>            :     struct multiplex_ostream *mstream;
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineCov">          3 :     mstream = i_new(struct multiplex_ostream, 1);</span>
+<span class="lineNum">     205 </span><span class="lineCov">          3 :     mstream-&gt;parent = parent;</span>
+<span class="lineNum">     206 </span><span class="lineCov">          3 :     mstream-&gt;bufsize = bufsize;</span>
+<span class="lineNum">     207 </span><span class="lineCov">          3 :     mstream-&gt;wbuf = buffer_create_dynamic(default_pool, 256);</span>
+<span class="lineNum">     208 </span><span class="lineCov">          3 :     i_array_init(&amp;mstream-&gt;channels, 8);</span>
+<span class="lineNum">     209 </span><span class="lineCov">          3 :     o_stream_ref(parent);</span>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineCov">          3 :     return o_stream_add_channel_real(mstream, 0);</span>
+<a name="212"><span class="lineNum">     212 </span>            : }</a>
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 : uint8_t o_stream_multiplex_get_channel_id(struct ostream *stream)</span>
+<span class="lineNum">     215 </span>            : {
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     struct multiplex_ochannel *channel =</span>
+<span class="lineNum">     217 </span>            :         (struct multiplex_ochannel *)stream-&gt;real_stream;
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     return channel-&gt;cid;</span>
+<span class="lineNum">     219 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

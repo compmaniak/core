@@ -1,0 +1,257 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - auth/auth-penalty.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">auth</a> - auth-penalty.c<span style="font-size: 80%;"> (source / <a href="auth-penalty.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">73</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;crc32.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;master-service.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;anvil-client.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;auth-request.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;auth-penalty.h&quot;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : /* We don't want IPv6 hosts being able to flood our penalty
+<span class="lineNum">      15 </span>            :    tracking with tons of different IPs. */
+<span class="lineNum">      16 </span>            : #define PENALTY_IPV6_MASK_BITS 48
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : struct auth_penalty_request {
+<span class="lineNum">      19 </span>            :     struct auth_request *auth_request;
+<span class="lineNum">      20 </span>            :     struct anvil_client *client;
+<span class="lineNum">      21 </span>            :     auth_penalty_callback_t *callback;
+<span class="lineNum">      22 </span>            : };
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : struct auth_penalty {
+<span class="lineNum">      25 </span>            :     struct anvil_client *client;
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            :     bool disabled:1;
+<a name="28"><span class="lineNum">      28 </span>            : };</a>
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span><span class="lineNoCov">          0 : struct auth_penalty *auth_penalty_init(const char *path)</span>
+<span class="lineNum">      31 </span>            : {
+<span class="lineNum">      32 </span>            :     struct auth_penalty *penalty;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     penalty = i_new(struct auth_penalty, 1);</span>
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 :     penalty-&gt;client = anvil_client_init(path, NULL,</span>
+<span class="lineNum">      36 </span>            :                         ANVIL_CLIENT_FLAG_HIDE_ENOENT);
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :     if (anvil_client_connect(penalty-&gt;client, TRUE) &lt; 0)</span>
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :         penalty-&gt;disabled = TRUE;</span>
+<span class="lineNum">      39 </span>            :     else {
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :         anvil_client_cmd(penalty-&gt;client, t_strdup_printf(</span>
+<span class="lineNum">      41 </span>            :             &quot;PENALTY-SET-EXPIRE-SECS\t%u&quot;, AUTH_PENALTY_TIMEOUT));
+<span class="lineNum">      42 </span>            :     }
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :     return penalty;</span>
+<a name="44"><span class="lineNum">      44 </span>            : }</a>
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 : void auth_penalty_deinit(struct auth_penalty **_penalty)</span>
+<span class="lineNum">      47 </span>            : {
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     struct auth_penalty *penalty = *_penalty;</span>
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     *_penalty = NULL;</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     anvil_client_deinit(&amp;penalty-&gt;client);</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     i_free(penalty);</span>
+<a name="53"><span class="lineNum">      53 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 : unsigned int auth_penalty_to_secs(unsigned int penalty)</span>
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     unsigned int i, secs = AUTH_PENALTY_INIT_SECS;</span>
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; penalty; i++)</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :         secs *= 2;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     return secs &lt; AUTH_PENALTY_MAX_SECS ? secs : AUTH_PENALTY_MAX_SECS;</span>
+<a name="62"><span class="lineNum">      62 </span>            : }</a>
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 : static void auth_penalty_anvil_callback(const char *reply, void *context)</span>
+<span class="lineNum">      65 </span>            : {
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     struct auth_penalty_request *request = context;</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     unsigned int penalty = 0;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     unsigned long last_penalty = 0;</span>
+<span class="lineNum">      69 </span>            :     unsigned int secs, drop_penalty;
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     if (reply == NULL) {</span>
+<span class="lineNum">      72 </span>            :         /* internal failure. */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         if (!anvil_client_is_connected(request-&gt;client)) {</span>
+<span class="lineNum">      74 </span>            :             /* we probably didn't have permissions to reconnect
+<span class="lineNum">      75 </span>            :                back to anvil. need to restart ourself. */
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :             master_service_stop(master_service);</span>
+<span class="lineNum">      77 </span>            :         }
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     } else if (sscanf(reply, &quot;%u %lu&quot;, &amp;penalty, &amp;last_penalty) != 2) {</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         i_error(&quot;Invalid PENALTY-GET reply: %s&quot;, reply);</span>
+<span class="lineNum">      80 </span>            :     } else {
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         if ((time_t)last_penalty &gt; ioloop_time) {</span>
+<span class="lineNum">      82 </span>            :             /* time moved backwards? */
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :             last_penalty = ioloop_time;</span>
+<span class="lineNum">      84 </span>            :         }
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            :         /* update penalty. */
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :         drop_penalty = AUTH_PENALTY_MAX_PENALTY;</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :         while (penalty &gt; 0) {</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :             secs = auth_penalty_to_secs(drop_penalty);</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :             if (ioloop_time - last_penalty &lt; secs)</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :             drop_penalty--;</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :             penalty--;</span>
+<span class="lineNum">      94 </span>            :         }
+<span class="lineNum">      95 </span>            :     }
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     request-&gt;callback(penalty, request-&gt;auth_request);</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     auth_request_unref(&amp;request-&gt;auth_request);</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     i_free(request);</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 : }</span>
+<a name="101"><span class="lineNum">     101 </span>            : </a>
+<span class="lineNum">     102 </span>            : static const char *
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 : auth_penalty_get_ident(struct auth_request *auth_request)</span>
+<span class="lineNum">     104 </span>            : {
+<span class="lineNum">     105 </span>            :     struct ip_addr ip;
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     ip = auth_request-&gt;remote_ip;</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     if (IPADDR_IS_V6(&amp;ip)) {</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         memset(ip.u.ip6.s6_addr + PENALTY_IPV6_MASK_BITS/CHAR_BIT, 0,</span>
+<span class="lineNum">     110 </span>            :                sizeof(ip.u.ip6.s6_addr) -
+<span class="lineNum">     111 </span>            :                PENALTY_IPV6_MASK_BITS/CHAR_BIT);
+<span class="lineNum">     112 </span>            :     }
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     return net_ip2addr(&amp;ip);</span>
+<a name="114"><span class="lineNum">     114 </span>            : }</a>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 : void auth_penalty_lookup(struct auth_penalty *penalty,</span>
+<span class="lineNum">     117 </span>            :              struct auth_request *auth_request,
+<span class="lineNum">     118 </span>            :              auth_penalty_callback_t *callback)
+<span class="lineNum">     119 </span>            : {
+<span class="lineNum">     120 </span>            :     struct auth_penalty_request *request;
+<span class="lineNum">     121 </span>            :     const char *ident;
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     ident = auth_penalty_get_ident(auth_request);</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     if (penalty-&gt;disabled || ident == NULL || auth_request-&gt;no_penalty) {</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         callback(0, auth_request);</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     127 </span>            :     }
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     request = i_new(struct auth_penalty_request, 1);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     request-&gt;auth_request = auth_request;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     request-&gt;client = penalty-&gt;client;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     request-&gt;callback = callback;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     auth_request_ref(auth_request);</span>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         anvil_client_query(penalty-&gt;client,</span>
+<span class="lineNum">     137 </span>            :                    t_strdup_printf(&quot;PENALTY-GET\t%s&quot;, ident),
+<span class="lineNum">     138 </span>            :                    auth_penalty_anvil_callback, request);
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     140 </span>            : }
+<a name="141"><span class="lineNum">     141 </span>            : </a>
+<span class="lineNum">     142 </span>            : static unsigned int
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 : get_userpass_checksum(struct auth_request *auth_request)</span>
+<span class="lineNum">     144 </span>            : {
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     return auth_request-&gt;mech_password == NULL ? 0 :</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         crc32_str_more(crc32_str(auth_request-&gt;mech_password),</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :                    auth_request-&gt;user);</span>
+<a name="148"><span class="lineNum">     148 </span>            : }</a>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 : void auth_penalty_update(struct auth_penalty *penalty,</span>
+<span class="lineNum">     151 </span>            :              struct auth_request *auth_request, unsigned int value)
+<span class="lineNum">     152 </span>            : {
+<span class="lineNum">     153 </span>            :     const char *ident;
+<span class="lineNum">     154 </span>            : 
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     ident = auth_penalty_get_ident(auth_request);</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     if (penalty-&gt;disabled || ident == NULL || auth_request-&gt;no_penalty)</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     if (value &gt; AUTH_PENALTY_MAX_PENALTY) {</span>
+<span class="lineNum">     160 </span>            :         /* even if the actual value doesn't change, the last_change
+<span class="lineNum">     161 </span>            :            timestamp does. */
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         value = AUTH_PENALTY_MAX_PENALTY;</span>
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     165 </span>            :         const char *cmd;
+<span class="lineNum">     166 </span>            :         unsigned int checksum;
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :         checksum = value == 0 ? 0 : get_userpass_checksum(auth_request);</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         cmd = t_strdup_printf(&quot;PENALTY-INC\t%s\t%u\t%u&quot;,</span>
+<span class="lineNum">     170 </span>            :                       ident, checksum, value);
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         anvil_client_cmd(penalty-&gt;client, cmd);</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     173 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

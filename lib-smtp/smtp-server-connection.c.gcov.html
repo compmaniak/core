@@ -1,0 +1,1501 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-smtp/smtp-server-connection.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-smtp</a> - smtp-server-connection.c<span style="font-size: 80%;"> (source / <a href="smtp-server-connection.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">716</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">67</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;llist.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;iostream.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;connection.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;iostream-rawlog.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;iostream-ssl.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;master-service.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;master-service-ssl.h&quot;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : #include &quot;smtp-command-parser.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;smtp-server-private.h&quot;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : const char *const smtp_server_state_names[] = {
+<span class="lineNum">      21 </span>            :     &quot;GREETING&quot;,
+<span class="lineNum">      22 </span>            :     &quot;XCLIENT&quot;,
+<span class="lineNum">      23 </span>            :     &quot;HELO&quot;,
+<span class="lineNum">      24 </span>            :     &quot;STARTTLS&quot;,
+<span class="lineNum">      25 </span>            :     &quot;AUTH&quot;,
+<span class="lineNum">      26 </span>            :     &quot;READY&quot;,
+<span class="lineNum">      27 </span>            :     &quot;MAIL FROM&quot;,
+<span class="lineNum">      28 </span>            :     &quot;RCPT TO&quot;,
+<span class="lineNum">      29 </span>            :     &quot;DATA&quot;
+<span class="lineNum">      30 </span>            : };
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : /*
+<span class="lineNum">      33 </span>            :  * Logging
+<a name="34"><span class="lineNum">      34 </span>            :  */</a>
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 : void smtp_server_connection_debug(struct smtp_server_connection *conn,</span>
+<span class="lineNum">      37 </span>            :                   const char *format, ...)
+<span class="lineNum">      38 </span>            : {
+<span class="lineNum">      39 </span>            :     va_list args;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :     if (conn-&gt;set.debug) {</span>
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :         va_start(args, format);</span>
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :         i_debug(&quot;%s-server: conn %s: %s&quot;,</span>
+<span class="lineNum">      44 </span>            :             smtp_protocol_name(conn-&gt;set.protocol),
+<span class="lineNum">      45 </span>            :             smtp_server_connection_label(conn),
+<span class="lineNum">      46 </span>            :             t_strdup_vprintf(format, args));
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :         va_end(args);</span>
+<span class="lineNum">      48 </span>            :     }
+<a name="49"><span class="lineNum">      49 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 : void smtp_server_connection_error(struct smtp_server_connection *conn,</span>
+<span class="lineNum">      52 </span>            :                   const char *format, ...)
+<span class="lineNum">      53 </span>            : {
+<span class="lineNum">      54 </span>            :     va_list args;
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :     va_start(args, format);</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     i_error(&quot;%s-server: conn %s: %s&quot;,</span>
+<span class="lineNum">      58 </span>            :         smtp_protocol_name(conn-&gt;set.protocol),
+<span class="lineNum">      59 </span>            :         smtp_server_connection_label(conn),
+<span class="lineNum">      60 </span>            :         t_strdup_vprintf(format, args));
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span>            : /*
+<span class="lineNum">      65 </span>            :  * Connection
+<span class="lineNum">      66 </span>            :  */
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span>            : static void
+<span class="lineNum">      69 </span>            : smtp_server_connection_input(struct connection *_conn);
+<span class="lineNum">      70 </span>            : static int
+<span class="lineNum">      71 </span>            : smtp_server_connection_output(struct smtp_server_connection *conn);
+<span class="lineNum">      72 </span>            : static void
+<span class="lineNum">      73 </span>            : smtp_server_connection_disconnect(struct smtp_server_connection *conn,
+<span class="lineNum">      74 </span>            :                   const char *reason) ATTR_NULL(2);
+<a name="75"><span class="lineNum">      75 </span>            : </a>
+<span class="lineNum">      76 </span>            : static void
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 : smtp_server_connection_update_stats(struct smtp_server_connection *conn)</span>
+<span class="lineNum">      78 </span>            : {
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.input != NULL)</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         conn-&gt;stats.input = conn-&gt;conn.input-&gt;v_offset;</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.output != NULL)</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         conn-&gt;stats.output = conn-&gt;conn.output-&gt;offset;</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 : }</span>
+<a name="84"><span class="lineNum">      84 </span>            : </a>
+<span class="lineNum">      85 </span>            : const struct smtp_server_stats *
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 : smtp_server_connection_get_stats(struct smtp_server_connection *conn)</span>
+<span class="lineNum">      87 </span>            : {
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     smtp_server_connection_update_stats(conn);</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :     return &amp;conn-&gt;stats;</span>
+<a name="90"><span class="lineNum">      90 </span>            : }</a>
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 : void smtp_server_connection_input_halt(struct smtp_server_connection *conn)</span>
+<span class="lineNum">      93 </span>            : {
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.io != NULL)</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         io_remove(&amp;conn-&gt;conn.io);</span>
+<a name="96"><span class="lineNum">      96 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 : void smtp_server_connection_input_resume(struct smtp_server_connection *conn)</span>
+<span class="lineNum">      99 </span>            : {
+<span class="lineNum">     100 </span>            :     struct smtp_server_command *cmd;
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     bool cmd_locked = FALSE;</span>
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.io == NULL) {</span>
+<span class="lineNum">     104 </span>            :         /* only resume when we actually can */
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         if (conn-&gt;input_locked || conn-&gt;input_broken ||</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :             conn-&gt;disconnected)</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :         if (conn-&gt;command_queue_count &gt;</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :             conn-&gt;server-&gt;set.max_pipelined_commands)</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span>            :         /* is queued command still blocking input? */
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :         cmd = conn-&gt;command_queue_head;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         while (cmd != NULL) {</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             if (cmd-&gt;input_locked) {</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :                 cmd_locked = TRUE;</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     118 </span>            :             }
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :             cmd = cmd-&gt;next;</span>
+<span class="lineNum">     120 </span>            :         }
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         if (cmd_locked)</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span>            :         /* restore input handler */
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         conn-&gt;conn.io = io_add_istream(conn-&gt;conn.input,</span>
+<span class="lineNum">     126 </span>            :             smtp_server_connection_input, &amp;conn-&gt;conn);
+<span class="lineNum">     127 </span>            :     }
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.io != NULL &amp;&amp;</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         i_stream_have_bytes_left(conn-&gt;conn.input)) {</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         io_set_pending(conn-&gt;conn.io);</span>
+<span class="lineNum">     132 </span>            :     }
+<a name="133"><span class="lineNum">     133 </span>            : }</a>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 : void smtp_server_connection_input_lock(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     136 </span>            : {
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     conn-&gt;input_locked = TRUE;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     smtp_server_connection_input_halt(conn);</span>
+<a name="139"><span class="lineNum">     139 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 : void smtp_server_connection_input_unlock(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     conn-&gt;input_locked = FALSE;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     smtp_server_connection_input_resume(conn);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 : }</span>
+<a name="146"><span class="lineNum">     146 </span>            : </a>
+<span class="lineNum">     147 </span>            : #undef smtp_server_connection_input_capture
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 : void smtp_server_connection_input_capture(struct smtp_server_connection *conn,</span>
+<span class="lineNum">     149 </span>            :     smtp_server_input_callback_t *callback, void *context)
+<span class="lineNum">     150 </span>            : {
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;input_broken &amp;&amp; !conn-&gt;disconnected);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.io != NULL)</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         io_remove(&amp;conn-&gt;conn.io);</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     conn-&gt;conn.io = io_add_istream(conn-&gt;conn.input, *callback, context);</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 : }</span>
+<a name="156"><span class="lineNum">     156 </span>            : </a>
+<span class="lineNum">     157 </span>            : static void
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 : smtp_server_connection_update_rawlog(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     159 </span>            : {
+<span class="lineNum">     160 </span>            :     struct stat st;
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     if (conn-&gt;set.rawlog_dir == NULL)</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     if (!conn-&gt;rawlog_checked) {</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :         conn-&gt;rawlog_checked = TRUE;</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         if (stat(conn-&gt;set.rawlog_dir, &amp;st) == 0)</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :             conn-&gt;rawlog_enabled = TRUE;</span>
+<span class="lineNum">     169 </span>            :     }
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     if (conn-&gt;rawlog_enabled) {</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         iostream_rawlog_create(conn-&gt;set.rawlog_dir,</span>
+<span class="lineNum">     172 </span>            :                        &amp;conn-&gt;conn.input, &amp;conn-&gt;conn.output);
+<span class="lineNum">     173 </span>            :     }
+<span class="lineNum">     174 </span>            : }
+<a name="175"><span class="lineNum">     175 </span>            : </a>
+<span class="lineNum">     176 </span>            : static void
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 : smtp_server_connection_streams_changed(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     178 </span>            : {
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     smtp_server_connection_update_rawlog(conn);</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :     smtp_command_parser_set_stream(conn-&gt;smtp_parser, conn-&gt;conn.input);</span>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     o_stream_set_flush_callback(conn-&gt;conn.output,</span>
+<span class="lineNum">     183 </span>            :         smtp_server_connection_output, conn);
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     o_stream_set_flush_pending(conn-&gt;conn.output, TRUE);</span>
+<a name="185"><span class="lineNum">     185 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 : void smtp_server_connection_set_streams(struct smtp_server_connection *conn,</span>
+<span class="lineNum">     188 </span>            :     struct istream *input, struct ostream *output)
+<span class="lineNum">     189 </span>            : {
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     struct istream *old_input = conn-&gt;conn.input;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     struct ostream *old_output = conn-&gt;conn.output;</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;created_from_streams);</span>
+<span class="lineNum">     194 </span>            : 
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     conn-&gt;conn.input = input;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     i_stream_ref(conn-&gt;conn.input);</span>
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     conn-&gt;conn.output = output;</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     o_stream_ref(conn-&gt;conn.output);</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     o_stream_set_no_error_handling(conn-&gt;conn.output, TRUE);</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;old_input);</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;old_output);</span>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     smtp_server_connection_streams_changed(conn);</span>
+<a name="206"><span class="lineNum">     206 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 : void smtp_server_connection_set_ssl_streams(struct smtp_server_connection *conn,</span>
+<span class="lineNum">     209 </span>            :     struct istream *input, struct ostream *output)
+<span class="lineNum">     210 </span>            : {
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     conn-&gt;ssl_secured = TRUE;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     conn-&gt;set.capabilities &amp;= ~SMTP_CAPABILITY_STARTTLS;</span>
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     smtp_server_connection_set_streams(conn, input, output);</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 : }</span>
+<a name="216"><span class="lineNum">     216 </span>            : </a>
+<span class="lineNum">     217 </span>            : static void
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 : smtp_server_connection_idle_timeout(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     219 </span>            : {
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     smtp_server_connection_terminate(&amp;conn,</span>
+<span class="lineNum">     221 </span>            :         &quot;4.4.2&quot;, &quot;Disconnected for inactivity&quot;);
+<a name="222"><span class="lineNum">     222 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 : void smtp_server_connection_timeout_stop(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     225 </span>            : {
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle != NULL) {</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         smtp_server_connection_debug(conn, &quot;Timeout stop&quot;);</span>
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;conn-&gt;to_idle);</span>
+<span class="lineNum">     230 </span>            :     }
+<a name="231"><span class="lineNum">     231 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 : void smtp_server_connection_timeout_start(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     234 </span>            : {
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     if (conn-&gt;disconnected)</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle == NULL &amp;&amp;</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         conn-&gt;set.max_client_idle_time_msecs &gt; 0) {</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         smtp_server_connection_debug(conn, &quot;Timeout start&quot;);</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         conn-&gt;to_idle = timeout_add(</span>
+<span class="lineNum">     243 </span>            :             conn-&gt;set.max_client_idle_time_msecs,
+<span class="lineNum">     244 </span>            :             smtp_server_connection_idle_timeout, conn);
+<span class="lineNum">     245 </span>            :     }
+<a name="246"><span class="lineNum">     246 </span>            : }</a>
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 : void smtp_server_connection_timeout_reset(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     249 </span>            : {
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle != NULL)</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         timeout_reset(conn-&gt;to_idle);</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 : }</span>
+<a name="253"><span class="lineNum">     253 </span>            : </a>
+<span class="lineNum">     254 </span>            : static void
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 : smtp_server_connection_timeout_update(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     256 </span>            : {
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     struct smtp_server_command *cmd = conn-&gt;command_queue_head;</span>
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     if (cmd == NULL) {</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         smtp_server_connection_timeout_start(conn);</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     262 </span>            :     }
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     switch (cmd-&gt;state) {</span>
+<span class="lineNum">     265 </span>            :     case SMTP_SERVER_COMMAND_STATE_NEW:
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         smtp_server_connection_timeout_start(conn);</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     268 </span>            :     case SMTP_SERVER_COMMAND_STATE_PROCESSING:
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :         if (cmd-&gt;input_captured) {</span>
+<span class="lineNum">     270 </span>            :             /* command updates timeout internally */
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     272 </span>            :         }
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         smtp_server_connection_timeout_stop(conn);</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     275 </span>            :     case SMTP_SERVER_COMMAND_STATE_SUBMITTED_REPLY:
+<span class="lineNum">     276 </span>            :     case SMTP_SERVER_COMMAND_STATE_READY_TO_REPLY:
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         smtp_server_connection_timeout_stop(conn);</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     279 </span>            :     case SMTP_SERVER_COMMAND_STATE_FINISHED:
+<span class="lineNum">     280 </span>            :     case SMTP_SERVER_COMMAND_STATE_ABORTED:
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     282 </span>            :     }
+<span class="lineNum">     283 </span>            : }
+<a name="284"><span class="lineNum">     284 </span>            : </a>
+<span class="lineNum">     285 </span>            : static void
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 : smtp_server_connection_ready(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     287 </span>            : {
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     conn-&gt;raw_input = conn-&gt;conn.input;</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     conn-&gt;raw_output = conn-&gt;conn.output;</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     smtp_server_connection_update_rawlog(conn);</span>
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     conn-&gt;smtp_parser = smtp_command_parser_init(conn-&gt;conn.input,</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         &amp;conn-&gt;server-&gt;set.command_limits);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     o_stream_set_flush_callback(conn-&gt;conn.output,</span>
+<span class="lineNum">     296 </span>            :         smtp_server_connection_output, conn);
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     o_stream_cork(conn-&gt;conn.output);</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     if (conn-&gt;authenticated) {</span>
+<span class="lineNum">     300 </span>            :         /* RFC 4954, Section 4:
+<span class="lineNum">     301 </span>            :            Should the client successfully complete the exchange, the
+<span class="lineNum">     302 </span>            :            SMTP server issues a 235 reply. */
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :         smtp_server_connection_send_line(conn,</span>
+<span class="lineNum">     304 </span>            :             &quot;235 2.7.0 Logged in.&quot;);
+<span class="lineNum">     305 </span>            :     } else {
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         smtp_server_connection_send_line(conn,</span>
+<span class="lineNum">     307 </span>            :             &quot;220 %s %s&quot;, conn-&gt;set.hostname,
+<span class="lineNum">     308 </span>            :             conn-&gt;set.login_greeting);
+<span class="lineNum">     309 </span>            :     }
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     if (!conn-&gt;corked)</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         o_stream_uncork(conn-&gt;conn.output);</span>
+<a name="312"><span class="lineNum">     312 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 : static void smtp_server_connection_destroy(struct connection *_conn)</span>
+<span class="lineNum">     315 </span>            : {
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     struct smtp_server_connection *conn =</span>
+<span class="lineNum">     317 </span>            :         (struct smtp_server_connection *)_conn;
+<span class="lineNum">     318 </span>            : 
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     smtp_server_connection_disconnect(conn, NULL);</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     smtp_server_connection_unref(&amp;conn);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 : }</span>
+<a name="322"><span class="lineNum">     322 </span>            : </a>
+<span class="lineNum">     323 </span>            : static bool
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 : smtp_server_connection_handle_command(struct smtp_server_connection *conn,</span>
+<span class="lineNum">     325 </span>            :     const char *cmd_name, const char *cmd_params)
+<span class="lineNum">     326 </span>            : {
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :     struct smtp_server_connection *tmp_conn = conn;</span>
+<span class="lineNum">     328 </span>            :     struct smtp_server_command *cmd;
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     smtp_server_connection_ref(tmp_conn);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     cmd = smtp_server_command_new(tmp_conn, cmd_name, cmd_params);</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     if (!smtp_server_connection_unref(&amp;tmp_conn)) {</span>
+<span class="lineNum">     333 </span>            :         /* the command start callback managed to get this connection
+<span class="lineNum">     334 </span>            :            destroyed */
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     336 </span>            :     }
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :     if (cmd != NULL &amp;&amp; conn-&gt;command_queue_head == cmd)</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         smtp_server_command_next_to_reply(cmd);</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_update(conn);</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     return (cmd == NULL || !cmd-&gt;input_locked);</span>
+<a name="343"><span class="lineNum">     343 </span>            : }</a>
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 : int smtp_server_connection_ssl_init(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     346 </span>            : {
+<span class="lineNum">     347 </span>            :     const char *error;
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Starting SSL handshake&quot;);</span>
+<span class="lineNum">     350 </span>            : 
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     if (conn-&gt;raw_input != conn-&gt;conn.input) {</span>
+<span class="lineNum">     352 </span>            :         /* recreate rawlog after STARTTLS */
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         i_stream_ref(conn-&gt;raw_input);</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         o_stream_ref(conn-&gt;raw_output);</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         i_stream_destroy(&amp;conn-&gt;conn.input);</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         o_stream_destroy(&amp;conn-&gt;conn.output);</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :         conn-&gt;conn.input = conn-&gt;raw_input;</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :         conn-&gt;conn.output = conn-&gt;raw_output;</span>
+<span class="lineNum">     359 </span>            :     }
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :     if (master_service_ssl_init(master_service,</span>
+<span class="lineNum">     362 </span>            :                 &amp;conn-&gt;conn.input, &amp;conn-&gt;conn.output,
+<span class="lineNum">     363 </span>            :                 &amp;conn-&gt;ssl_iostream, &amp;error) &lt; 0) {
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         smtp_server_connection_error(conn,</span>
+<span class="lineNum">     365 </span>            :             &quot;Couldn't initialize SSL server for %s: %s&quot;,
+<span class="lineNum">     366 </span>            :             conn-&gt;conn.name, error);
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     368 </span>            :     }
+<span class="lineNum">     369 </span>            : 
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :     if (ssl_iostream_handshake(conn-&gt;ssl_iostream) &lt; 0) {</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         smtp_server_connection_error(conn,</span>
+<span class="lineNum">     372 </span>            :             &quot;SSL handshake failed: %s&quot;,
+<span class="lineNum">     373 </span>            :             ssl_iostream_get_last_error(conn-&gt;ssl_iostream));
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     375 </span>            :     }
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :     conn-&gt;ssl_secured = TRUE;</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :     conn-&gt;set.capabilities &amp;= ~SMTP_CAPABILITY_STARTTLS;</span>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_start)</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         smtp_server_connection_ready(conn);</span>
+<span class="lineNum">     382 </span>            :     else
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         smtp_server_connection_streams_changed(conn);</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     385 </span>            : }
+<a name="386"><span class="lineNum">     386 </span>            : </a>
+<span class="lineNum">     387 </span>            : static void
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 : smtp_server_connection_handle_input(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     389 </span>            : {
+<span class="lineNum">     390 </span>            :     struct smtp_server_command *pending_command;
+<span class="lineNum">     391 </span>            :     enum smtp_command_parse_error error_code;
+<span class="lineNum">     392 </span>            :     const char *cmd_name, *cmd_params, *error;
+<span class="lineNum">     393 </span>            :     int ret;
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span>            :     /* check whether we are continuing a command */
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     pending_command = NULL;</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     if (conn-&gt;command_queue_tail != NULL) {</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         pending_command = (conn-&gt;command_queue_tail-&gt;state ==</span>
+<span class="lineNum">     399 </span>            :             SMTP_SERVER_COMMAND_STATE_SUBMITTED_REPLY ?
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :                 conn-&gt;command_queue_tail : NULL);</span>
+<span class="lineNum">     401 </span>            :     }
+<span class="lineNum">     402 </span>            : 
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_reset(conn);</span>
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span>            :     /* parse commands */
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     ret = 1;</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     while (!conn-&gt;closing &amp;&amp; ret != 0) {</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         while ((ret = smtp_command_parse_next(conn-&gt;smtp_parser,</span>
+<span class="lineNum">     409 </span>            :             &amp;cmd_name, &amp;cmd_params, &amp;error_code, &amp;error)) &gt; 0) {
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :             if (pending_command != NULL) {</span>
+<span class="lineNum">     412 </span>            :                 /* previous command is now fully read and ready
+<span class="lineNum">     413 </span>            :                    to reply */
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :                 smtp_server_command_ready_to_reply(pending_command);</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :                 pending_command = NULL;</span>
+<span class="lineNum">     416 </span>            :             }
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :             smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     419 </span>            :                 &quot;Received new command: %s %s&quot;,
+<span class="lineNum">     420 </span>            :                 cmd_name, cmd_params);
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :             conn-&gt;stats.command_count++;</span>
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span>            :             /* handle command
+<span class="lineNum">     425 </span>            :                cmd may be destroyed after this */
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :             if (!smtp_server_connection_handle_command(conn,</span>
+<span class="lineNum">     427 </span>            :                 cmd_name, cmd_params))
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     429 </span>            : 
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :             if (conn-&gt;disconnected)</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     432 </span>            :             /* client indicated it will close after this command;
+<span class="lineNum">     433 </span>            :                stop trying to read more. */
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :             if (conn-&gt;closing)</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :             if (conn-&gt;command_queue_count &gt;=</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :                 conn-&gt;server-&gt;set.max_pipelined_commands) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :                 smtp_server_connection_input_halt(conn);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     441 </span>            :             }
+<span class="lineNum">     442 </span>            : 
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :             if (conn-&gt;command_queue_tail != NULL) {</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :                 pending_command = (conn-&gt;command_queue_tail-&gt;state ==</span>
+<span class="lineNum">     445 </span>            :                     SMTP_SERVER_COMMAND_STATE_SUBMITTED_REPLY ?
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :                         conn-&gt;command_queue_tail : NULL);</span>
+<span class="lineNum">     447 </span>            :             }
+<span class="lineNum">     448 </span>            :         }
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         if (ret &lt; 0 &amp;&amp; conn-&gt;conn.input-&gt;eof) {</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :             int stream_errno = conn-&gt;conn.input-&gt;stream_errno;</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :             if (stream_errno != 0 &amp;&amp; stream_errno != EPIPE &amp;&amp;</span>
+<span class="lineNum">     453 </span>            :                 stream_errno != ECONNRESET) {
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :                 smtp_server_connection_error(conn,</span>
+<span class="lineNum">     455 </span>            :                     &quot;Connection lost: read(%s) failed: %s&quot;,
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :                     i_stream_get_name(conn-&gt;conn.input),</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :                     i_stream_get_error(conn-&gt;conn.input));</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     459 </span>            :                     &quot;Read failure&quot;);
+<span class="lineNum">     460 </span>            :             } else {
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :                 smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     462 </span>            :                     &quot;Connection lost: Remote disconnected&quot;);
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :                 if (conn-&gt;command_queue_head == NULL) {</span>
+<span class="lineNum">     465 </span>            :                     /* no pending commands; close */
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :                     smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     467 </span>            :                         &quot;Remote closed connection&quot;);
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :                 } else if (conn-&gt;command_queue_head-&gt;state &lt;</span>
+<span class="lineNum">     469 </span>            :                     SMTP_SERVER_COMMAND_STATE_SUBMITTED_REPLY) {
+<span class="lineNum">     470 </span>            :                     /* unfinished command; close */
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :                     smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     472 </span>            :                         &quot;Remote closed connection unexpectedly&quot;);
+<span class="lineNum">     473 </span>            :                 } else {
+<span class="lineNum">     474 </span>            :                     /* a command is still processing;
+<span class="lineNum">     475 </span>            :                        only drop input io for now */
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :                     conn-&gt;input_broken = TRUE;</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :                     smtp_server_connection_input_halt(conn);</span>
+<span class="lineNum">     478 </span>            :                 }
+<span class="lineNum">     479 </span>            :             }
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     481 </span>            :         }
+<span class="lineNum">     482 </span>            : 
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     484 </span>            :             struct smtp_server_command *cmd;
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :             smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     487 </span>            :                 &quot;Client sent invalid command: %s&quot;, error);
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             switch (error_code) {</span>
+<span class="lineNum">     490 </span>            :             case SMTP_COMMAND_PARSE_ERROR_BROKEN_COMMAND:
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :                 conn-&gt;input_broken = TRUE;</span>
+<span class="lineNum">     492 </span>            :                 /* fall through */
+<span class="lineNum">     493 </span>            :             case SMTP_COMMAND_PARSE_ERROR_BAD_COMMAND:
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :                 cmd = smtp_server_command_alloc(conn);</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :                 smtp_server_command_fail(cmd,</span>
+<span class="lineNum">     496 </span>            :                     500, &quot;5.5.2&quot;, &quot;Invalid command syntax&quot;);
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     498 </span>            :             case SMTP_COMMAND_PARSE_ERROR_LINE_TOO_LONG:
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :                 cmd = smtp_server_command_alloc(conn);</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :                 smtp_server_command_fail(cmd,</span>
+<span class="lineNum">     501 </span>            :                     500, &quot;5.5.2&quot;, &quot;Line too long&quot;);
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     503 </span>            :             case SMTP_COMMAND_PARSE_ERROR_DATA_TOO_LARGE:
+<span class="lineNum">     504 </span>            :                 /* Command data size exceeds the absolute limit;
+<span class="lineNum">     505 </span>            :                    i.e. beyond which we don't even want to skip
+<span class="lineNum">     506 </span>            :                    data anymore. The command error is usually
+<span class="lineNum">     507 </span>            :                    already submitted by the application and sent
+<span class="lineNum">     508 </span>            :                    to the client. */
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     510 </span>            :                     &quot;Command data size exceeds absolute limit&quot;);
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     512 </span>            :             case SMTP_COMMAND_PARSE_ERROR_BROKEN_STREAM:
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     514 </span>            :                     &quot;Command data ended prematurely&quot;);
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     516 </span>            :             default:
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :                 i_unreached();</span>
+<span class="lineNum">     518 </span>            :             }
+<span class="lineNum">     519 </span>            :         }
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         if (conn-&gt;disconnected)</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :         if (conn-&gt;input_broken || conn-&gt;closing) {</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :             smtp_server_connection_input_halt(conn);</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     526 </span>            :         }
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :         if (ret == 0 &amp;&amp; pending_command != NULL &amp;&amp;</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :             !smtp_command_parser_pending_data(conn-&gt;smtp_parser)) {</span>
+<span class="lineNum">     530 </span>            :             /* previous command is now fully read and ready to
+<span class="lineNum">     531 </span>            :                reply */
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :             smtp_server_command_ready_to_reply(pending_command);</span>
+<span class="lineNum">     533 </span>            :         }
+<span class="lineNum">     534 </span>            :     }
+<a name="535"><span class="lineNum">     535 </span>            : }</a>
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 : static void smtp_server_connection_input(struct connection *_conn)</span>
+<span class="lineNum">     538 </span>            : {
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :     struct smtp_server_connection *conn =</span>
+<span class="lineNum">     540 </span>            :         (struct smtp_server_connection *)_conn;
+<span class="lineNum">     541 </span>            : 
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;input_broken);</span>
+<span class="lineNum">     543 </span>            : 
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :     if (conn-&gt;handling_input)</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     546 </span>            : 
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_reset(conn);</span>
+<span class="lineNum">     548 </span>            : 
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_start &amp;&amp; conn-&gt;ssl_iostream == NULL) {</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :         if (smtp_server_connection_ssl_init(conn) &lt; 0) {</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :             smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     552 </span>            :                 &quot;SSL Initialization failed&quot;);
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     554 </span>            :         }
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :         if (conn-&gt;halted) {</span>
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :             smtp_server_connection_input_lock(conn);</span>
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     558 </span>            :         }
+<span class="lineNum">     559 </span>            :     }
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;halted);</span>
+<span class="lineNum">     561 </span>            : 
+<span class="lineNum">     562 </span>            : 
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :     if (conn-&gt;command_queue_count &gt;</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :         conn-&gt;server-&gt;set.max_pipelined_commands) {</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :         smtp_server_connection_input_halt(conn);</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     567 </span>            :     }
+<span class="lineNum">     568 </span>            : 
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :     smtp_server_connection_ref(conn);</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :     conn-&gt;handling_input = TRUE;</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_cmd_input_pre != NULL) {</span>
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_cmd_input_pre(conn-&gt;context);</span>
+<span class="lineNum">     574 </span>            :     }
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     smtp_server_connection_handle_input(conn);</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :     if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_cmd_input_post != NULL) {</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_cmd_input_post(conn-&gt;context);</span>
+<span class="lineNum">     579 </span>            :     }
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :     conn-&gt;handling_input = FALSE;</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :     smtp_server_connection_unref(&amp;conn);</span>
+<a name="582"><span class="lineNum">     582 </span>            : }</a>
+<span class="lineNum">     583 </span>            : 
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 : bool smtp_server_connection_pending_command_data(</span>
+<span class="lineNum">     585 </span>            :     struct smtp_server_connection *conn)
+<span class="lineNum">     586 </span>            : {
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :     if (conn-&gt;smtp_parser == NULL)</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :     return smtp_command_parser_pending_data(conn-&gt;smtp_parser);</span>
+<span class="lineNum">     590 </span>            : }
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span>            : /*
+<span class="lineNum">     593 </span>            :  * Command reply handling
+<span class="lineNum">     594 </span>            :  */
+<a name="595"><span class="lineNum">     595 </span>            : </a>
+<span class="lineNum">     596 </span>            : static bool
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 : smtp_server_connection_next_reply(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     598 </span>            : {
+<span class="lineNum">     599 </span>            :     struct smtp_server_command *cmd;
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :     const char *error = NULL;</span>
+<span class="lineNum">     601 </span>            :     unsigned int i;
+<span class="lineNum">     602 </span>            : 
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :     cmd = conn-&gt;command_queue_head;</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :     if (cmd == NULL) {</span>
+<span class="lineNum">     605 </span>            :         /* no commands pending */
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :         smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     607 </span>            :             &quot;No more commands pending&quot;);
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     609 </span>            :     }
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :     if (cmd-&gt;state &lt; SMTP_SERVER_COMMAND_STATE_READY_TO_REPLY) {</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :         smtp_server_command_next_to_reply(cmd);</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     614 </span>            :     }
+<span class="lineNum">     615 </span>            : 
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :     i_assert(cmd-&gt;state == SMTP_SERVER_COMMAND_STATE_READY_TO_REPLY &amp;&amp;</span>
+<span class="lineNum">     617 </span>            :          array_is_created(&amp;cmd-&gt;replies));
+<span class="lineNum">     618 </span>            : 
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :     smtp_server_command_completed(cmd);</span>
+<span class="lineNum">     620 </span>            : 
+<span class="lineNum">     621 </span>            :     /* send command replies */
+<span class="lineNum">     622 </span>            :     // FIXME: handle LMTP DATA command with enormous number of recipients;
+<span class="lineNum">     623 </span>            :     // i.e. don't keep filling output stream with replies indefinitely.
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; cmd-&gt;replies_expected; i++) {</span>
+<span class="lineNum">     625 </span>            :         struct smtp_server_reply *reply;
+<span class="lineNum">     626 </span>            : 
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :         reply = array_idx_modifiable(&amp;cmd-&gt;replies, i);</span>
+<span class="lineNum">     628 </span>            : 
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :         if (!reply-&gt;submitted) {</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :             i_assert(!reply-&gt;sent);</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :             cmd-&gt;state = SMTP_SERVER_COMMAND_STATE_PROCESSING;</span>
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     633 </span>            :         }
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :         if (smtp_server_reply_send(reply, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :             if (error != NULL) {</span>
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :                 smtp_server_connection_error(conn,</span>
+<span class="lineNum">     637 </span>            :                     &quot;Failed to send reply: %s&quot;, error);
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     639 </span>            :                     &quot;Write failure&quot;);
+<span class="lineNum">     640 </span>            :             } else {
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :                 smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     642 </span>            :                     &quot;Failed to send reply: &quot;
+<span class="lineNum">     643 </span>            :                     &quot;Remote disconnected&quot;);
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     645 </span>            :                     &quot;Remote closed connection&quot;);
+<span class="lineNum">     646 </span>            :             }
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     648 </span>            :         }
+<span class="lineNum">     649 </span>            :     }
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :     if (cmd-&gt;state == SMTP_SERVER_COMMAND_STATE_PROCESSING)</span>
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     652 </span>            : 
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :     smtp_server_command_finished(cmd);</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="655"><span class="lineNum">     655 </span>            : }</a>
+<span class="lineNum">     656 </span>            : 
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 : void smtp_server_connection_cork(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     658 </span>            : {
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :     conn-&gt;corked = TRUE;</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.output != NULL)</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :         o_stream_cork(conn-&gt;conn.output);</span>
+<a name="662"><span class="lineNum">     662 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     663 </span>            : 
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 : void smtp_server_connection_uncork(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     665 </span>            : {
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.output != NULL) {</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :         o_stream_uncork(conn-&gt;conn.output);</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :         smtp_server_connection_trigger_output(conn);</span>
+<span class="lineNum">     669 </span>            :     }
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :     conn-&gt;corked = FALSE;</span>
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 : }</span>
+<a name="672"><span class="lineNum">     672 </span>            : </a>
+<span class="lineNum">     673 </span>            : static void
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 : smtp_server_connection_send_replies(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     675 </span>            : {
+<span class="lineNum">     676 </span>            :     /* send more replies until no more replies remain, the output
+<span class="lineNum">     677 </span>            :        blocks again, or the connection is closed */
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :     while (!conn-&gt;disconnected &amp;&amp; smtp_server_connection_next_reply(conn));</span>
+<span class="lineNum">     679 </span>            : 
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_update(conn);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span>            :     /* accept more commands if possible */
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :     smtp_server_connection_input_resume(conn);</span>
+<a name="684"><span class="lineNum">     684 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     685 </span>            : 
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 : int smtp_server_connection_flush(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     687 </span>            : {
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :     struct ostream *output = conn-&gt;conn.output;</span>
+<span class="lineNum">     689 </span>            :     int ret;
+<span class="lineNum">     690 </span>            : 
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     if ((ret = o_stream_flush(output)) &lt;= 0) {</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :             if (errno != EPIPE &amp;&amp; errno != ECONNRESET) {</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :                 smtp_server_connection_error(conn,</span>
+<span class="lineNum">     695 </span>            :                     &quot;Connection lost: write(%s) failed: %s&quot;,
+<span class="lineNum">     696 </span>            :                     o_stream_get_name(output),
+<span class="lineNum">     697 </span>            :                     o_stream_get_error(output));
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     699 </span>            :                     &quot;Write failure&quot;);
+<span class="lineNum">     700 </span>            :             } else {
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :                 smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     702 </span>            :                     &quot;Connection lost: Remote disconnected&quot;);
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :                 smtp_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     704 </span>            :                     &quot;Remote closed connection unexpectedly&quot;);
+<span class="lineNum">     705 </span>            :             }
+<span class="lineNum">     706 </span>            :         }
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     708 </span>            :     }
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     710 </span>            : }
+<a name="711"><span class="lineNum">     711 </span>            : </a>
+<span class="lineNum">     712 </span>            : static int
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 : smtp_server_connection_output(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     714 </span>            : {
+<span class="lineNum">     715 </span>            :     int ret;
+<span class="lineNum">     716 </span>            : 
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     718 </span>            :         &quot;Sending replies&quot;);
+<span class="lineNum">     719 </span>            : 
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :     smtp_server_connection_ref(conn);</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :     o_stream_cork(conn-&gt;conn.output);</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :     if ((ret=smtp_server_connection_flush(conn)) &gt; 0) {</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :         smtp_server_connection_timeout_reset(conn);</span>
+<span class="lineNum">     724 </span><span class="lineNoCov">          0 :         smtp_server_connection_send_replies(conn);</span>
+<span class="lineNum">     725 </span>            :     }
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :     if (!conn-&gt;corked &amp;&amp; conn-&gt;conn.output != NULL)</span>
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :         o_stream_uncork(conn-&gt;conn.output);</span>
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :     smtp_server_connection_unref(&amp;conn);</span>
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="730"><span class="lineNum">     730 </span>            : }</a>
+<span class="lineNum">     731 </span>            : 
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 : void smtp_server_connection_trigger_output(</span>
+<span class="lineNum">     733 </span>            :     struct smtp_server_connection *conn)
+<span class="lineNum">     734 </span>            : {
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.output != NULL) {</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         smtp_server_connection_debug(conn,</span>
+<span class="lineNum">     737 </span>            :             &quot;Trigger output&quot;);
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :         o_stream_set_flush_pending(conn-&gt;conn.output, TRUE);</span>
+<span class="lineNum">     739 </span>            :     }
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     741 </span>            : 
+<span class="lineNum">     742 </span>            : 
+<span class="lineNum">     743 </span>            : /*
+<span class="lineNum">     744 </span>            :  *
+<span class="lineNum">     745 </span>            :  */
+<span class="lineNum">     746 </span>            : 
+<span class="lineNum">     747 </span>            : static struct connection_settings smtp_server_connection_set = {
+<span class="lineNum">     748 </span>            :     .input_max_size = (size_t)-1,
+<span class="lineNum">     749 </span>            :     .output_max_size = (size_t)-1,
+<span class="lineNum">     750 </span>            :     .client = FALSE
+<span class="lineNum">     751 </span>            : };
+<span class="lineNum">     752 </span>            : 
+<span class="lineNum">     753 </span>            : static const struct connection_vfuncs smtp_server_connection_vfuncs = {
+<span class="lineNum">     754 </span>            :     .destroy = smtp_server_connection_destroy,
+<span class="lineNum">     755 </span>            :     .input = smtp_server_connection_input
+<span class="lineNum">     756 </span>            : };
+<a name="757"><span class="lineNum">     757 </span>            : </a>
+<span class="lineNum">     758 </span>            : struct connection_list *
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 : smtp_server_connection_list_init(void)</span>
+<span class="lineNum">     760 </span>            : {
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :     return connection_list_init(&amp;smtp_server_connection_set,</span>
+<span class="lineNum">     762 </span>            :         &amp;smtp_server_connection_vfuncs);
+<span class="lineNum">     763 </span>            : }
+<a name="764"><span class="lineNum">     764 </span>            : </a>
+<span class="lineNum">     765 </span>            : static struct smtp_server_connection * ATTR_NULL(5, 6)
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 : smtp_server_connection_alloc(struct smtp_server *server,</span>
+<span class="lineNum">     767 </span>            :     const struct smtp_server_settings *set, int fd_in, int fd_out,
+<span class="lineNum">     768 </span>            :     const struct ip_addr *remote_ip, in_port_t remote_port,
+<span class="lineNum">     769 </span>            :     const struct smtp_server_callbacks *callbacks, void *context)
+<span class="lineNum">     770 </span>            : {
+<span class="lineNum">     771 </span>            :     static unsigned int id = 0;
+<span class="lineNum">     772 </span>            :     struct smtp_server_connection *conn;
+<span class="lineNum">     773 </span>            :     pool_t pool;
+<span class="lineNum">     774 </span>            : 
+<span class="lineNum">     775 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;smtp server&quot;, 512);</span>
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :     conn = p_new(pool, struct smtp_server_connection, 1);</span>
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :     conn-&gt;pool = pool;</span>
+<span class="lineNum">     778 </span><span class="lineNoCov">          0 :     conn-&gt;refcount = 1;</span>
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :     conn-&gt;id = id++;</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :     conn-&gt;server = server;</span>
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :     conn-&gt;callbacks = callbacks;</span>
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :     conn-&gt;context = context;</span>
+<span class="lineNum">     783 </span>            : 
+<span class="lineNum">     784 </span>            :     /* merge settings with global server settings */
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :     conn-&gt;set = server-&gt;set;</span>
+<span class="lineNum">     786 </span><span class="lineNoCov">          0 :     if (set != NULL) {</span>
+<span class="lineNum">     787 </span><span class="lineNoCov">          0 :         conn-&gt;set.protocol = server-&gt;set.protocol;</span>
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 :         if (set-&gt;rawlog_dir != NULL &amp;&amp; *set-&gt;rawlog_dir != '\0')</span>
+<span class="lineNum">     789 </span><span class="lineNoCov">          0 :             conn-&gt;set.rawlog_dir = p_strdup(pool, set-&gt;rawlog_dir);</span>
+<span class="lineNum">     790 </span><span class="lineNoCov">          0 :         if (set-&gt;hostname != NULL &amp;&amp; *set-&gt;hostname != '\0')</span>
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :             conn-&gt;set.hostname = p_strdup(pool, set-&gt;hostname);</span>
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :         if (set-&gt;login_greeting != NULL &amp;&amp;</span>
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :             *set-&gt;login_greeting != '\0') {</span>
+<span class="lineNum">     794 </span><span class="lineNoCov">          0 :             conn-&gt;set.login_greeting =</span>
+<span class="lineNum">     795 </span><span class="lineNoCov">          0 :                 p_strdup(pool, set-&gt;login_greeting);</span>
+<span class="lineNum">     796 </span>            :         }
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 :         if (set-&gt;capabilities != 0)</span>
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :             conn-&gt;set.capabilities = set-&gt;capabilities;</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :         if (set-&gt;max_client_idle_time_msecs &gt; 0) {</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :             conn-&gt;set.max_client_idle_time_msecs =</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :                 set-&gt;max_client_idle_time_msecs;</span>
+<span class="lineNum">     802 </span>            :         }
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :         if (set-&gt;max_pipelined_commands &gt; 0) {</span>
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :             conn-&gt;set.max_pipelined_commands =</span>
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :                 set-&gt;max_pipelined_commands;</span>
+<span class="lineNum">     806 </span>            :         }
+<span class="lineNum">     807 </span><span class="lineNoCov">          0 :         if (set-&gt;max_bad_commands &gt; 0) {</span>
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :             conn-&gt;set.max_bad_commands = set-&gt;max_bad_commands;</span>
+<span class="lineNum">     809 </span>            :         }
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :         if (set-&gt;max_recipients &gt; 0)</span>
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 :             conn-&gt;set.max_recipients = set-&gt;max_recipients;</span>
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :         smtp_command_limits_merge(&amp;conn-&gt;set.command_limits,</span>
+<span class="lineNum">     813 </span>            :                       &amp;set-&gt;command_limits);
+<span class="lineNum">     814 </span>            : 
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :         if (set-&gt;xclient_extensions != NULL) {</span>
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :             server-&gt;set.xclient_extensions =</span>
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :                 p_strarray_dup(pool, set-&gt;xclient_extensions);</span>
+<span class="lineNum">     818 </span>            :         }
+<span class="lineNum">     819 </span>            : 
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :         if (set-&gt;socket_send_buffer_size &gt; 0) {</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :             conn-&gt;set.socket_send_buffer_size =</span>
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :                 set-&gt;socket_send_buffer_size;</span>
+<span class="lineNum">     823 </span>            :         }
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :         if (set-&gt;socket_recv_buffer_size &gt; 0) {</span>
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :             conn-&gt;set.socket_recv_buffer_size =</span>
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :                 set-&gt;socket_recv_buffer_size;</span>
+<span class="lineNum">     827 </span>            :         }
+<span class="lineNum">     828 </span>            : 
+<span class="lineNum">     829 </span><span class="lineNoCov">          0 :         conn-&gt;set.tls_required =</span>
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :             conn-&gt;set.tls_required || set-&gt;tls_required;</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :         conn-&gt;set.auth_optional =</span>
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :             conn-&gt;set.auth_optional || set-&gt;auth_optional;</span>
+<span class="lineNum">     833 </span><span class="lineNoCov">          0 :         conn-&gt;set.rcpt_domain_optional =</span>
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :             conn-&gt;set.rcpt_domain_optional ||</span>
+<span class="lineNum">     835 </span><span class="lineNoCov">          0 :                 set-&gt;rcpt_domain_optional;</span>
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :         conn-&gt;set.param_extensions =</span>
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :             conn-&gt;set.param_extensions || set-&gt;param_extensions;</span>
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :         conn-&gt;set.debug = conn-&gt;set.debug || set-&gt;debug;</span>
+<span class="lineNum">     839 </span>            :     }
+<span class="lineNum">     840 </span>            : 
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :     conn-&gt;remote_pid = (pid_t)-1;</span>
+<span class="lineNum">     842 </span><span class="lineNoCov">          0 :     conn-&gt;remote_uid = (uid_t)-1;</span>
+<span class="lineNum">     843 </span><span class="lineNoCov">          0 :     if (remote_ip != NULL &amp;&amp; remote_ip-&gt;family != 0) {</span>
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :         conn-&gt;remote_ip = *remote_ip;</span>
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :         conn-&gt;remote_port = remote_port;</span>
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 :         conn-&gt;socket_family = conn-&gt;remote_ip.family;</span>
+<span class="lineNum">     847 </span><span class="lineNoCov">          0 :     } else if (fd_in != fd_out || net_getpeername(fd_in,</span>
+<span class="lineNum">     848 </span>            :         &amp;conn-&gt;remote_ip, &amp;conn-&gt;remote_port) &lt; 0) {
+<span class="lineNum">     849 </span>            :         /* tty connection probably */
+<span class="lineNum">     850 </span>            :     } else {
+<span class="lineNum">     851 </span><span class="lineNoCov">          0 :         if (conn-&gt;remote_ip.family == 0) {</span>
+<span class="lineNum">     852 </span>            :             struct net_unix_cred cred;
+<span class="lineNum">     853 </span>            : 
+<span class="lineNum">     854 </span>            :             /* unix */
+<span class="lineNum">     855 </span><span class="lineNoCov">          0 :             conn-&gt;socket_family = AF_UNIX;</span>
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 :             if (net_getunixcred(fd_in, &amp;cred) &gt;= 0) {</span>
+<span class="lineNum">     857 </span><span class="lineNoCov">          0 :                 conn-&gt;remote_pid = cred.pid;</span>
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :                 conn-&gt;remote_uid = cred.uid;</span>
+<span class="lineNum">     859 </span>            :             }
+<span class="lineNum">     860 </span>            :         } else {
+<span class="lineNum">     861 </span>            :             /* ip / ip6 */
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 :             conn-&gt;socket_family = conn-&gt;remote_ip.family;</span>
+<span class="lineNum">     863 </span>            :         }
+<span class="lineNum">     864 </span>            :     }
+<span class="lineNum">     865 </span>            : 
+<span class="lineNum">     866 </span><span class="lineNoCov">          0 :     net_set_nonblock(fd_in, TRUE);</span>
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :     if (fd_in != fd_out)</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :         net_set_nonblock(fd_out, TRUE);</span>
+<span class="lineNum">     869 </span><span class="lineNoCov">          0 :     (void)net_set_tcp_nodelay(fd_out, TRUE);</span>
+<span class="lineNum">     870 </span>            : 
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :     set = &amp;conn-&gt;set;</span>
+<span class="lineNum">     872 </span><span class="lineNoCov">          0 :     if (set-&gt;socket_send_buffer_size &gt; 0) {</span>
+<span class="lineNum">     873 </span><span class="lineNoCov">          0 :         if (net_set_send_buffer_size(fd_out,</span>
+<span class="lineNum">     874 </span>            :             set-&gt;socket_send_buffer_size) &lt; 0)
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :             i_error(&quot;net_set_send_buffer_size(%&quot;PRIuSIZE_T&quot;) failed: %m&quot;,</span>
+<span class="lineNum">     876 </span>            :                 set-&gt;socket_send_buffer_size);
+<span class="lineNum">     877 </span>            :     }
+<span class="lineNum">     878 </span><span class="lineNoCov">          0 :     if (set-&gt;socket_recv_buffer_size &gt; 0) {</span>
+<span class="lineNum">     879 </span><span class="lineNoCov">          0 :         if (net_set_recv_buffer_size(fd_in,</span>
+<span class="lineNum">     880 </span>            :             set-&gt;socket_recv_buffer_size) &lt; 0)
+<span class="lineNum">     881 </span><span class="lineNoCov">          0 :             i_error(&quot;net_set_recv_buffer_size(%&quot;PRIuSIZE_T&quot;) failed: %m&quot;,</span>
+<span class="lineNum">     882 </span>            :                 set-&gt;socket_recv_buffer_size);
+<span class="lineNum">     883 </span>            :     }
+<span class="lineNum">     884 </span>            : 
+<span class="lineNum">     885 </span><span class="lineNoCov">          0 :     return conn;</span>
+<span class="lineNum">     886 </span>            : }
+<a name="887"><span class="lineNum">     887 </span>            : </a>
+<span class="lineNum">     888 </span>            : static const char *
+<span class="lineNum">     889 </span><span class="lineNoCov">          0 : smtp_server_connection_get_name(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     890 </span>            : {
+<span class="lineNum">     891 </span>            :     const char *name;
+<span class="lineNum">     892 </span>            : 
+<span class="lineNum">     893 </span>            :     /* get a name for this connection */
+<span class="lineNum">     894 </span><span class="lineNoCov">          0 :     switch (conn-&gt;socket_family) {</span>
+<span class="lineNum">     895 </span>            :     case 0:
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :         name = t_strdup_printf(&quot;[%u]&quot;, conn-&gt;id);</span>
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     898 </span>            :     case AF_UNIX:
+<span class="lineNum">     899 </span><span class="lineNoCov">          0 :         if (conn-&gt;remote_uid == (uid_t)-1) {</span>
+<span class="lineNum">     900 </span><span class="lineNoCov">          0 :             name = t_strdup_printf(&quot;unix [%u]&quot;, conn-&gt;id);</span>
+<span class="lineNum">     901 </span><span class="lineNoCov">          0 :         } else if (conn-&gt;remote_pid == (pid_t)-1) {</span>
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :             name = t_strdup_printf(&quot;unix:uid=%u [%u]&quot;,</span>
+<span class="lineNum">     903 </span>            :                 conn-&gt;remote_uid, conn-&gt;id);
+<span class="lineNum">     904 </span>            :         } else {
+<span class="lineNum">     905 </span><span class="lineNoCov">          0 :             name = t_strdup_printf(&quot;unix:pid=%u,uid=%u [%u]&quot;,</span>
+<span class="lineNum">     906 </span>            :                 conn-&gt;remote_pid, conn-&gt;remote_uid, conn-&gt;id);
+<span class="lineNum">     907 </span>            :         }
+<span class="lineNum">     908 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     909 </span>            :     case AF_INET6:
+<span class="lineNum">     910 </span><span class="lineNoCov">          0 :         name = t_strdup_printf(&quot;[%s]:%u [%u]&quot;,</span>
+<span class="lineNum">     911 </span><span class="lineNoCov">          0 :             net_ip2addr(&amp;conn-&gt;remote_ip), conn-&gt;remote_port, conn-&gt;id);</span>
+<span class="lineNum">     912 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     913 </span>            :     case AF_INET:
+<span class="lineNum">     914 </span><span class="lineNoCov">          0 :         name = t_strdup_printf(&quot;%s:%u [%u]&quot;,</span>
+<span class="lineNum">     915 </span><span class="lineNoCov">          0 :             net_ip2addr(&amp;conn-&gt;remote_ip), conn-&gt;remote_port, conn-&gt;id);</span>
+<span class="lineNum">     916 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     917 </span>            :     default:
+<span class="lineNum">     918 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     919 </span>            :     }
+<span class="lineNum">     920 </span>            : 
+<span class="lineNum">     921 </span><span class="lineNoCov">          0 :     return name;</span>
+<span class="lineNum">     922 </span>            : }
+<a name="923"><span class="lineNum">     923 </span>            : </a>
+<span class="lineNum">     924 </span>            : struct smtp_server_connection *
+<span class="lineNum">     925 </span><span class="lineNoCov">          0 : smtp_server_connection_create(struct smtp_server *server,</span>
+<span class="lineNum">     926 </span>            :     int fd_in, int fd_out,
+<span class="lineNum">     927 </span>            :     const struct ip_addr *remote_ip, in_port_t remote_port,
+<span class="lineNum">     928 </span>            :     bool ssl_start, const struct smtp_server_settings *set,
+<span class="lineNum">     929 </span>            :     const struct smtp_server_callbacks *callbacks, void *context)
+<span class="lineNum">     930 </span>            : {
+<span class="lineNum">     931 </span>            :     struct smtp_server_connection *conn;
+<span class="lineNum">     932 </span>            :     const char *name;
+<span class="lineNum">     933 </span>            : 
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 :     conn = smtp_server_connection_alloc(server,</span>
+<span class="lineNum">     935 </span>            :         set, fd_in, fd_out, remote_ip, remote_port,
+<span class="lineNum">     936 </span>            :         callbacks, context);
+<span class="lineNum">     937 </span><span class="lineNoCov">          0 :     name = smtp_server_connection_get_name(conn);</span>
+<span class="lineNum">     938 </span><span class="lineNoCov">          0 :     connection_init_server(server-&gt;conn_list,</span>
+<span class="lineNum">     939 </span>            :         &amp;conn-&gt;conn, name, fd_in, fd_out);
+<span class="lineNum">     940 </span>            : 
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :     conn-&gt;ssl_start = ssl_start;</span>
+<span class="lineNum">     942 </span><span class="lineNoCov">          0 :     if (ssl_start)</span>
+<span class="lineNum">     943 </span><span class="lineNoCov">          0 :         conn-&gt;set.capabilities &amp;= ~SMTP_CAPABILITY_STARTTLS;</span>
+<span class="lineNum">     944 </span>            : 
+<span class="lineNum">     945 </span>            :     /* halt input until started */
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 :     smtp_server_connection_halt(conn);</span>
+<span class="lineNum">     947 </span>            : 
+<span class="lineNum">     948 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Connection created&quot;);</span>
+<span class="lineNum">     949 </span>            : 
+<span class="lineNum">     950 </span><span class="lineNoCov">          0 :     return conn;</span>
+<span class="lineNum">     951 </span>            : }
+<a name="952"><span class="lineNum">     952 </span>            : </a>
+<span class="lineNum">     953 </span>            : struct smtp_server_connection *
+<span class="lineNum">     954 </span><span class="lineNoCov">          0 : smtp_server_connection_create_from_streams(struct smtp_server *server,</span>
+<span class="lineNum">     955 </span>            :     struct istream *input, struct ostream *output,
+<span class="lineNum">     956 </span>            :     const struct ip_addr *remote_ip, in_port_t remote_port,
+<span class="lineNum">     957 </span>            :     const struct smtp_server_settings *set,
+<span class="lineNum">     958 </span>            :     const struct smtp_server_callbacks *callbacks, void *context)
+<span class="lineNum">     959 </span>            : {
+<span class="lineNum">     960 </span>            :     struct smtp_server_connection *conn;
+<span class="lineNum">     961 </span>            :     const char *name;
+<span class="lineNum">     962 </span>            :     int fd_in, fd_out;
+<span class="lineNum">     963 </span>            : 
+<span class="lineNum">     964 </span><span class="lineNoCov">          0 :     fd_in = i_stream_get_fd(input);</span>
+<span class="lineNum">     965 </span><span class="lineNoCov">          0 :     fd_out = o_stream_get_fd(output);</span>
+<span class="lineNum">     966 </span><span class="lineNoCov">          0 :     i_assert(fd_in &gt;= 0);</span>
+<span class="lineNum">     967 </span><span class="lineNoCov">          0 :     i_assert(fd_out &gt;= 0);</span>
+<span class="lineNum">     968 </span>            : 
+<span class="lineNum">     969 </span><span class="lineNoCov">          0 :     conn = smtp_server_connection_alloc(server, set,</span>
+<span class="lineNum">     970 </span>            :         fd_in, fd_out, remote_ip, remote_port,
+<span class="lineNum">     971 </span>            :         callbacks, context);
+<span class="lineNum">     972 </span><span class="lineNoCov">          0 :     name = smtp_server_connection_get_name(conn);</span>
+<span class="lineNum">     973 </span><span class="lineNoCov">          0 :     connection_init_from_streams(server-&gt;conn_list,</span>
+<span class="lineNum">     974 </span>            :         &amp;conn-&gt;conn, name, input, output);
+<span class="lineNum">     975 </span><span class="lineNoCov">          0 :     conn-&gt;created_from_streams = TRUE;</span>
+<span class="lineNum">     976 </span>            : 
+<span class="lineNum">     977 </span>            :     /* halt input until started */
+<span class="lineNum">     978 </span><span class="lineNoCov">          0 :     smtp_server_connection_halt(conn);</span>
+<span class="lineNum">     979 </span>            : 
+<span class="lineNum">     980 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Connection created&quot;);</span>
+<span class="lineNum">     981 </span>            : 
+<span class="lineNum">     982 </span><span class="lineNoCov">          0 :     return conn;</span>
+<a name="983"><span class="lineNum">     983 </span>            : }</a>
+<span class="lineNum">     984 </span>            : 
+<span class="lineNum">     985 </span><span class="lineNoCov">          0 : void smtp_server_connection_ref(struct smtp_server_connection *conn)</span>
+<span class="lineNum">     986 </span>            : {
+<span class="lineNum">     987 </span><span class="lineNoCov">          0 :     conn-&gt;refcount++;</span>
+<span class="lineNum">     988 </span><span class="lineNoCov">          0 : }</span>
+<a name="989"><span class="lineNum">     989 </span>            : </a>
+<span class="lineNum">     990 </span>            : static const char *
+<span class="lineNum">     991 </span><span class="lineNoCov">          0 : smtp_server_connection_get_disconnect_reason(</span>
+<span class="lineNum">     992 </span>            :     struct smtp_server_connection *conn)
+<span class="lineNum">     993 </span>            : {
+<span class="lineNum">     994 </span>            :     const char *err;
+<span class="lineNum">     995 </span>            : 
+<span class="lineNum">     996 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream != NULL &amp;&amp;</span>
+<span class="lineNum">     997 </span><span class="lineNoCov">          0 :         !ssl_iostream_is_handshaked(conn-&gt;ssl_iostream)) {</span>
+<span class="lineNum">     998 </span><span class="lineNoCov">          0 :         err = ssl_iostream_get_last_error(conn-&gt;ssl_iostream);</span>
+<span class="lineNum">     999 </span><span class="lineNoCov">          0 :         if (err != NULL) {</span>
+<span class="lineNum">    1000 </span><span class="lineNoCov">          0 :             return t_strdup_printf(</span>
+<span class="lineNum">    1001 </span>            :                 &quot;TLS handshaking failed: %s&quot;, err);
+<span class="lineNum">    1002 </span>            :         }
+<span class="lineNum">    1003 </span>            :     }
+<span class="lineNum">    1004 </span>            : 
+<span class="lineNum">    1005 </span><span class="lineNoCov">          0 :     return io_stream_get_disconnect_reason(conn-&gt;conn.input,</span>
+<span class="lineNum">    1006 </span>            :                            conn-&gt;conn.output);
+<span class="lineNum">    1007 </span>            : }
+<a name="1008"><span class="lineNum">    1008 </span>            : </a>
+<span class="lineNum">    1009 </span>            : static void
+<span class="lineNum">    1010 </span><span class="lineNoCov">          0 : smtp_server_connection_disconnect(struct smtp_server_connection *conn,</span>
+<span class="lineNum">    1011 </span>            :                   const char *reason)
+<span class="lineNum">    1012 </span>            : {
+<span class="lineNum">    1013 </span><span class="lineNoCov">          0 :     if (conn-&gt;disconnected)</span>
+<span class="lineNum">    1014 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1015 </span><span class="lineNoCov">          0 :     conn-&gt;disconnected = TRUE;</span>
+<span class="lineNum">    1016 </span>            : 
+<span class="lineNum">    1017 </span><span class="lineNoCov">          0 :     if (reason == NULL)</span>
+<span class="lineNum">    1018 </span><span class="lineNoCov">          0 :         reason = smtp_server_connection_get_disconnect_reason(conn);</span>
+<span class="lineNum">    1019 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Disconnected: %s&quot;, reason);</span>
+<span class="lineNum">    1020 </span><span class="lineNoCov">          0 :     conn-&gt;disconnect_reason = i_strdup(reason);</span>
+<span class="lineNum">    1021 </span>            : 
+<span class="lineNum">    1022 </span>            :     /* preserve statistics */
+<span class="lineNum">    1023 </span><span class="lineNoCov">          0 :     smtp_server_connection_update_stats(conn);</span>
+<span class="lineNum">    1024 </span>            : 
+<span class="lineNum">    1025 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_stop(conn);</span>
+<span class="lineNum">    1026 </span><span class="lineNoCov">          0 :     if (conn-&gt;conn.output != NULL)</span>
+<span class="lineNum">    1027 </span><span class="lineNoCov">          0 :         o_stream_uncork(conn-&gt;conn.output);</span>
+<span class="lineNum">    1028 </span><span class="lineNoCov">          0 :     if (conn-&gt;smtp_parser != NULL)</span>
+<span class="lineNum">    1029 </span><span class="lineNoCov">          0 :         smtp_command_parser_deinit(&amp;conn-&gt;smtp_parser);</span>
+<span class="lineNum">    1030 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream != NULL)</span>
+<span class="lineNum">    1031 </span><span class="lineNoCov">          0 :         ssl_iostream_destroy(&amp;conn-&gt;ssl_iostream);</span>
+<span class="lineNum">    1032 </span>            : 
+<span class="lineNum">    1033 </span><span class="lineNoCov">          0 :     if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">    1034 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_disconnect != NULL) {</span>
+<span class="lineNum">    1035 </span>            :         /* the callback may close the fd, so remove IO before that */
+<span class="lineNum">    1036 </span><span class="lineNoCov">          0 :         io_remove(&amp;conn-&gt;conn.io);</span>
+<span class="lineNum">    1037 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_disconnect(conn-&gt;context,</span>
+<span class="lineNum">    1038 </span>            :                          reason);
+<span class="lineNum">    1039 </span>            :     }
+<span class="lineNum">    1040 </span>            : 
+<span class="lineNum">    1041 </span><span class="lineNoCov">          0 :     if (!conn-&gt;created_from_streams)</span>
+<span class="lineNum">    1042 </span><span class="lineNoCov">          0 :         connection_disconnect(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1043 </span>            :     else {
+<span class="lineNum">    1044 </span><span class="lineNoCov">          0 :         conn-&gt;conn.fd_in = conn-&gt;conn.fd_out = -1;</span>
+<span class="lineNum">    1045 </span><span class="lineNoCov">          0 :         io_remove(&amp;conn-&gt;conn.io);</span>
+<span class="lineNum">    1046 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;conn-&gt;conn.input);</span>
+<span class="lineNum">    1047 </span><span class="lineNoCov">          0 :         o_stream_unref(&amp;conn-&gt;conn.output);</span>
+<span class="lineNum">    1048 </span>            :     }
+<a name="1049"><span class="lineNum">    1049 </span>            : }</a>
+<span class="lineNum">    1050 </span>            : 
+<span class="lineNum">    1051 </span><span class="lineNoCov">          0 : bool smtp_server_connection_unref(struct smtp_server_connection **_conn)</span>
+<span class="lineNum">    1052 </span>            : {
+<span class="lineNum">    1053 </span><span class="lineNoCov">          0 :     struct smtp_server_connection *conn = *_conn;</span>
+<span class="lineNum">    1054 </span>            :     struct smtp_server_command *cmd, *cmd_next;
+<span class="lineNum">    1055 </span>            : 
+<span class="lineNum">    1056 </span><span class="lineNoCov">          0 :     *_conn = NULL;</span>
+<span class="lineNum">    1057 </span>            : 
+<span class="lineNum">    1058 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;refcount &gt; 0);</span>
+<span class="lineNum">    1059 </span><span class="lineNoCov">          0 :     if (--conn-&gt;refcount &gt; 0)</span>
+<span class="lineNum">    1060 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">    1061 </span>            : 
+<span class="lineNum">    1062 </span><span class="lineNoCov">          0 :     smtp_server_connection_disconnect(conn, NULL);</span>
+<span class="lineNum">    1063 </span>            : 
+<span class="lineNum">    1064 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Connection destroy&quot;);</span>
+<span class="lineNum">    1065 </span>            : 
+<span class="lineNum">    1066 </span>            :     /* drop transaction */
+<span class="lineNum">    1067 </span><span class="lineNoCov">          0 :     smtp_server_connection_reset_state(conn);</span>
+<span class="lineNum">    1068 </span>            : 
+<span class="lineNum">    1069 </span>            :     /* clear command queue */
+<span class="lineNum">    1070 </span><span class="lineNoCov">          0 :     cmd = conn-&gt;command_queue_head;</span>
+<span class="lineNum">    1071 </span><span class="lineNoCov">          0 :     while (cmd != NULL) {</span>
+<span class="lineNum">    1072 </span><span class="lineNoCov">          0 :         cmd_next = cmd-&gt;next;</span>
+<span class="lineNum">    1073 </span><span class="lineNoCov">          0 :         smtp_server_command_abort(&amp;cmd);</span>
+<span class="lineNum">    1074 </span><span class="lineNoCov">          0 :         cmd = cmd_next;</span>
+<span class="lineNum">    1075 </span>            :     }
+<span class="lineNum">    1076 </span>            : 
+<span class="lineNum">    1077 </span><span class="lineNoCov">          0 :     if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">    1078 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_destroy != NULL)</span>
+<span class="lineNum">    1079 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_destroy(conn-&gt;context);</span>
+<span class="lineNum">    1080 </span>            : 
+<span class="lineNum">    1081 </span><span class="lineNoCov">          0 :     connection_deinit(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1082 </span>            : 
+<span class="lineNum">    1083 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;helo_domain);</span>
+<span class="lineNum">    1084 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;helo_login);</span>
+<span class="lineNum">    1085 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;username);</span>
+<span class="lineNum">    1086 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;disconnect_reason);</span>
+<span class="lineNum">    1087 </span><span class="lineNoCov">          0 :     pool_unref(&amp;conn-&gt;pool);</span>
+<span class="lineNum">    1088 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="1089"><span class="lineNum">    1089 </span>            : }</a>
+<span class="lineNum">    1090 </span>            : 
+<span class="lineNum">    1091 </span><span class="lineNoCov">          0 : void smtp_server_connection_send_line(struct smtp_server_connection *conn,</span>
+<span class="lineNum">    1092 </span>            :                       const char *fmt, ...)
+<span class="lineNum">    1093 </span>            : {
+<span class="lineNum">    1094 </span>            :     va_list args;
+<span class="lineNum">    1095 </span>            : 
+<span class="lineNum">    1096 </span><span class="lineNoCov">          0 :     va_start(args, fmt);</span>
+<span class="lineNum">    1097 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">    1098 </span>            :         string_t *str;
+<span class="lineNum">    1099 </span>            : 
+<span class="lineNum">    1100 </span><span class="lineNoCov">          0 :         str = t_str_new(256);</span>
+<span class="lineNum">    1101 </span><span class="lineNoCov">          0 :         str_vprintfa(str, fmt, args);</span>
+<span class="lineNum">    1102 </span><span class="lineNoCov">          0 :         str_append(str, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1103 </span><span class="lineNoCov">          0 :         o_stream_nsend(conn-&gt;conn.output, str_data(str), str_len(str));</span>
+<span class="lineNum">    1104 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">    1105 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<a name="1106"><span class="lineNum">    1106 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1107 </span>            : 
+<span class="lineNum">    1108 </span><span class="lineNoCov">          0 : void smtp_server_connection_reply_immediate(</span>
+<span class="lineNum">    1109 </span>            :     struct smtp_server_connection *conn,
+<span class="lineNum">    1110 </span>            :     unsigned int status, const char *fmt, ...)
+<span class="lineNum">    1111 </span>            : {
+<span class="lineNum">    1112 </span>            :     va_list args;
+<span class="lineNum">    1113 </span>            : 
+<span class="lineNum">    1114 </span><span class="lineNoCov">          0 :     va_start(args, fmt);</span>
+<span class="lineNum">    1115 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">    1116 </span>            :         string_t *str;
+<span class="lineNum">    1117 </span>            : 
+<span class="lineNum">    1118 </span><span class="lineNoCov">          0 :         str = t_str_new(256);</span>
+<span class="lineNum">    1119 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;%03u &quot;, status);</span>
+<span class="lineNum">    1120 </span><span class="lineNoCov">          0 :         str_vprintfa(str, fmt, args);</span>
+<span class="lineNum">    1121 </span><span class="lineNoCov">          0 :         str_append(str, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1122 </span><span class="lineNoCov">          0 :         o_stream_nsend(conn-&gt;conn.output, str_data(str), str_len(str));</span>
+<span class="lineNum">    1123 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">    1124 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<span class="lineNum">    1125 </span>            : 
+<span class="lineNum">    1126 </span>            :     /* send immediately */
+<span class="lineNum">    1127 </span><span class="lineNoCov">          0 :     if (o_stream_is_corked(conn-&gt;conn.output)) {</span>
+<span class="lineNum">    1128 </span><span class="lineNoCov">          0 :         o_stream_uncork(conn-&gt;conn.output);</span>
+<span class="lineNum">    1129 </span><span class="lineNoCov">          0 :         o_stream_cork(conn-&gt;conn.output);</span>
+<span class="lineNum">    1130 </span>            :     }
+<a name="1131"><span class="lineNum">    1131 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1132 </span>            : 
+<span class="lineNum">    1133 </span><span class="lineNoCov">          0 : void smtp_server_connection_login(struct smtp_server_connection *conn,</span>
+<span class="lineNum">    1134 </span>            :     const char *username, const char *helo,
+<span class="lineNum">    1135 </span>            :     const unsigned char *pdata, unsigned int pdata_len,
+<span class="lineNum">    1136 </span>            :     bool ssl_secured)
+<span class="lineNum">    1137 </span>            : {
+<span class="lineNum">    1138 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;started);</span>
+<span class="lineNum">    1139 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;username == NULL);</span>
+<span class="lineNum">    1140 </span>            : 
+<span class="lineNum">    1141 </span><span class="lineNoCov">          0 :     conn-&gt;set.capabilities &amp;= ~SMTP_CAPABILITY_STARTTLS;</span>
+<span class="lineNum">    1142 </span><span class="lineNoCov">          0 :     conn-&gt;username = i_strdup(username);</span>
+<span class="lineNum">    1143 </span><span class="lineNoCov">          0 :     conn-&gt;helo_login = i_strdup(helo);</span>
+<span class="lineNum">    1144 </span><span class="lineNoCov">          0 :     conn-&gt;authenticated = TRUE;</span>
+<span class="lineNum">    1145 </span><span class="lineNoCov">          0 :     conn-&gt;ssl_secured = ssl_secured;</span>
+<span class="lineNum">    1146 </span>            : 
+<span class="lineNum">    1147 </span><span class="lineNoCov">          0 :     if (pdata_len &gt; 0) {</span>
+<span class="lineNum">    1148 </span><span class="lineNoCov">          0 :         if (!i_stream_add_data(conn-&gt;conn.input, pdata, pdata_len))</span>
+<span class="lineNum">    1149 </span><span class="lineNoCov">          0 :             i_panic(&quot;Couldn't add client input to stream&quot;);</span>
+<span class="lineNum">    1150 </span>            :     }
+<a name="1151"><span class="lineNum">    1151 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1152 </span>            : 
+<span class="lineNum">    1153 </span><span class="lineNoCov">          0 : void smtp_server_connection_start_pending(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1154 </span>            : {
+<span class="lineNum">    1155 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;started);</span>
+<span class="lineNum">    1156 </span><span class="lineNoCov">          0 :     conn-&gt;started = TRUE;</span>
+<span class="lineNum">    1157 </span>            : 
+<span class="lineNum">    1158 </span><span class="lineNoCov">          0 :     conn-&gt;raw_input = conn-&gt;conn.input;</span>
+<span class="lineNum">    1159 </span><span class="lineNoCov">          0 :     conn-&gt;raw_output = conn-&gt;conn.output;</span>
+<span class="lineNum">    1160 </span>            : 
+<span class="lineNum">    1161 </span><span class="lineNoCov">          0 :     if (!conn-&gt;ssl_start)</span>
+<span class="lineNum">    1162 </span><span class="lineNoCov">          0 :         smtp_server_connection_ready(conn);</span>
+<span class="lineNum">    1163 </span><span class="lineNoCov">          0 :     else if (conn-&gt;ssl_iostream == NULL)</span>
+<span class="lineNum">    1164 </span><span class="lineNoCov">          0 :         smtp_server_connection_input_unlock(conn);</span>
+<a name="1165"><span class="lineNum">    1165 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1166 </span>            : 
+<span class="lineNum">    1167 </span><span class="lineNoCov">          0 : void smtp_server_connection_start(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1168 </span>            : {
+<span class="lineNum">    1169 </span><span class="lineNoCov">          0 :     smtp_server_connection_start_pending(conn);</span>
+<span class="lineNum">    1170 </span><span class="lineNoCov">          0 :     smtp_server_connection_resume(conn);</span>
+<a name="1171"><span class="lineNum">    1171 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1172 </span>            : 
+<span class="lineNum">    1173 </span><span class="lineNoCov">          0 : void smtp_server_connection_halt(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1174 </span>            : {
+<span class="lineNum">    1175 </span><span class="lineNoCov">          0 :     conn-&gt;halted = TRUE;</span>
+<span class="lineNum">    1176 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_stop(conn);</span>
+<span class="lineNum">    1177 </span><span class="lineNoCov">          0 :     if (!conn-&gt;started || !conn-&gt;ssl_start || conn-&gt;ssl_iostream != NULL)</span>
+<span class="lineNum">    1178 </span><span class="lineNoCov">          0 :         smtp_server_connection_input_lock(conn);</span>
+<a name="1179"><span class="lineNum">    1179 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1180 </span>            : 
+<span class="lineNum">    1181 </span><span class="lineNoCov">          0 : void smtp_server_connection_resume(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1182 </span>            : {
+<span class="lineNum">    1183 </span><span class="lineNoCov">          0 :     smtp_server_connection_input_unlock(conn);</span>
+<span class="lineNum">    1184 </span><span class="lineNoCov">          0 :     smtp_server_connection_timeout_update(conn);</span>
+<span class="lineNum">    1185 </span><span class="lineNoCov">          0 :     conn-&gt;halted = FALSE;</span>
+<a name="1186"><span class="lineNum">    1186 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1187 </span>            : 
+<span class="lineNum">    1188 </span><span class="lineNoCov">          0 : void smtp_server_connection_close(struct smtp_server_connection **_conn,</span>
+<span class="lineNum">    1189 </span>            :                   const char *reason)
+<span class="lineNum">    1190 </span>            : {
+<span class="lineNum">    1191 </span><span class="lineNoCov">          0 :     struct smtp_server_connection *conn = *_conn;</span>
+<span class="lineNum">    1192 </span>            : 
+<span class="lineNum">    1193 </span><span class="lineNoCov">          0 :     *_conn = NULL;</span>
+<span class="lineNum">    1194 </span>            : 
+<span class="lineNum">    1195 </span><span class="lineNoCov">          0 :     if (conn-&gt;closed)</span>
+<span class="lineNum">    1196 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1197 </span><span class="lineNoCov">          0 :     conn-&gt;closed = TRUE;</span>
+<span class="lineNum">    1198 </span>            : 
+<span class="lineNum">    1199 </span><span class="lineNoCov">          0 :     smtp_server_connection_disconnect(conn, reason);</span>
+<span class="lineNum">    1200 </span><span class="lineNoCov">          0 :     smtp_server_connection_unref(&amp;conn);</span>
+<a name="1201"><span class="lineNum">    1201 </span>            : }</a>
+<span class="lineNum">    1202 </span>            : 
+<span class="lineNum">    1203 </span><span class="lineNoCov">          0 : void smtp_server_connection_terminate(struct smtp_server_connection **_conn,</span>
+<span class="lineNum">    1204 </span>            :                       const char *enh_code, const char *reason)
+<span class="lineNum">    1205 </span>            : {
+<span class="lineNum">    1206 </span><span class="lineNoCov">          0 :     struct smtp_server_connection *conn = *_conn;</span>
+<span class="lineNum">    1207 </span>            : 
+<span class="lineNum">    1208 </span><span class="lineNoCov">          0 :     *_conn = NULL;</span>
+<span class="lineNum">    1209 </span>            : 
+<span class="lineNum">    1210 </span><span class="lineNoCov">          0 :     if (conn-&gt;closed)</span>
+<span class="lineNum">    1211 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1212 </span>            : 
+<span class="lineNum">    1213 </span><span class="lineNoCov">          0 :     i_assert(enh_code[0] == '4' &amp;&amp; enh_code[1] == '.');</span>
+<span class="lineNum">    1214 </span>            : 
+<span class="lineNum">    1215 </span><span class="lineNoCov">          0 :     smtp_server_connection_send_line(conn,</span>
+<span class="lineNum">    1216 </span><span class="lineNoCov">          0 :         &quot;421 %s %s %s&quot;, enh_code, conn-&gt;set.hostname, reason);</span>
+<span class="lineNum">    1217 </span>            : 
+<span class="lineNum">    1218 </span><span class="lineNoCov">          0 :     smtp_server_connection_close(&amp;conn, reason);</span>
+<span class="lineNum">    1219 </span>            : }
+<a name="1220"><span class="lineNum">    1220 </span>            : </a>
+<span class="lineNum">    1221 </span>            : struct smtp_server_helo_data *
+<span class="lineNum">    1222 </span><span class="lineNoCov">          0 : smtp_server_connection_get_helo_data(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1223 </span>            : {
+<span class="lineNum">    1224 </span><span class="lineNoCov">          0 :     return &amp;conn-&gt;helo;</span>
+<span class="lineNum">    1225 </span>            : }
+<a name="1226"><span class="lineNum">    1226 </span>            : </a>
+<span class="lineNum">    1227 </span>            : enum smtp_server_state
+<span class="lineNum">    1228 </span><span class="lineNoCov">          0 : smtp_server_connection_get_state(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1229 </span>            : {
+<span class="lineNum">    1230 </span><span class="lineNoCov">          0 :     return conn-&gt;state.state;</span>
+<a name="1231"><span class="lineNum">    1231 </span>            : }</a>
+<span class="lineNum">    1232 </span>            : 
+<span class="lineNum">    1233 </span><span class="lineNoCov">          0 : void smtp_server_connection_set_state(struct smtp_server_connection *conn,</span>
+<span class="lineNum">    1234 </span>            :                       enum smtp_server_state state)
+<span class="lineNum">    1235 </span>            : {
+<span class="lineNum">    1236 </span><span class="lineNoCov">          0 :     if (conn-&gt;state.state != state) {</span>
+<span class="lineNum">    1237 </span><span class="lineNoCov">          0 :         conn-&gt;state.state = state;</span>
+<span class="lineNum">    1238 </span>            : 
+<span class="lineNum">    1239 </span><span class="lineNoCov">          0 :         if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">    1240 </span><span class="lineNoCov">          0 :             conn-&gt;callbacks-&gt;conn_state_changed != NULL) {</span>
+<span class="lineNum">    1241 </span><span class="lineNoCov">          0 :             conn-&gt;callbacks-&gt;conn_state_changed(conn-&gt;context, state);</span>
+<span class="lineNum">    1242 </span>            :         }
+<span class="lineNum">    1243 </span>            :     }
+<span class="lineNum">    1244 </span><span class="lineNoCov">          0 : }</span>
+<a name="1245"><span class="lineNum">    1245 </span>            : </a>
+<span class="lineNum">    1246 </span>            : const char *
+<span class="lineNum">    1247 </span><span class="lineNoCov">          0 : smtp_server_connection_get_security_string(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1248 </span>            : {
+<span class="lineNum">    1249 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream == NULL)</span>
+<span class="lineNum">    1250 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">    1251 </span><span class="lineNoCov">          0 :     return ssl_iostream_get_security_string(conn-&gt;ssl_iostream);</span>
+<a name="1252"><span class="lineNum">    1252 </span>            : }</a>
+<span class="lineNum">    1253 </span>            : 
+<span class="lineNum">    1254 </span><span class="lineNoCov">          0 : void smtp_server_connection_reset_state(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1255 </span>            : {
+<span class="lineNum">    1256 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Connection state reset&quot;);</span>
+<span class="lineNum">    1257 </span>            : 
+<span class="lineNum">    1258 </span><span class="lineNoCov">          0 :     if (conn-&gt;state.trans != NULL) {</span>
+<span class="lineNum">    1259 </span><span class="lineNoCov">          0 :         if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">    1260 </span><span class="lineNoCov">          0 :             conn-&gt;callbacks-&gt;conn_trans_free != NULL) {</span>
+<span class="lineNum">    1261 </span><span class="lineNoCov">          0 :             conn-&gt;callbacks-&gt;conn_trans_free(conn-&gt;context,</span>
+<span class="lineNum">    1262 </span>            :                              conn-&gt;state.trans);
+<span class="lineNum">    1263 </span>            :         }
+<span class="lineNum">    1264 </span><span class="lineNoCov">          0 :         smtp_server_transaction_free(&amp;conn-&gt;state.trans);</span>
+<span class="lineNum">    1265 </span>            :     }
+<span class="lineNum">    1266 </span>            : 
+<span class="lineNum">    1267 </span>            :     /* RFC 3030, Section 2:
+<span class="lineNum">    1268 </span>            :        The RSET command, when issued after the first BDAT and before the
+<span class="lineNum">    1269 </span>            :        BDAT LAST, clears all segments sent during that transaction and resets
+<span class="lineNum">    1270 </span>            :        the session.
+<span class="lineNum">    1271 </span>            :      */
+<span class="lineNum">    1272 </span><span class="lineNoCov">          0 :     if (conn-&gt;state.data_input != NULL)</span>
+<span class="lineNum">    1273 </span><span class="lineNoCov">          0 :         i_stream_destroy(&amp;conn-&gt;state.data_input);</span>
+<span class="lineNum">    1274 </span><span class="lineNoCov">          0 :     conn-&gt;state.data_chain = NULL;</span>
+<span class="lineNum">    1275 </span>            : 
+<span class="lineNum">    1276 </span>            :     /* reset state */
+<span class="lineNum">    1277 </span><span class="lineNoCov">          0 :     i_zero(&amp;conn-&gt;state);</span>
+<span class="lineNum">    1278 </span><span class="lineNoCov">          0 :     smtp_server_connection_set_state(conn, SMTP_SERVER_STATE_READY);</span>
+<a name="1279"><span class="lineNum">    1279 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1280 </span>            : 
+<span class="lineNum">    1281 </span><span class="lineNoCov">          0 : void smtp_server_connection_clear(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1282 </span>            : {
+<span class="lineNum">    1283 </span><span class="lineNoCov">          0 :     smtp_server_connection_debug(conn, &quot;Connection clear&quot;);</span>
+<span class="lineNum">    1284 </span>            : 
+<span class="lineNum">    1285 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;helo_domain);</span>
+<span class="lineNum">    1286 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;helo_login);</span>
+<span class="lineNum">    1287 </span><span class="lineNoCov">          0 :     i_zero(&amp;conn-&gt;helo);</span>
+<span class="lineNum">    1288 </span><span class="lineNoCov">          0 :     smtp_server_connection_reset_state(conn);</span>
+<a name="1289"><span class="lineNum">    1289 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1290 </span>            : 
+<span class="lineNum">    1291 </span><span class="lineNoCov">          0 : void smtp_server_connection_set_capabilities(</span>
+<span class="lineNum">    1292 </span>            :     struct smtp_server_connection *conn, enum smtp_capability capabilities)
+<span class="lineNum">    1293 </span>            : {
+<span class="lineNum">    1294 </span><span class="lineNoCov">          0 :     conn-&gt;set.capabilities = capabilities;</span>
+<a name="1295"><span class="lineNum">    1295 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1296 </span>            : 
+<span class="lineNum">    1297 </span><span class="lineNoCov">          0 : void *smtp_server_connection_get_context(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1298 </span>            : {
+<span class="lineNum">    1299 </span><span class="lineNoCov">          0 :     return conn-&gt;context;</span>
+<a name="1300"><span class="lineNum">    1300 </span>            : }</a>
+<span class="lineNum">    1301 </span>            : 
+<span class="lineNum">    1302 </span><span class="lineNoCov">          0 : bool smtp_server_connection_is_ssl_secured(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1303 </span>            : {
+<span class="lineNum">    1304 </span><span class="lineNoCov">          0 :     return conn-&gt;ssl_secured;</span>
+<a name="1305"><span class="lineNum">    1305 </span>            : }</a>
+<span class="lineNum">    1306 </span>            : 
+<span class="lineNum">    1307 </span><span class="lineNoCov">          0 : bool smtp_server_connection_is_trusted(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1308 </span>            : {
+<span class="lineNum">    1309 </span><span class="lineNoCov">          0 :     if (conn-&gt;callbacks == NULL || conn-&gt;callbacks-&gt;conn_is_trusted == NULL)</span>
+<span class="lineNum">    1310 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1311 </span><span class="lineNoCov">          0 :     return conn-&gt;callbacks-&gt;conn_is_trusted(conn-&gt;context);</span>
+<span class="lineNum">    1312 </span>            : }
+<a name="1313"><span class="lineNum">    1313 </span>            : </a>
+<span class="lineNum">    1314 </span>            : enum smtp_protocol
+<span class="lineNum">    1315 </span><span class="lineNoCov">          0 : smtp_server_connection_get_protocol(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1316 </span>            : {
+<span class="lineNum">    1317 </span><span class="lineNoCov">          0 :     return conn-&gt;set.protocol;</span>
+<span class="lineNum">    1318 </span>            : }
+<a name="1319"><span class="lineNum">    1319 </span>            : </a>
+<span class="lineNum">    1320 </span>            : const char *
+<span class="lineNum">    1321 </span><span class="lineNoCov">          0 : smtp_server_connection_get_protocol_name(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1322 </span>            : {
+<span class="lineNum">    1323 </span><span class="lineNoCov">          0 :     string_t *pname = t_str_new(16);</span>
+<span class="lineNum">    1324 </span>            : 
+<span class="lineNum">    1325 </span><span class="lineNoCov">          0 :     switch (conn-&gt;set.protocol) {</span>
+<span class="lineNum">    1326 </span>            :     case SMTP_PROTOCOL_SMTP:
+<span class="lineNum">    1327 </span><span class="lineNoCov">          0 :         if (conn-&gt;helo.old_smtp)</span>
+<span class="lineNum">    1328 </span><span class="lineNoCov">          0 :             str_append(pname, &quot;SMTP&quot;);</span>
+<span class="lineNum">    1329 </span>            :         else
+<span class="lineNum">    1330 </span><span class="lineNoCov">          0 :             str_append(pname, &quot;ESMTP&quot;);</span>
+<span class="lineNum">    1331 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1332 </span>            :     case SMTP_PROTOCOL_LMTP:
+<span class="lineNum">    1333 </span><span class="lineNoCov">          0 :         str_append(pname, &quot;LMTP&quot;);</span>
+<span class="lineNum">    1334 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1335 </span>            :     default:
+<span class="lineNum">    1336 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">    1337 </span>            :     }
+<span class="lineNum">    1338 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_secured)</span>
+<span class="lineNum">    1339 </span><span class="lineNoCov">          0 :         str_append_c(pname, 'S');</span>
+<span class="lineNum">    1340 </span><span class="lineNoCov">          0 :     if (conn-&gt;authenticated)</span>
+<span class="lineNum">    1341 </span><span class="lineNoCov">          0 :         str_append_c(pname, 'A');</span>
+<span class="lineNum">    1342 </span><span class="lineNoCov">          0 :     return str_c(pname);</span>
+<span class="lineNum">    1343 </span>            : }
+<a name="1344"><span class="lineNum">    1344 </span>            : </a>
+<span class="lineNum">    1345 </span>            : struct smtp_server_transaction *
+<span class="lineNum">    1346 </span><span class="lineNoCov">          0 : smtp_server_connection_get_transaction(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1347 </span>            : {
+<span class="lineNum">    1348 </span><span class="lineNoCov">          0 :     return conn-&gt;state.trans;</span>
+<span class="lineNum">    1349 </span>            : }
+<a name="1350"><span class="lineNum">    1350 </span>            : </a>
+<span class="lineNum">    1351 </span>            : const char *
+<span class="lineNum">    1352 </span><span class="lineNoCov">          0 : smtp_server_connection_get_transaction_id(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1353 </span>            : {
+<span class="lineNum">    1354 </span><span class="lineNoCov">          0 :     if (conn-&gt;state.trans == NULL)</span>
+<span class="lineNum">    1355 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">    1356 </span><span class="lineNoCov">          0 :     return conn-&gt;state.trans-&gt;id;</span>
+<a name="1357"><span class="lineNum">    1357 </span>            : }</a>
+<span class="lineNum">    1358 </span>            : 
+<span class="lineNum">    1359 </span><span class="lineNoCov">          0 : void smtp_server_connection_get_proxy_data(struct smtp_server_connection *conn,</span>
+<span class="lineNum">    1360 </span>            :                        struct smtp_proxy_data *proxy_data)
+<span class="lineNum">    1361 </span>            : {
+<span class="lineNum">    1362 </span><span class="lineNoCov">          0 :     i_zero(proxy_data);</span>
+<span class="lineNum">    1363 </span><span class="lineNoCov">          0 :     proxy_data-&gt;source_ip = conn-&gt;remote_ip;</span>
+<span class="lineNum">    1364 </span><span class="lineNoCov">          0 :     proxy_data-&gt;source_port = conn-&gt;remote_port;</span>
+<span class="lineNum">    1365 </span><span class="lineNoCov">          0 :     if (conn-&gt;helo.domain_valid)</span>
+<span class="lineNum">    1366 </span><span class="lineNoCov">          0 :         proxy_data-&gt;helo = conn-&gt;helo.domain;</span>
+<span class="lineNum">    1367 </span><span class="lineNoCov">          0 :     proxy_data-&gt;login = conn-&gt;username;</span>
+<span class="lineNum">    1368 </span>            : 
+<span class="lineNum">    1369 </span><span class="lineNoCov">          0 :     if (conn-&gt;proxy_proto != SMTP_PROXY_PROTOCOL_UNKNOWN)</span>
+<span class="lineNum">    1370 </span><span class="lineNoCov">          0 :         proxy_data-&gt;proto = conn-&gt;proxy_proto;</span>
+<span class="lineNum">    1371 </span><span class="lineNoCov">          0 :     else if (conn-&gt;set.protocol == SMTP_PROTOCOL_LMTP)</span>
+<span class="lineNum">    1372 </span><span class="lineNoCov">          0 :         proxy_data-&gt;proto = SMTP_PROXY_PROTOCOL_LMTP;</span>
+<span class="lineNum">    1373 </span><span class="lineNoCov">          0 :     else if (conn-&gt;helo.old_smtp)</span>
+<span class="lineNum">    1374 </span><span class="lineNoCov">          0 :         proxy_data-&gt;proto = SMTP_PROXY_PROTOCOL_SMTP;</span>
+<span class="lineNum">    1375 </span>            :     else
+<span class="lineNum">    1376 </span><span class="lineNoCov">          0 :         proxy_data-&gt;proto = SMTP_PROXY_PROTOCOL_ESMTP;</span>
+<span class="lineNum">    1377 </span>            : 
+<span class="lineNum">    1378 </span><span class="lineNoCov">          0 :     proxy_data-&gt;ttl_plus_1 = conn-&gt;proxy_ttl_plus_1;</span>
+<span class="lineNum">    1379 </span><span class="lineNoCov">          0 :     proxy_data-&gt;timeout_secs = conn-&gt;proxy_timeout_secs;</span>
+<a name="1380"><span class="lineNum">    1380 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1381 </span>            : 
+<span class="lineNum">    1382 </span><span class="lineNoCov">          0 : void smtp_server_connection_set_proxy_data(struct smtp_server_connection *conn,</span>
+<span class="lineNum">    1383 </span>            :     const struct smtp_proxy_data *proxy_data)
+<span class="lineNum">    1384 </span>            : {
+<span class="lineNum">    1385 </span><span class="lineNoCov">          0 :     if (proxy_data-&gt;source_ip.family != 0)</span>
+<span class="lineNum">    1386 </span><span class="lineNoCov">          0 :         conn-&gt;remote_ip = proxy_data-&gt;source_ip;</span>
+<span class="lineNum">    1387 </span><span class="lineNoCov">          0 :     if (proxy_data-&gt;source_port != 0)</span>
+<span class="lineNum">    1388 </span><span class="lineNoCov">          0 :         conn-&gt;remote_port = proxy_data-&gt;source_port;</span>
+<span class="lineNum">    1389 </span><span class="lineNoCov">          0 :     if (proxy_data-&gt;helo != NULL) {</span>
+<span class="lineNum">    1390 </span><span class="lineNoCov">          0 :         i_free(conn-&gt;helo_domain);</span>
+<span class="lineNum">    1391 </span><span class="lineNoCov">          0 :         conn-&gt;helo_domain = i_strdup(proxy_data-&gt;helo);</span>
+<span class="lineNum">    1392 </span><span class="lineNoCov">          0 :         conn-&gt;helo.domain = conn-&gt;helo_domain;</span>
+<span class="lineNum">    1393 </span><span class="lineNoCov">          0 :         conn-&gt;helo.domain_valid = TRUE;</span>
+<span class="lineNum">    1394 </span>            :     }
+<span class="lineNum">    1395 </span><span class="lineNoCov">          0 :     if (proxy_data-&gt;login != NULL) {</span>
+<span class="lineNum">    1396 </span><span class="lineNoCov">          0 :         i_free(conn-&gt;username);</span>
+<span class="lineNum">    1397 </span><span class="lineNoCov">          0 :         conn-&gt;username = i_strdup(proxy_data-&gt;login);</span>
+<span class="lineNum">    1398 </span>            :     }
+<span class="lineNum">    1399 </span><span class="lineNoCov">          0 :     if (proxy_data-&gt;proto != SMTP_PROXY_PROTOCOL_UNKNOWN)</span>
+<span class="lineNum">    1400 </span><span class="lineNoCov">          0 :         conn-&gt;proxy_proto = proxy_data-&gt;proto;</span>
+<span class="lineNum">    1401 </span>            : 
+<span class="lineNum">    1402 </span><span class="lineNoCov">          0 :     if (proxy_data-&gt;ttl_plus_1 &gt; 0)</span>
+<span class="lineNum">    1403 </span><span class="lineNoCov">          0 :         conn-&gt;proxy_ttl_plus_1 = proxy_data-&gt;ttl_plus_1;</span>
+<span class="lineNum">    1404 </span><span class="lineNoCov">          0 :     if (conn-&gt;proxy_timeout_secs &gt; 0)</span>
+<span class="lineNum">    1405 </span><span class="lineNoCov">          0 :         conn-&gt;proxy_timeout_secs = proxy_data-&gt;timeout_secs;</span>
+<span class="lineNum">    1406 </span>            : 
+<span class="lineNum">    1407 </span><span class="lineNoCov">          0 :     if (conn-&gt;callbacks != NULL &amp;&amp;</span>
+<span class="lineNum">    1408 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_proxy_data_updated != NULL)</span>
+<span class="lineNum">    1409 </span><span class="lineNoCov">          0 :         conn-&gt;callbacks-&gt;conn_proxy_data_updated(conn, proxy_data);</span>
+<a name="1410"><span class="lineNum">    1410 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1411 </span>            : 
+<span class="lineNum">    1412 </span><span class="lineNoCov">          0 : void smtp_server_connection_switch_ioloop(struct smtp_server_connection *conn)</span>
+<span class="lineNum">    1413 </span>            : {
+<span class="lineNum">    1414 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle != NULL)</span>
+<span class="lineNum">    1415 </span><span class="lineNoCov">          0 :         conn-&gt;to_idle = io_loop_move_timeout(&amp;conn-&gt;to_idle);</span>
+<span class="lineNum">    1416 </span><span class="lineNoCov">          0 :     connection_switch_ioloop(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1417 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

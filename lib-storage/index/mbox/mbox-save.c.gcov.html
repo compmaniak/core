@@ -1,0 +1,907 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/mbox/mbox-save.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/mbox</a> - mbox-save.c<span style="font-size: 80%;"> (source / <a href="mbox-save.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">420</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;base64.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;hostpid.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;randgen.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;istream-header-filter.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;istream-crlf.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;istream-concat.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;mail-user.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      19 </span>            : #include &quot;mbox-storage.h&quot;
+<span class="lineNum">      20 </span>            : #include &quot;mbox-file.h&quot;
+<span class="lineNum">      21 </span>            : #include &quot;mbox-from.h&quot;
+<span class="lineNum">      22 </span>            : #include &quot;mbox-lock.h&quot;
+<span class="lineNum">      23 </span>            : #include &quot;mbox-md5.h&quot;
+<span class="lineNum">      24 </span>            : #include &quot;mbox-sync-private.h&quot;
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            : #include &lt;stddef.h&gt;
+<span class="lineNum">      27 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      28 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      29 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      30 </span>            : #include &lt;utime.h&gt;
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : #define MBOX_DELIVERY_ID_RAND_BYTES (64/8)
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            : struct mbox_save_context {
+<span class="lineNum">      35 </span>            :     struct mail_save_context ctx;
+<span class="lineNum">      36 </span>            : 
+<span class="lineNum">      37 </span>            :     struct mbox_mailbox *mbox;
+<span class="lineNum">      38 </span>            :     struct mail_index_transaction *trans;
+<span class="lineNum">      39 </span>            :     uoff_t append_offset, mail_offset;
+<span class="lineNum">      40 </span>            :     time_t orig_atime;
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            :     string_t *headers;
+<span class="lineNum">      43 </span>            :     size_t space_end_idx;
+<span class="lineNum">      44 </span>            :     uint32_t seq, next_uid, uid_validity;
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span>            :     struct istream *input;
+<span class="lineNum">      47 </span>            :     struct ostream *output;
+<span class="lineNum">      48 </span>            :     uoff_t extra_hdr_offset, eoh_offset;
+<span class="lineNum">      49 </span>            :     char last_char;
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :     struct mbox_md5_context *mbox_md5_ctx;
+<span class="lineNum">      52 </span>            :     char *x_delivery_id_header;
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :     bool synced:1;
+<span class="lineNum">      55 </span>            :     bool failed:1;
+<span class="lineNum">      56 </span>            :     bool finished:1;
+<span class="lineNum">      57 </span>            : };
+<span class="lineNum">      58 </span>            : 
+<a name="59"><span class="lineNum">      59 </span>            : #define MBOX_SAVECTX(s)     container_of(s, struct mbox_save_context, ctx)</a>
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 : static void write_error(struct mbox_save_context *ctx)</span>
+<span class="lineNum">      62 </span>            : {
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     mbox_set_syscall_error(ctx-&gt;mbox, &quot;write()&quot;);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     ctx-&gt;failed = TRUE;</span>
+<a name="65"><span class="lineNum">      65 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 : static int mbox_seek_to_end(struct mbox_save_context *ctx, uoff_t *offset)</span>
+<span class="lineNum">      68 </span>            : {
+<span class="lineNum">      69 </span>            :     struct stat st;
+<span class="lineNum">      70 </span>            :     char ch;
+<span class="lineNum">      71 </span>            :     int fd;
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     if (ctx-&gt;mbox-&gt;mbox_writeonly) {</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         *offset = 0;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      76 </span>            :     }
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     fd = ctx-&gt;mbox-&gt;mbox_fd;</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     if (fstat(fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         mbox_set_syscall_error(ctx-&gt;mbox, &quot;fstat()&quot;);</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      82 </span>            :     }
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     ctx-&gt;orig_atime = st.st_atime;</span>
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     *offset = (uoff_t)st.st_size;</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     if (st.st_size == 0)</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     if (lseek(fd, st.st_size-1, SEEK_SET) &lt; 0) {</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :                 mbox_set_syscall_error(ctx-&gt;mbox, &quot;lseek()&quot;);</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      93 </span>            :     }
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     if (read(fd, &amp;ch, 1) != 1) {</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :         mbox_set_syscall_error(ctx-&gt;mbox, &quot;read()&quot;);</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      98 </span>            :     }
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     if (ch != '\n') {</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         if (write_full(fd, &quot;\n&quot;, 1) &lt; 0) {</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :             write_error(ctx);</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     104 </span>            :         }
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         *offset += 1;</span>
+<span class="lineNum">     106 </span>            :     }
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="109"><span class="lineNum">     109 </span>            : }</a>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 : static int mbox_append_lf(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     112 </span>            : {
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     if (o_stream_send(ctx-&gt;output, &quot;\n&quot;, 1) &lt; 0) {</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         write_error(ctx);</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     116 </span>            :     }
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="119"><span class="lineNum">     119 </span>            : }</a>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 : static int write_from_line(struct mbox_save_context *ctx, time_t received_date,</span>
+<span class="lineNum">     122 </span>            :                const char *from_envelope)
+<span class="lineNum">     123 </span>            : {
+<span class="lineNum">     124 </span>            :     int ret;
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     127 </span>            :         const char *line;
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         if (from_envelope == NULL) {</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :             struct mail_storage *storage =</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :                 &amp;ctx-&gt;mbox-&gt;storage-&gt;storage;</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :             from_envelope =</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :                 strchr(storage-&gt;user-&gt;username, '@') != NULL ?</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :                 storage-&gt;user-&gt;username :</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :                 t_strconcat(storage-&gt;user-&gt;username,</span>
+<span class="lineNum">     137 </span>            :                         &quot;@&quot;, my_hostdomain(), NULL);
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         } else if (*from_envelope == '\0') {</span>
+<span class="lineNum">     139 </span>            :             /* can't write empty envelope */
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :             from_envelope = &quot;MAILER-DAEMON&quot;;</span>
+<span class="lineNum">     141 </span>            :         }
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span>            :         /* save in local timezone, no matter what it was given with */
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         line = mbox_from_create(from_envelope, received_date);</span>
+<span class="lineNum">     145 </span>            : 
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         if ((ret = o_stream_send_str(ctx-&gt;output, line)) &lt; 0)</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :             write_error(ctx);</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="150"><span class="lineNum">     150 </span>            : }</a>
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 : static int mbox_write_content_length(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span>            :     uoff_t end_offset;
+<span class="lineNum">     155 </span>            :     const char *str;
+<span class="lineNum">     156 </span>            :     size_t len;
+<span class="lineNum">     157 </span>            : 
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;eoh_offset != (uoff_t)-1);</span>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     if (ctx-&gt;mbox-&gt;mbox_writeonly) {</span>
+<span class="lineNum">     161 </span>            :         /* we can't seek, don't set Content-Length */
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     end_offset = ctx-&gt;output-&gt;offset;</span>
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span>            :     /* write Content-Length headers */
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     str = t_strdup_printf(&quot;\nContent-Length: %s&quot;,</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :                   dec2str(end_offset - ctx-&gt;eoh_offset));</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     len = strlen(str);</span>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span>            :     /* flush manually here so that we don't confuse seek() errors with
+<span class="lineNum">     173 </span>            :        buffer flushing errors */
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     if (o_stream_flush(ctx-&gt;output) &lt; 0) {</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         write_error(ctx);</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     177 </span>            :     }
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     if (o_stream_seek(ctx-&gt;output, ctx-&gt;extra_hdr_offset +</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :               ctx-&gt;space_end_idx - len) &lt; 0) {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         mbox_set_syscall_error(ctx-&gt;mbox, &quot;lseek()&quot;);</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     182 </span>            :     }
+<span class="lineNum">     183 </span>            : 
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     if (o_stream_send(ctx-&gt;output, str, len) &lt; 0 ||</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :         o_stream_flush(ctx-&gt;output) &lt; 0) {</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :         write_error(ctx);</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     188 </span>            :     }
+<span class="lineNum">     189 </span>            : 
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     if (o_stream_seek(ctx-&gt;output, end_offset) &lt; 0) {</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :         mbox_set_syscall_error(ctx-&gt;mbox, &quot;lseek()&quot;);</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     193 </span>            :     }
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="195"><span class="lineNum">     195 </span>            : }</a>
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 : static void mbox_save_init_sync(struct mailbox_transaction_context *t)</span>
+<span class="lineNum">     198 </span>            : {
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     struct mbox_mailbox *mbox = MBOX_MAILBOX(t-&gt;box);</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(t-&gt;save_ctx);</span>
+<span class="lineNum">     201 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     202 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span>            :     /* open a new view to get the header. this is required if we just
+<span class="lineNum">     205 </span>            :        synced the mailbox so we can get updated next_uid. */
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :     mail_index_refresh(mbox-&gt;box.index);</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     view = mail_index_view_open(mbox-&gt;box.index);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(view);</span>
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     ctx-&gt;next_uid = hdr-&gt;next_uid;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     ctx-&gt;uid_validity = hdr-&gt;uid_validity;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     ctx-&gt;synced = TRUE;</span>
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<a name="215"><span class="lineNum">     215 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 : static void status_flags_append(string_t *str, enum mail_flags flags,</span>
+<span class="lineNum">     218 </span>            :                 const struct mbox_flag_type *flags_list)
+<span class="lineNum">     219 </span>            : {
+<span class="lineNum">     220 </span>            :     int i;
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     flags ^= MBOX_NONRECENT_KLUDGE;</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     for (i = 0; flags_list[i].chr != 0; i++) {</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :         if ((flags &amp; flags_list[i].flag) != 0)</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :             str_append_c(str, flags_list[i].chr);</span>
+<span class="lineNum">     226 </span>            :     }
+<a name="227"><span class="lineNum">     227 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 : static void mbox_save_append_flag_headers(string_t *str, enum mail_flags flags)</span>
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span>            :     /* write the Status: header always. It always gets added soon anyway. */
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     str_append(str, &quot;Status: &quot;);</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     status_flags_append(str, flags, mbox_status_flags);</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     235 </span>            : 
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     if ((flags &amp; XSTATUS_FLAGS_MASK) != 0) {</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         str_append(str, &quot;X-Status: &quot;);</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         status_flags_append(str, flags, mbox_xstatus_flags);</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         str_append_c(str, '\n');</span>
+<span class="lineNum">     240 </span>            :     }
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 : }</span>
+<a name="242"><span class="lineNum">     242 </span>            : </a>
+<span class="lineNum">     243 </span>            : static void
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 : mbox_save_append_keyword_headers(struct mbox_save_context *ctx,</span>
+<span class="lineNum">     245 </span>            :                  struct mail_keywords *keywords)
+<span class="lineNum">     246 </span>            : {
+<span class="lineNum">     247 </span>            :     unsigned char space[MBOX_HEADER_PADDING+1 +
+<span class="lineNum">     248 </span>            :                 sizeof(&quot;Content-Length: \n&quot;)-1 + MAX_INT_STRLEN];
+<span class="lineNum">     249 </span>            :     const ARRAY_TYPE(keywords) *keyword_names_list;
+<span class="lineNum">     250 </span>            :     const char *const *keyword_names;
+<span class="lineNum">     251 </span>            :     unsigned int i, count, keyword_names_count;
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :     keyword_names_list = mail_index_get_keywords(ctx-&gt;mbox-&gt;box.index);</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     keyword_names = array_get(keyword_names_list, &amp;keyword_names_count);</span>
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     str_append(ctx-&gt;headers, &quot;X-Keywords:&quot;);</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     count = keywords == NULL ? 0 : keywords-&gt;count;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         i_assert(keywords-&gt;idx[i] &lt; keyword_names_count);</span>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         str_append_c(ctx-&gt;headers, ' ');</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         str_append(ctx-&gt;headers, keyword_names[keywords-&gt;idx[i]]);</span>
+<span class="lineNum">     263 </span>            :     }
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     memset(space, ' ', sizeof(space));</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     str_append_n(ctx-&gt;headers, space, sizeof(space));</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     ctx-&gt;space_end_idx = str_len(ctx-&gt;headers);</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     str_append_c(ctx-&gt;headers, '\n');</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 : }</span>
+<a name="270"><span class="lineNum">     270 </span>            : </a>
+<span class="lineNum">     271 </span>            : static int
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 : mbox_save_init_file(struct mbox_save_context *ctx,</span>
+<span class="lineNum">     273 </span>            :             struct mbox_transaction_context *t)
+<span class="lineNum">     274 </span>            : {
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     struct mailbox_transaction_context *_t = &amp;t-&gt;t;</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     struct mbox_mailbox *mbox = ctx-&gt;mbox;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     struct mail_storage *storage = &amp;mbox-&gt;storage-&gt;storage;</span>
+<span class="lineNum">     278 </span>            :     int ret;
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     if (mbox_is_backend_readonly(ctx-&gt;mbox)) {</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         mail_storage_set_error(storage, MAIL_ERROR_PERM,</span>
+<span class="lineNum">     282 </span>            :                        &quot;Read-only mbox&quot;);
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     284 </span>            :     }
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     if (ctx-&gt;append_offset == (uoff_t)-1) {</span>
+<span class="lineNum">     287 </span>            :         /* first appended mail in this transaction */
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         if (t-&gt;write_lock_id == 0) {</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :             if (mbox_lock(mbox, F_WRLCK, &amp;t-&gt;write_lock_id) &lt;= 0)</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     291 </span>            :         }
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         if (mbox-&gt;mbox_fd == -1) {</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             if (mbox_file_open(mbox) &lt; 0)</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     296 </span>            :         }
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span>            :         /* update mbox_sync_dirty state */
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         ret = mbox_sync_has_changed(mbox, TRUE);</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     302 </span>            :     }
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;synced) {</span>
+<span class="lineNum">     305 </span>            :         /* we'll need to assign UID for the mail immediately. */
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         if (mbox_sync(mbox, 0) &lt; 0)</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         mbox_save_init_sync(_t);</span>
+<span class="lineNum">     309 </span>            :     }
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span>            :     /* the syncing above could have changed the append offset */
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     if (ctx-&gt;append_offset == (uoff_t)-1) {</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :         if (mbox_seek_to_end(ctx, &amp;ctx-&gt;append_offset) &lt; 0)</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         i_assert(mbox-&gt;mbox_fd != -1);</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         ctx-&gt;output = o_stream_create_fd_file(mbox-&gt;mbox_fd,</span>
+<span class="lineNum">     318 </span>            :                               ctx-&gt;append_offset,
+<span class="lineNum">     319 </span>            :                               FALSE);
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :         o_stream_cork(ctx-&gt;output);</span>
+<span class="lineNum">     321 </span>            :     }
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     323 </span>            : }
+<a name="324"><span class="lineNum">     324 </span>            : </a>
+<span class="lineNum">     325 </span>            : static void
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 : save_header_callback(struct header_filter_istream *input ATTR_UNUSED,</span>
+<span class="lineNum">     327 </span>            :              struct message_header_line *hdr,
+<span class="lineNum">     328 </span>            :              bool *matched, struct mbox_save_context *ctx)
+<span class="lineNum">     329 </span>            : {
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     if (hdr != NULL) {</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :         if (strncmp(hdr-&gt;name, &quot;From &quot;, 5) == 0) {</span>
+<span class="lineNum">     332 </span>            :             /* we can't allow From_-lines in headers. there's no
+<span class="lineNum">     333 </span>            :                legitimate reason for allowing them in any case,
+<span class="lineNum">     334 </span>            :                so just drop them. */
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             *matched = TRUE;</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     337 </span>            :         }
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         if (!*matched &amp;&amp; ctx-&gt;mbox_md5_ctx != NULL)</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;md5_v.more(ctx-&gt;mbox_md5_ctx, hdr);</span>
+<span class="lineNum">     341 </span>            :     }
+<a name="342"><span class="lineNum">     342 </span>            : }</a>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 : static void mbox_save_x_delivery_id(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     345 </span>            : {
+<span class="lineNum">     346 </span>            :     unsigned char md5_result[MD5_RESULTLEN];
+<span class="lineNum">     347 </span>            :     buffer_t *buf;
+<span class="lineNum">     348 </span>            :     string_t *str;
+<span class="lineNum">     349 </span>            :     void *randbuf;
+<span class="lineNum">     350 </span>            : 
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     buf = t_buffer_create(256);</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     buffer_append(buf, &amp;ioloop_time, sizeof(ioloop_time));</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     buffer_append(buf, &amp;ioloop_timeval.tv_usec,</span>
+<span class="lineNum">     354 </span>            :               sizeof(ioloop_timeval.tv_usec));
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     randbuf = buffer_append_space_unsafe(buf, MBOX_DELIVERY_ID_RAND_BYTES);</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     random_fill(randbuf, MBOX_DELIVERY_ID_RAND_BYTES);</span>
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     md5_get_digest(buf-&gt;data, buf-&gt;used, md5_result);</span>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :     str = t_str_new(128);</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     str_append(str, &quot;X-Delivery-ID: &quot;);</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     base64_encode(md5_result, sizeof(md5_result), str);</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     ctx-&gt;x_delivery_id_header = i_strdup(str_c(str));</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 : }</span>
+<a name="368"><span class="lineNum">     368 </span>            : </a>
+<span class="lineNum">     369 </span>            : static struct istream *
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 : mbox_save_get_input_stream(struct mbox_save_context *ctx, struct istream *input)</span>
+<span class="lineNum">     371 </span>            : {
+<span class="lineNum">     372 </span>            :     struct istream *filter, *ret, *cache_input, *streams[3];
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span>            :     /* filter out unwanted headers and keep track of headers' MD5 sum */
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     filter = i_stream_create_header_filter(input, HEADER_FILTER_EXCLUDE |</span>
+<span class="lineNum">     376 </span>            :                            HEADER_FILTER_NO_CR |
+<span class="lineNum">     377 </span>            :                            HEADER_FILTER_ADD_MISSING_EOH |
+<span class="lineNum">     378 </span>            :                            HEADER_FILTER_END_BODY_WITH_LF,
+<span class="lineNum">     379 </span>            :                            mbox_save_drop_headers,
+<span class="lineNum">     380 </span>            :                            mbox_save_drop_headers_count,
+<span class="lineNum">     381 </span>            :                            save_header_callback, ctx);
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     if ((ctx-&gt;mbox-&gt;storage-&gt;storage.flags &amp;</span>
+<span class="lineNum">     384 </span>            :          MAIL_STORAGE_FLAG_KEEP_HEADER_MD5) != 0) {
+<span class="lineNum">     385 </span>            :         /* we're using MD5 sums to generate POP3 UIDLs.
+<span class="lineNum">     386 </span>            :            clients don't like it much if there are duplicates,
+<span class="lineNum">     387 </span>            :            so make sure that there can't be any by appending
+<span class="lineNum">     388 </span>            :            our own X-Delivery-ID header. */
+<span class="lineNum">     389 </span>            :         const char *hdr;
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :             mbox_save_x_delivery_id(ctx);</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :         hdr = ctx-&gt;x_delivery_id_header;</span>
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :         streams[0] = i_stream_create_from_data(hdr, strlen(hdr));</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :         streams[1] = filter;</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         streams[2] = NULL;</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :         ret = i_stream_create_concat(streams);</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;filter);</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :         filter = ret;</span>
+<span class="lineNum">     402 </span>            :     }
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span>            :     /* convert linefeeds to wanted format */
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     ret = ctx-&gt;mbox-&gt;storage-&gt;storage.set-&gt;mail_save_crlf ?</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         i_stream_create_crlf(filter) : i_stream_create_lf(filter);</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;filter);</span>
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span>            :     /* caching creates a tee stream */
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     cache_input = index_mail_cache_parse_init(ctx-&gt;ctx.dest_mail, ret);</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;ret);</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     ret = cache_input;</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     414 </span>            : }
+<a name="415"><span class="lineNum">     415 </span>            : </a>
+<span class="lineNum">     416 </span>            : struct mail_save_context *
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 : mbox_save_alloc(struct mailbox_transaction_context *t)</span>
+<span class="lineNum">     418 </span>            : {
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     struct mbox_mailbox *mbox = MBOX_MAILBOX(t-&gt;box);</span>
+<span class="lineNum">     420 </span>            :     struct mbox_save_context *ctx;
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :     i_assert((t-&gt;flags &amp; MAILBOX_TRANSACTION_FLAG_EXTERNAL) != 0);</span>
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     if (t-&gt;save_ctx == NULL) {</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :         ctx = i_new(struct mbox_save_context, 1);</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :         ctx-&gt;ctx.transaction = t;</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox = mbox;</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :         ctx-&gt;trans = t-&gt;itrans;</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :         ctx-&gt;append_offset = (uoff_t)-1;</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :         ctx-&gt;headers = str_new(default_pool, 512);</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :         ctx-&gt;mail_offset = (uoff_t)-1;</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         t-&gt;save_ctx = &amp;ctx-&gt;ctx;</span>
+<span class="lineNum">     433 </span>            :     }
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     return t-&gt;save_ctx;</span>
+<a name="435"><span class="lineNum">     435 </span>            : }</a>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 : int mbox_save_begin(struct mail_save_context *_ctx, struct istream *input)</span>
+<span class="lineNum">     438 </span>            : {
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     struct mail_save_data *mdata = &amp;_ctx-&gt;data;</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :     struct mbox_transaction_context *t = MBOX_TRANSCTX(_ctx-&gt;transaction);</span>
+<span class="lineNum">     442 </span>            :     enum mail_flags save_flags;
+<span class="lineNum">     443 </span>            :     uint64_t offset;
+<span class="lineNum">     444 </span>            : 
+<span class="lineNum">     445 </span>            :     /* FIXME: we could write timezone_offset to From-line.. */
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     if (mdata-&gt;received_date == (time_t)-1)</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         mdata-&gt;received_date = ioloop_time;</span>
+<span class="lineNum">     448 </span>            : 
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     ctx-&gt;failed = FALSE;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :     ctx-&gt;seq = 0;</span>
+<span class="lineNum">     451 </span>            : 
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     if (mbox_save_init_file(ctx, t) &lt; 0) {</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     455 </span>            :     }
+<span class="lineNum">     456 </span>            : 
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :     save_flags = mdata-&gt;flags;</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     if (mdata-&gt;uid == 0)</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         save_flags |= MAIL_RECENT;</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :     str_truncate(ctx-&gt;headers, 0);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     if (ctx-&gt;synced) {</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :         if (ctx-&gt;mbox-&gt;mbox_save_md5)</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox_md5_ctx = ctx-&gt;mbox-&gt;md5_v.init();</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         if (ctx-&gt;next_uid &lt; mdata-&gt;uid) {</span>
+<span class="lineNum">     465 </span>            :             /* we can use the wanted UID */
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :             ctx-&gt;next_uid = mdata-&gt;uid;</span>
+<span class="lineNum">     467 </span>            :         }
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         if (ctx-&gt;output-&gt;offset == 0) {</span>
+<span class="lineNum">     469 </span>            :             /* writing the first mail. Insert X-IMAPbase as well. */
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :             str_printfa(ctx-&gt;headers, &quot;X-IMAPbase: %u %010u\n&quot;,</span>
+<span class="lineNum">     471 </span>            :                     ctx-&gt;uid_validity, ctx-&gt;next_uid);
+<span class="lineNum">     472 </span>            :         }
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         str_printfa(ctx-&gt;headers, &quot;X-UID: %u\n&quot;, ctx-&gt;next_uid);</span>
+<span class="lineNum">     474 </span>            : 
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :         mail_index_append(ctx-&gt;trans, ctx-&gt;next_uid, &amp;ctx-&gt;seq);</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         mail_index_update_flags(ctx-&gt;trans, ctx-&gt;seq, MODIFY_REPLACE,</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :                     save_flags &amp; ~MAIL_RECENT);</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         if (mdata-&gt;keywords != NULL) {</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :             mail_index_update_keywords(ctx-&gt;trans, ctx-&gt;seq,</span>
+<span class="lineNum">     480 </span>            :                            MODIFY_REPLACE,
+<span class="lineNum">     481 </span>            :                            mdata-&gt;keywords);
+<span class="lineNum">     482 </span>            :         }
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         if (mdata-&gt;min_modseq != 0) {</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :             mail_index_update_modseq(ctx-&gt;trans, ctx-&gt;seq,</span>
+<span class="lineNum">     485 </span>            :                          mdata-&gt;min_modseq);
+<span class="lineNum">     486 </span>            :         }
+<span class="lineNum">     487 </span>            : 
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :         offset = ctx-&gt;output-&gt;offset == 0 ? 0 :</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             ctx-&gt;output-&gt;offset - 1;</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :         mail_index_update_ext(ctx-&gt;trans, ctx-&gt;seq,</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :                       ctx-&gt;mbox-&gt;mbox_ext_idx, &amp;offset, NULL);</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :         ctx-&gt;next_uid++;</span>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span>            :         /* parse and cache the mail headers as we read it */
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :         mail_set_seq_saving(_ctx-&gt;dest_mail, ctx-&gt;seq);</span>
+<span class="lineNum">     496 </span>            :     }
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     mbox_save_append_flag_headers(ctx-&gt;headers, save_flags);</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :     mbox_save_append_keyword_headers(ctx, mdata-&gt;keywords);</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     str_append_c(ctx-&gt;headers, '\n');</span>
+<span class="lineNum">     500 </span>            : 
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;mbox-&gt;mbox_lock_type == F_WRLCK);</span>
+<span class="lineNum">     502 </span>            : 
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     ctx-&gt;mail_offset = ctx-&gt;output-&gt;offset;</span>
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :     ctx-&gt;eoh_offset = (uoff_t)-1;</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :     ctx-&gt;last_char = '\n';</span>
+<span class="lineNum">     506 </span>            : 
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     if (write_from_line(ctx, mdata-&gt;received_date, mdata-&gt;from_envelope) &lt; 0)</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     509 </span>            :     else
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         ctx-&gt;input = mbox_save_get_input_stream(ctx, input);</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     return ctx-&gt;failed ? -1 : 0;</span>
+<a name="512"><span class="lineNum">     512 </span>            : }</a>
+<span class="lineNum">     513 </span>            : 
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 : static int mbox_save_body_input(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     515 </span>            : {
+<span class="lineNum">     516 </span>            :     const unsigned char *data;
+<span class="lineNum">     517 </span>            :     size_t size;
+<span class="lineNum">     518 </span>            : 
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :     data = i_stream_get_data(ctx-&gt;input, &amp;size);</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :     if (size &gt; 0) {</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         if (o_stream_send(ctx-&gt;output, data, size) &lt; 0) {</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :             write_error(ctx);</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     524 </span>            :         }
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :         ctx-&gt;last_char = data[size-1];</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :         i_stream_skip(ctx-&gt;input, size);</span>
+<span class="lineNum">     527 </span>            :     }
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="529"><span class="lineNum">     529 </span>            : }</a>
+<span class="lineNum">     530 </span>            : 
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 : static int mbox_save_body(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     532 </span>            : {
+<span class="lineNum">     533 </span>            :     ssize_t ret;
+<span class="lineNum">     534 </span>            : 
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     while ((ret = i_stream_read(ctx-&gt;input)) != -1) {</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :         if (mbox_save_body_input(ctx) &lt; 0)</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     538 </span>            :         /* i_stream_read() may have returned 0 at EOF
+<span class="lineNum">     539 </span>            :            because of this parser */
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :         index_mail_cache_parse_continue(ctx-&gt;ctx.dest_mail);</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     543 </span>            :     }
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;last_char == '\n');</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="547"><span class="lineNum">     547 </span>            : }</a>
+<span class="lineNum">     548 </span>            : 
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 : static int mbox_save_finish_headers(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     550 </span>            : {
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;eoh_offset == (uoff_t)-1);</span>
+<span class="lineNum">     552 </span>            : 
+<span class="lineNum">     553 </span>            :     /* append our own headers and ending empty line */
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :     ctx-&gt;extra_hdr_offset = ctx-&gt;output-&gt;offset;</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :     if (o_stream_send(ctx-&gt;output, str_data(ctx-&gt;headers),</span>
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :               str_len(ctx-&gt;headers)) &lt; 0) {</span>
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :         write_error(ctx);</span>
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     559 </span>            :     }
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :     ctx-&gt;eoh_offset = ctx-&gt;output-&gt;offset;</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="562"><span class="lineNum">     562 </span>            : }</a>
+<span class="lineNum">     563 </span>            : 
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 : int mbox_save_continue(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     565 </span>            : {
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     567 </span>            :     const unsigned char *data;
+<span class="lineNum">     568 </span>            :     size_t i, size;
+<span class="lineNum">     569 </span>            :     ssize_t ret;
+<span class="lineNum">     570 </span>            : 
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     if (ctx-&gt;failed)</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     573 </span>            : 
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :     if (ctx-&gt;eoh_offset != (uoff_t)-1) {</span>
+<span class="lineNum">     575 </span>            :         /* writing body */
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         return mbox_save_body(ctx);</span>
+<span class="lineNum">     577 </span>            :     }
+<span class="lineNum">     578 </span>            : 
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     while ((ret = i_stream_read_more(ctx-&gt;input, &amp;data, &amp;size)) &gt; 0) {</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; size; i++) {</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :             if (data[i] == '\n' &amp;&amp;</span>
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :                 ((i == 0 &amp;&amp; ctx-&gt;last_char == '\n') ||</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :                  (i &gt; 0 &amp;&amp; data[i-1] == '\n'))) {</span>
+<span class="lineNum">     584 </span>            :                 /* end of headers. we don't need to worry about
+<span class="lineNum">     585 </span>            :                    CRs because they're dropped */
+<span class="lineNum">     586 </span>            :                 break;
+<span class="lineNum">     587 </span>            :             }
+<span class="lineNum">     588 </span>            :         }
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :         if (i != size) {</span>
+<span class="lineNum">     590 </span>            :             /* found end of headers. write the rest of them
+<span class="lineNum">     591 </span>            :                (not including the finishing empty line) */
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :             if (o_stream_send(ctx-&gt;output, data, i) &lt; 0) {</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :                 write_error(ctx);</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     595 </span>            :             }
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :             ctx-&gt;last_char = '\n';</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :             i_stream_skip(ctx-&gt;input, i + 1);</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     599 </span>            :         }
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         if (o_stream_send(ctx-&gt;output, data, size) &lt; 0) {</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :             write_error(ctx);</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     604 </span>            :         }
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :         i_assert(size &gt; 0);</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :         ctx-&gt;last_char = data[size-1];</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :         i_stream_skip(ctx-&gt;input, size);</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :         index_mail_cache_parse_continue(ctx-&gt;ctx.dest_mail);</span>
+<span class="lineNum">     609 </span>            :     }
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :     if (ret == 0)</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     if (ctx-&gt;input-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :         i_error(&quot;read(%s) failed: %s&quot;, i_stream_get_name(ctx-&gt;input),</span>
+<span class="lineNum">     614 </span>            :             i_stream_get_error(ctx-&gt;input));
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     617 </span>            :     }
+<span class="lineNum">     618 </span>            : 
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;last_char == '\n');</span>
+<span class="lineNum">     620 </span>            : 
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :     if (ctx-&gt;mbox_md5_ctx != NULL) {</span>
+<span class="lineNum">     622 </span>            :         unsigned char hdr_md5_sum[16];
+<span class="lineNum">     623 </span>            : 
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :         if (ctx-&gt;x_delivery_id_header != NULL) {</span>
+<span class="lineNum">     625 </span>            :             struct message_header_line hdr;
+<span class="lineNum">     626 </span>            : 
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :             i_zero(&amp;hdr);</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :             hdr.name = ctx-&gt;x_delivery_id_header;</span>
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :             hdr.name_len = sizeof(&quot;X-Delivery-ID&quot;)-1;</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :             hdr.middle = (const unsigned char *)hdr.name +</span>
+<span class="lineNum">     631 </span>            :                 hdr.name_len;
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :             hdr.middle_len = 2;</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :             hdr.value = hdr.full_value =</span>
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :                 hdr.middle + hdr.middle_len;</span>
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :             hdr.value_len = strlen((const char *)hdr.value);</span>
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;md5_v.more(ctx-&gt;mbox_md5_ctx, &amp;hdr);</span>
+<span class="lineNum">     637 </span>            :         }
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;md5_v.finish(ctx-&gt;mbox_md5_ctx, hdr_md5_sum);</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :         mail_index_update_ext(ctx-&gt;trans, ctx-&gt;seq,</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :                       ctx-&gt;mbox-&gt;md5hdr_ext_idx,</span>
+<span class="lineNum">     641 </span>            :                       hdr_md5_sum, NULL);
+<span class="lineNum">     642 </span>            :     }
+<span class="lineNum">     643 </span>            : 
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :     if (mbox_save_finish_headers(ctx) &lt; 0)</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     646 </span>            : 
+<span class="lineNum">     647 </span>            :     /* write body */
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     if (mbox_save_body_input(ctx) &lt; 0)</span>
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :     return ctx-&gt;input-&gt;eof ? 0 : mbox_save_body(ctx);</span>
+<a name="651"><span class="lineNum">     651 </span>            : }</a>
+<span class="lineNum">     652 </span>            : 
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 : int mbox_save_finish(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     654 </span>            : {
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     656 </span>            : 
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;failed &amp;&amp; ctx-&gt;eoh_offset == (uoff_t)-1)</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :         (void)mbox_save_finish_headers(ctx);</span>
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     if (ctx-&gt;output != NULL) {</span>
+<span class="lineNum">     661 </span>            :         /* make sure everything is written */
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :         if (o_stream_flush(ctx-&gt;output) &lt; 0)</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :             write_error(ctx);</span>
+<span class="lineNum">     664 </span>            :     }
+<span class="lineNum">     665 </span>            : 
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     ctx-&gt;finished = TRUE;</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;failed) {</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :         i_assert(ctx-&gt;output != NULL);</span>
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :             if (mbox_write_content_length(ctx) &lt; 0 ||</span>
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :                 mbox_append_lf(ctx) &lt; 0)</span>
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :                 ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     674 </span>            :     }
+<span class="lineNum">     675 </span>            : 
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :     index_mail_cache_parse_deinit(ctx-&gt;ctx.dest_mail,</span>
+<span class="lineNum">     677 </span>            :                       ctx-&gt;ctx.data.received_date,
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :                       !ctx-&gt;failed);</span>
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     if (ctx-&gt;input != NULL)</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :         i_stream_destroy(&amp;ctx-&gt;input);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :     if (ctx-&gt;failed &amp;&amp; ctx-&gt;mail_offset != (uoff_t)-1) {</span>
+<span class="lineNum">     683 </span>            :         /* saving this mail failed - truncate back to beginning of it */
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :         i_assert(ctx-&gt;output != NULL);</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         (void)o_stream_flush(ctx-&gt;output);</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :         if (ftruncate(ctx-&gt;mbox-&gt;mbox_fd, (off_t)ctx-&gt;mail_offset) &lt; 0)</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :             mbox_set_syscall_error(ctx-&gt;mbox, &quot;ftruncate()&quot;);</span>
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :         (void)o_stream_seek(ctx-&gt;output, ctx-&gt;mail_offset);</span>
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :         ctx-&gt;mail_offset = (uoff_t)-1;</span>
+<span class="lineNum">     690 </span>            :     }
+<span class="lineNum">     691 </span>            : 
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :     if (ctx-&gt;seq != 0 &amp;&amp; ctx-&gt;failed) {</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :         index_storage_save_abort_last(&amp;ctx-&gt;ctx, ctx-&gt;seq);</span>
+<span class="lineNum">     694 </span>            :     }
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :     index_save_context_free(_ctx);</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :     return ctx-&gt;failed ? -1 : 0;</span>
+<a name="697"><span class="lineNum">     697 </span>            : }</a>
+<span class="lineNum">     698 </span>            : 
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 : void mbox_save_cancel(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     700 </span>            : {
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     702 </span>            : 
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :     ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :     (void)mbox_save_finish(_ctx);</span>
+<a name="705"><span class="lineNum">     705 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     706 </span>            : 
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 : static void mbox_transaction_save_deinit(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     708 </span>            : {
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :     o_stream_destroy(&amp;ctx-&gt;output);</span>
+<span class="lineNum">     710 </span><span class="lineNoCov">          0 :     str_free(&amp;ctx-&gt;headers);</span>
+<a name="711"><span class="lineNum">     711 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     712 </span>            : 
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 : static void mbox_save_truncate(struct mbox_save_context *ctx)</span>
+<span class="lineNum">     714 </span>            : {
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :     if (ctx-&gt;append_offset == (uoff_t)-1 || ctx-&gt;mbox-&gt;mbox_fd == -1)</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     717 </span>            : 
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;mbox-&gt;mbox_lock_type == F_WRLCK);</span>
+<span class="lineNum">     719 </span>            : 
+<span class="lineNum">     720 </span>            :     /* failed, truncate file back to original size. output stream needs to
+<span class="lineNum">     721 </span>            :        be flushed before truncating so unref() won't write anything. */
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :     if (ctx-&gt;output != NULL)</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :         (void)o_stream_flush(ctx-&gt;output);</span>
+<span class="lineNum">     724 </span>            : 
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     if (ftruncate(ctx-&gt;mbox-&gt;mbox_fd, (off_t)ctx-&gt;append_offset) &lt; 0)</span>
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :         mbox_set_syscall_error(ctx-&gt;mbox, &quot;ftruncate()&quot;);</span>
+<a name="727"><span class="lineNum">     727 </span>            : }</a>
+<span class="lineNum">     728 </span>            : 
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 : int mbox_transaction_save_commit_pre(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     730 </span>            : {
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :     struct mailbox_transaction_context *_t = _ctx-&gt;transaction;</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :     struct mbox_mailbox *mbox = ctx-&gt;mbox;</span>
+<span class="lineNum">     734 </span>            :     struct stat st;
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     736 </span>            : 
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;finished);</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :     i_assert(mbox-&gt;mbox_fd != -1);</span>
+<span class="lineNum">     739 </span>            : 
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :     if (fstat(mbox-&gt;mbox_fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :         mbox_set_syscall_error(mbox, &quot;fstat()&quot;);</span>
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     743 </span>            :     }
+<span class="lineNum">     744 </span>            : 
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :     if (ctx-&gt;synced) {</span>
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :         _t-&gt;changes-&gt;uid_validity = ctx-&gt;uid_validity;</span>
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 :         mail_index_append_finish_uids(ctx-&gt;trans, 0,</span>
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :                           &amp;_t-&gt;changes-&gt;saved_uids);</span>
+<span class="lineNum">     749 </span>            : 
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :         mail_index_update_header(ctx-&gt;trans,</span>
+<span class="lineNum">     751 </span>            :             offsetof(struct mail_index_header, next_uid),
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :             &amp;ctx-&gt;next_uid, sizeof(ctx-&gt;next_uid), FALSE);</span>
+<span class="lineNum">     753 </span>            : 
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     755 </span><span class="lineNoCov">          0 :             mbox-&gt;mbox_hdr.sync_mtime = st.st_mtime;</span>
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :             mbox-&gt;mbox_hdr.sync_size = st.st_size;</span>
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :             mail_index_update_header_ext(ctx-&gt;trans,</span>
+<span class="lineNum">     758 </span>            :                              mbox-&gt;mbox_ext_idx,
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :                              0, &amp;mbox-&gt;mbox_hdr,</span>
+<span class="lineNum">     760 </span>            :                              sizeof(mbox-&gt;mbox_hdr));
+<span class="lineNum">     761 </span>            :         }
+<span class="lineNum">     762 </span>            :     }
+<span class="lineNum">     763 </span>            : 
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     if (ret == 0 &amp;&amp; ctx-&gt;orig_atime != st.st_atime) {</span>
+<span class="lineNum">     765 </span>            :         /* try to set atime back to its original value.
+<span class="lineNum">     766 </span>            :            (it'll fail with EPERM for shared mailboxes where we aren't
+<span class="lineNum">     767 </span>            :            the file's owner) */
+<span class="lineNum">     768 </span>            :         struct utimbuf buf;
+<span class="lineNum">     769 </span>            : 
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :         buf.modtime = st.st_mtime;</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :         buf.actime = ctx-&gt;orig_atime;</span>
+<span class="lineNum">     772 </span><span class="lineNoCov">          0 :         if (utime(mailbox_get_path(&amp;mbox-&gt;box), &amp;buf) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :             errno != EPERM)</span>
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :             mbox_set_syscall_error(mbox, &quot;utime()&quot;);</span>
+<span class="lineNum">     775 </span>            :     }
+<span class="lineNum">     776 </span>            : 
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :     if (ctx-&gt;output != NULL) {</span>
+<span class="lineNum">     778 </span>            :         /* flush the final LF */
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :         if (o_stream_flush(ctx-&gt;output) &lt; 0)</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :             write_error(ctx);</span>
+<span class="lineNum">     781 </span>            :     }
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :     if (mbox-&gt;mbox_fd != -1 &amp;&amp; !mbox-&gt;mbox_writeonly &amp;&amp;</span>
+<span class="lineNum">     783 </span><span class="lineNoCov">          0 :         mbox-&gt;storage-&gt;storage.set-&gt;parsed_fsync_mode != FSYNC_MODE_NEVER) {</span>
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :         if (fdatasync(mbox-&gt;mbox_fd) &lt; 0) {</span>
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :             mbox_set_syscall_error(mbox, &quot;fdatasync()&quot;);</span>
+<span class="lineNum">     786 </span><span class="lineNoCov">          0 :             mbox_save_truncate(ctx);</span>
+<span class="lineNum">     787 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     788 </span>            :         }
+<span class="lineNum">     789 </span>            :     }
+<span class="lineNum">     790 </span>            : 
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :     mbox_transaction_save_deinit(ctx);</span>
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :     if (ret &lt; 0)</span>
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :         i_free(ctx);</span>
+<span class="lineNum">     794 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="795"><span class="lineNum">     795 </span>            : }</a>
+<span class="lineNum">     796 </span>            : 
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 : void mbox_transaction_save_commit_post(struct mail_save_context *_ctx,</span>
+<span class="lineNum">     798 </span>            :                        struct mail_index_transaction_commit_result *result ATTR_UNUSED)
+<span class="lineNum">     799 </span>            : {
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     801 </span>            : 
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :     i_assert(ctx-&gt;mbox-&gt;mbox_lock_type == F_WRLCK);</span>
+<span class="lineNum">     803 </span>            : 
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :     if (ctx-&gt;synced) {</span>
+<span class="lineNum">     805 </span>            :         /* after saving mails with UIDs we need to update
+<span class="lineNum">     806 </span>            :            the last-uid */
+<span class="lineNum">     807 </span><span class="lineNoCov">          0 :         (void)mbox_sync(ctx-&gt;mbox, MBOX_SYNC_HEADER |</span>
+<span class="lineNum">     808 </span>            :                 MBOX_SYNC_REWRITE);
+<span class="lineNum">     809 </span>            :     }
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<a name="811"><span class="lineNum">     811 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     812 </span>            : 
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 : void mbox_transaction_save_rollback(struct mail_save_context *_ctx)</span>
+<span class="lineNum">     814 </span>            : {
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :     struct mbox_save_context *ctx = MBOX_SAVECTX(_ctx);</span>
+<span class="lineNum">     816 </span>            : 
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;finished)</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :         mbox_save_cancel(&amp;ctx-&gt;ctx);</span>
+<span class="lineNum">     819 </span>            : 
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :     mbox_save_truncate(ctx);</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :     mbox_transaction_save_deinit(ctx);</span>
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

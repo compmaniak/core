@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-fts/fts-filter-stemmer-snowball.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-fts</a> - fts-filter-stemmer-snowball.c<span style="font-size: 80%;"> (source / <a href="fts-filter-stemmer-snowball.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2014-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;fts-language.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;fts-filter-private.h&quot;
+<span class="lineNum">       6 </span>            : 
+<span class="lineNum">       7 </span>            : #ifdef HAVE_FTS_STEMMER
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &lt;libstemmer.h&gt;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : struct fts_filter_stemmer_snowball {
+<span class="lineNum">      12 </span>            :     struct fts_filter filter;
+<span class="lineNum">      13 </span>            :     pool_t pool;
+<span class="lineNum">      14 </span>            :     struct fts_language *lang;
+<span class="lineNum">      15 </span>            :     struct sb_stemmer *stemmer;
+<span class="lineNum">      16 </span>            : };
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : static void fts_filter_stemmer_snowball_destroy(struct fts_filter *filter)
+<span class="lineNum">      19 </span>            : {
+<span class="lineNum">      20 </span>            :     struct fts_filter_stemmer_snowball *sp =
+<span class="lineNum">      21 </span>            :         (struct fts_filter_stemmer_snowball *)filter;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            :     if (sp-&gt;stemmer != NULL)
+<span class="lineNum">      24 </span>            :         sb_stemmer_delete(sp-&gt;stemmer);
+<span class="lineNum">      25 </span>            :     pool_unref(&amp;sp-&gt;pool);
+<span class="lineNum">      26 </span>            : }
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : static int
+<span class="lineNum">      29 </span>            : fts_filter_stemmer_snowball_create(const struct fts_language *lang,
+<span class="lineNum">      30 </span>            :                                    const char *const *settings,
+<span class="lineNum">      31 </span>            :                                    struct fts_filter **filter_r,
+<span class="lineNum">      32 </span>            :                                    const char **error_r)
+<span class="lineNum">      33 </span>            : {
+<span class="lineNum">      34 </span>            :     struct fts_filter_stemmer_snowball *sp;
+<span class="lineNum">      35 </span>            :     pool_t pp;
+<span class="lineNum">      36 </span>            : 
+<span class="lineNum">      37 </span>            :     *filter_r = NULL;
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            :     if (settings[0] != NULL) {
+<span class="lineNum">      40 </span>            :         *error_r = t_strdup_printf(&quot;Unknown setting: %s&quot;, settings[0]);
+<span class="lineNum">      41 </span>            :         return -1;
+<span class="lineNum">      42 </span>            :     }
+<span class="lineNum">      43 </span>            :     pp = pool_alloconly_create(MEMPOOL_GROWING&quot;fts_filter_stemmer_snowball&quot;,
+<span class="lineNum">      44 </span>            :                                sizeof(struct fts_filter));
+<span class="lineNum">      45 </span>            :     sp = p_new(pp, struct fts_filter_stemmer_snowball, 1);
+<span class="lineNum">      46 </span>            :     sp-&gt;pool = pp;
+<span class="lineNum">      47 </span>            :     sp-&gt;filter = *fts_filter_stemmer_snowball;
+<span class="lineNum">      48 </span>            :     sp-&gt;lang = p_malloc(sp-&gt;pool, sizeof(struct fts_language));
+<span class="lineNum">      49 </span>            :     sp-&gt;lang-&gt;name = p_strdup(sp-&gt;pool, lang-&gt;name);
+<span class="lineNum">      50 </span>            :     *filter_r = &amp;sp-&gt;filter;
+<span class="lineNum">      51 </span>            :     return 0;
+<span class="lineNum">      52 </span>            : }
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            : static int
+<span class="lineNum">      55 </span>            : fts_filter_stemmer_snowball_create_stemmer(struct fts_filter_stemmer_snowball *sp,
+<span class="lineNum">      56 </span>            :                        const char **error_r)
+<span class="lineNum">      57 </span>            : {
+<span class="lineNum">      58 </span>            :     sp-&gt;stemmer = sb_stemmer_new(sp-&gt;lang-&gt;name, &quot;UTF_8&quot;);
+<span class="lineNum">      59 </span>            :     if (sp-&gt;stemmer == NULL) {
+<span class="lineNum">      60 </span>            :         *error_r = t_strdup_printf(
+<span class="lineNum">      61 </span>            :             &quot;Creating a Snowball stemmer for language '%s' failed.&quot;,
+<span class="lineNum">      62 </span>            :             sp-&gt;lang-&gt;name);
+<span class="lineNum">      63 </span>            :         fts_filter_stemmer_snowball_destroy(&amp;sp-&gt;filter);
+<span class="lineNum">      64 </span>            :         return -1;
+<span class="lineNum">      65 </span>            :     }
+<span class="lineNum">      66 </span>            :     return 0;
+<span class="lineNum">      67 </span>            : }
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span>            : static int
+<span class="lineNum">      70 </span>            : fts_filter_stemmer_snowball_filter(struct fts_filter *filter,
+<span class="lineNum">      71 </span>            :                                    const char **token, const char **error_r)
+<span class="lineNum">      72 </span>            : {
+<span class="lineNum">      73 </span>            :     struct fts_filter_stemmer_snowball *sp =
+<span class="lineNum">      74 </span>            :         (struct fts_filter_stemmer_snowball *) filter;
+<span class="lineNum">      75 </span>            :     const sb_symbol *base;
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :     if (sp-&gt;stemmer == NULL) {
+<span class="lineNum">      78 </span>            :         if (fts_filter_stemmer_snowball_create_stemmer(sp, error_r) &lt; 0)
+<span class="lineNum">      79 </span>            :             return -1;
+<span class="lineNum">      80 </span>            :     }
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span>            :     base = sb_stemmer_stem(sp-&gt;stemmer, (const unsigned char *)*token, strlen(*token));
+<span class="lineNum">      83 </span>            :     if (base == NULL) {
+<span class="lineNum">      84 </span>            :         /* the only reason why this could fail is because of
+<span class="lineNum">      85 </span>            :            out of memory. */
+<span class="lineNum">      86 </span>            :         i_fatal_status(FATAL_OUTOFMEM,
+<span class="lineNum">      87 </span>            :                    &quot;sb_stemmer_stem(len=%&quot;PRIuSIZE_T&quot;) failed: &quot;
+<span class="lineNum">      88 </span>            :                    &quot;Out of memory&quot;, strlen(*token));
+<span class="lineNum">      89 </span>            :     }
+<span class="lineNum">      90 </span>            :     *token = t_strndup(base, sb_stemmer_length(sp-&gt;stemmer));
+<span class="lineNum">      91 </span>            :     return 1;
+<span class="lineNum">      92 </span>            : }
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span>            : #else
+<a name="95"><span class="lineNum">      95 </span>            : </a>
+<span class="lineNum">      96 </span>            : static int
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 : fts_filter_stemmer_snowball_create(const struct fts_language *lang ATTR_UNUSED,</span>
+<span class="lineNum">      98 </span>            :                                    const char *const *settings ATTR_UNUSED,
+<span class="lineNum">      99 </span>            :                                    struct fts_filter **filter_r ATTR_UNUSED,
+<span class="lineNum">     100 </span>            :                                    const char **error_r)
+<span class="lineNum">     101 </span>            : {
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     *error_r = &quot;Snowball support not built in&quot;;</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     return -1;</span>
+<a name="104"><span class="lineNum">     104 </span>            : }</a>
+<span class="lineNum">     105 </span>            : static void
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 : fts_filter_stemmer_snowball_destroy(struct fts_filter *stemmer ATTR_UNUSED)</span>
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 : }</span>
+<a name="109"><span class="lineNum">     109 </span>            : </a>
+<span class="lineNum">     110 </span>            : static int
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 : fts_filter_stemmer_snowball_filter(struct fts_filter *filter ATTR_UNUSED,</span>
+<span class="lineNum">     112 </span>            :                    const char **token ATTR_UNUSED,
+<span class="lineNum">     113 </span>            :                    const char **error_r ATTR_UNUSED)
+<span class="lineNum">     114 </span>            : {
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     116 </span>            : }
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span>            : #endif
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span>            : static const struct fts_filter fts_filter_stemmer_snowball_real = {
+<span class="lineNum">     121 </span>            :     .class_name = &quot;snowball&quot;,
+<span class="lineNum">     122 </span>            :     .v = {
+<span class="lineNum">     123 </span>            :         fts_filter_stemmer_snowball_create,
+<span class="lineNum">     124 </span>            :         fts_filter_stemmer_snowball_filter,
+<span class="lineNum">     125 </span>            :         fts_filter_stemmer_snowball_destroy
+<span class="lineNum">     126 </span>            :     }
+<span class="lineNum">     127 </span>            : };
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span>            : const struct fts_filter *fts_filter_stemmer_snowball = &amp;fts_filter_stemmer_snowball_real;
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

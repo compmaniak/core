@@ -1,0 +1,344 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-mail/message-header-encode.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-mail</a> - message-header-encode.c<span style="font-size: 80%;"> (source / <a href="message-header-encode.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">136</td>
+            <td class="headerCovTableEntry">137</td>
+            <td class="headerCovTableEntryHi">99.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;base64.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;message-header-encode.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #define MIME_WRAPPER_LEN (strlen(&quot;=?utf-8?q?&quot;&quot;?=&quot;))
+<span class="lineNum">       9 </span>            : #define MIME_MAX_LINE_LEN 76
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : #define IS_LWSP(c) \
+<a name="12"><span class="lineNum">      12 </span>            :     ((c) == ' ' || (c) == '\t' || (c) == '\n')</a>
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span><span class="lineCov">        156 : static bool input_idx_need_encoding(const unsigned char *input,</span>
+<span class="lineNum">      15 </span>            :                     unsigned int i, unsigned int len)
+<span class="lineNum">      16 </span>            : {
+<span class="lineNum">      17 </span><span class="lineCov">        156 :     switch (input[i]) {</span>
+<span class="lineNum">      18 </span>            :     case '\r':
+<span class="lineNum">      19 </span><span class="lineCov">          4 :         if (i+1 == len || input[i+1] != '\n')</span>
+<span class="lineNum">      20 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">      21 </span><span class="lineCov">          4 :         i++;</span>
+<span class="lineNum">      22 </span>            :         /* fall through - verify the LF as well */
+<span class="lineNum">      23 </span>            :     case '\n':
+<span class="lineNum">      24 </span><span class="lineCov">         12 :         if (i+1 == len) {</span>
+<span class="lineNum">      25 </span>            :             /* trailing LF - we need to drop it */
+<span class="lineNum">      26 </span><span class="lineCov">          2 :             return TRUE;</span>
+<span class="lineNum">      27 </span>            :         }
+<span class="lineNum">      28 </span><span class="lineCov">         10 :         if (input[i+1] != '\t' &amp;&amp; input[i+1] != ' ') {</span>
+<span class="lineNum">      29 </span>            :             /* LF not followed by whitespace - we need to
+<span class="lineNum">      30 </span>            :                add the whitespace */
+<span class="lineNum">      31 </span><span class="lineCov">          3 :             return TRUE;</span>
+<span class="lineNum">      32 </span>            :         }
+<span class="lineNum">      33 </span><span class="lineCov">          7 :         break;</span>
+<span class="lineNum">      34 </span>            :     case '\t':
+<span class="lineNum">      35 </span>            :         /* TAB doesn't need to be encoded */
+<span class="lineNum">      36 </span><span class="lineCov">          2 :         break;</span>
+<span class="lineNum">      37 </span>            :     case '=':
+<span class="lineNum">      38 </span>            :         /* &lt;LWSP&gt;=? - we need to check backwards a bit to see if
+<span class="lineNum">      39 </span>            :            there is LWSP (note that we don't want to return TRUE for
+<span class="lineNum">      40 </span>            :            the LWSP itself yet, so we need to do this backwards
+<span class="lineNum">      41 </span>            :            check) */
+<span class="lineNum">      42 </span><span class="lineCov">         22 :         if ((i == 0 || IS_LWSP(input[i-1])) &amp;&amp; i+2 &lt;= len &amp;&amp;</span>
+<span class="lineNum">      43 </span><span class="lineCov">         10 :             memcmp(input + i, &quot;=?&quot;, 2) == 0)</span>
+<span class="lineNum">      44 </span><span class="lineCov">         10 :             return TRUE;</span>
+<span class="lineNum">      45 </span><span class="lineCov">          2 :         break;</span>
+<span class="lineNum">      46 </span>            :     default:
+<span class="lineNum">      47 </span>            :         /* 8bit chars */
+<span class="lineNum">      48 </span><span class="lineCov">        130 :         if ((input[i] &amp; 0x80) != 0)</span>
+<span class="lineNum">      49 </span><span class="lineCov">         22 :             return TRUE;</span>
+<span class="lineNum">      50 </span>            :         /* control chars */
+<span class="lineNum">      51 </span><span class="lineCov">        108 :         if (input[i] &lt; 32)</span>
+<span class="lineNum">      52 </span><span class="lineCov">         28 :             return TRUE;</span>
+<span class="lineNum">      53 </span><span class="lineCov">         80 :         break;</span>
+<span class="lineNum">      54 </span>            :     }
+<span class="lineNum">      55 </span><span class="lineCov">         91 :     return FALSE;</span>
+<a name="56"><span class="lineNum">      56 </span>            : }</a>
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineCov">       1171 : void message_header_encode_q(const unsigned char *input, unsigned int len,</span>
+<span class="lineNum">      59 </span>            :                  string_t *output, unsigned int first_line_len)
+<span class="lineNum">      60 </span>            : {
+<span class="lineNum">      61 </span>            :     unsigned int i, line_len_left;
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">       1171 :     line_len_left = MIME_MAX_LINE_LEN - MIME_WRAPPER_LEN;</span>
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineCov">       1171 :     if (first_line_len &gt;= MIME_MAX_LINE_LEN - MIME_WRAPPER_LEN - 3) {</span>
+<span class="lineNum">      66 </span><span class="lineCov">         40 :         str_append(output, &quot;\n\t&quot;);</span>
+<span class="lineNum">      67 </span><span class="lineCov">         40 :         line_len_left--;</span>
+<span class="lineNum">      68 </span>            :     } else {
+<span class="lineNum">      69 </span><span class="lineCov">       1131 :         line_len_left -= first_line_len;</span>
+<span class="lineNum">      70 </span>            :     }
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineCov">       1171 :     str_append(output, &quot;=?utf-8?q?&quot;);</span>
+<span class="lineNum">      73 </span><span class="lineCov">     519053 :     for (i = 0; i &lt; len; i++) {</span>
+<span class="lineNum">      74 </span><span class="lineCov">     517882 :         if (line_len_left &lt; 3) {</span>
+<span class="lineNum">      75 </span>            :             /* if we're not at the beginning of an UTF8 character,
+<span class="lineNum">      76 </span>            :                go backwards until we are */
+<span class="lineNum">      77 </span><span class="lineCov">      26078 :             while (i &gt; 0 &amp;&amp; (input[i] &amp; 0xc0) == 0x80) {</span>
+<span class="lineNum">      78 </span><span class="lineCov">        514 :                 str_truncate(output, str_len(output)-3);</span>
+<span class="lineNum">      79 </span><span class="lineCov">        514 :                 i--;</span>
+<span class="lineNum">      80 </span>            :             }
+<span class="lineNum">      81 </span><span class="lineCov">      12782 :             str_append(output, &quot;?=\n\t=?utf-8?q?&quot;);</span>
+<span class="lineNum">      82 </span><span class="lineCov">      12782 :             line_len_left = MIME_MAX_LINE_LEN -</span>
+<span class="lineNum">      83 </span>            :                 MIME_WRAPPER_LEN - 1;
+<span class="lineNum">      84 </span>            :         }
+<span class="lineNum">      85 </span><span class="lineCov">     517882 :         switch (input[i]) {</span>
+<span class="lineNum">      86 </span>            :         case ' ':
+<span class="lineNum">      87 </span><span class="lineCov">       3876 :             str_append_c(output, '_');</span>
+<span class="lineNum">      88 </span><span class="lineCov">       3876 :             break;</span>
+<span class="lineNum">      89 </span>            :         case '=':
+<span class="lineNum">      90 </span>            :         case '?':
+<span class="lineNum">      91 </span>            :         case '_':
+<span class="lineNum">      92 </span><span class="lineCov">      11907 :             line_len_left -= 2;</span>
+<span class="lineNum">      93 </span><span class="lineCov">      11907 :             str_printfa(output, &quot;=%02X&quot;, input[i]);</span>
+<span class="lineNum">      94 </span><span class="lineCov">      11907 :             break;</span>
+<span class="lineNum">      95 </span>            :         default:
+<span class="lineNum">      96 </span><span class="lineCov">     502099 :             if (input[i] &lt; 32 || (input[i] &amp; 0x80) != 0) {</span>
+<span class="lineNum">      97 </span><span class="lineCov">     140358 :                 line_len_left -= 2;</span>
+<span class="lineNum">      98 </span><span class="lineCov">     140358 :                 str_printfa(output, &quot;=%02X&quot;, input[i]);</span>
+<span class="lineNum">      99 </span>            :             } else {
+<span class="lineNum">     100 </span><span class="lineCov">     361741 :                 str_append_c(output, input[i]);</span>
+<span class="lineNum">     101 </span>            :             }
+<span class="lineNum">     102 </span><span class="lineCov">     502099 :             break;</span>
+<span class="lineNum">     103 </span>            :         }
+<span class="lineNum">     104 </span><span class="lineCov">     517882 :         line_len_left--;</span>
+<span class="lineNum">     105 </span>            :     }
+<span class="lineNum">     106 </span><span class="lineCov">       1171 :     str_append(output, &quot;?=&quot;);</span>
+<a name="107"><span class="lineNum">     107 </span><span class="lineCov">       1171 : }</span></a>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span><span class="lineCov">       1164 : void message_header_encode_b(const unsigned char *input, unsigned int len,</span>
+<span class="lineNum">     110 </span>            :                  string_t *output, unsigned int first_line_len)
+<span class="lineNum">     111 </span>            : {
+<span class="lineNum">     112 </span>            :     unsigned int line_len, line_len_left, max;
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineCov">       1164 :     line_len = first_line_len;</span>
+<span class="lineNum">     115 </span><span class="lineCov">       1164 :     if (line_len &gt;= MIME_MAX_LINE_LEN - MIME_WRAPPER_LEN) {</span>
+<span class="lineNum">     116 </span><span class="lineCov">         34 :         str_append(output, &quot;\n\t&quot;);</span>
+<span class="lineNum">     117 </span><span class="lineCov">         34 :         line_len = 1;</span>
+<span class="lineNum">     118 </span>            :     }
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span>            :     for (;;) {
+<span class="lineNum">     121 </span><span class="lineCov">      12062 :         line_len_left = MIME_MAX_LINE_LEN - MIME_WRAPPER_LEN - line_len;</span>
+<span class="lineNum">     122 </span><span class="lineCov">      12062 :         max = MAX_BASE64_DECODED_SIZE(line_len_left);</span>
+<span class="lineNum">     123 </span>            :         do {
+<span class="lineNum">     124 </span><span class="lineCov">      33578 :             max--;</span>
+<span class="lineNum">     125 </span><span class="lineCov">      33578 :             if (max &gt; len)</span>
+<span class="lineNum">     126 </span><span class="lineCov">       1190 :                 max = len;</span>
+<span class="lineNum">     127 </span>            :             else {
+<span class="lineNum">     128 </span>            :                 /* all of it doesn't fit. find a character where we
+<span class="lineNum">     129 </span>            :                    can split it from. */
+<span class="lineNum">     130 </span><span class="lineCov">      65202 :                 while (max &gt; 0 &amp;&amp; (input[max] &amp; 0xc0) == 0x80)</span>
+<span class="lineNum">     131 </span><span class="lineCov">        426 :                     max--;</span>
+<span class="lineNum">     132 </span>            :             }
+<span class="lineNum">     133 </span><span class="lineCov">      55094 :         } while (MAX_BASE64_ENCODED_SIZE(max) &gt; line_len_left &amp;&amp;</span>
+<span class="lineNum">     134 </span><span class="lineCov">      33578 :              max &gt; 0);</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineCov">      12062 :         if (max &gt; 0) {</span>
+<span class="lineNum">     137 </span><span class="lineCov">      12054 :             str_append(output, &quot;=?utf-8?b?&quot;);</span>
+<span class="lineNum">     138 </span><span class="lineCov">      12054 :             base64_encode(input, max, output);</span>
+<span class="lineNum">     139 </span><span class="lineCov">      12054 :             str_append(output, &quot;?=&quot;);</span>
+<span class="lineNum">     140 </span>            :         }
+<span class="lineNum">     141 </span>            : 
+<span class="lineNum">     142 </span><span class="lineCov">      12062 :         input += max;</span>
+<span class="lineNum">     143 </span><span class="lineCov">      12062 :         len -= max;</span>
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">      12062 :         if (len == 0)</span>
+<span class="lineNum">     146 </span><span class="lineCov">       1164 :             break;</span>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineCov">      10898 :         str_append(output, &quot;\n\t&quot;);</span>
+<span class="lineNum">     149 </span><span class="lineCov">      10898 :         line_len = 1;</span>
+<span class="lineNum">     150 </span><span class="lineCov">      10898 :     }</span>
+<a name="151"><span class="lineNum">     151 </span><span class="lineCov">       1164 : }</span></a>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineCov">         25 : void message_header_encode(const char *input, string_t *output)</span>
+<span class="lineNum">     154 </span>            : {
+<span class="lineNum">     155 </span><span class="lineCov">         25 :     message_header_encode_data((const void *)input, strlen(input), output);</span>
+<a name="156"><span class="lineNum">     156 </span><span class="lineCov">         25 : }</span></a>
+<span class="lineNum">     157 </span>            : 
+<span class="lineNum">     158 </span><span class="lineCov">         31 : void message_header_encode_data(const unsigned char *input, unsigned int len,</span>
+<span class="lineNum">     159 </span>            :                 string_t *output)
+<span class="lineNum">     160 </span>            : {
+<span class="lineNum">     161 </span>            :     unsigned int i, j, first_line_len, cur_line_len, last_idx;
+<span class="lineNum">     162 </span>            :     unsigned int enc_chars, enc_len, base64_len, q_len;
+<span class="lineNum">     163 </span>            :     const unsigned char *next_line_input;
+<span class="lineNum">     164 </span><span class="lineCov">         31 :     unsigned int next_line_len = 0;</span>
+<span class="lineNum">     165 </span>            :     bool use_q, cr;
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span>            :     /* find the first word that needs encoding */
+<span class="lineNum">     168 </span><span class="lineCov">         89 :     for (i = 0; i &lt; len; i++) {</span>
+<span class="lineNum">     169 </span><span class="lineCov">         78 :         if (input_idx_need_encoding(input, i, len))</span>
+<span class="lineNum">     170 </span><span class="lineCov">         20 :             break;</span>
+<span class="lineNum">     171 </span>            :     }
+<span class="lineNum">     172 </span><span class="lineCov">         31 :     if (i == len) {</span>
+<span class="lineNum">     173 </span>            :         /* no encoding necessary */
+<span class="lineNum">     174 </span><span class="lineCov">         11 :         str_append_data(output, input, len);</span>
+<span class="lineNum">     175 </span><span class="lineCov">         11 :         return;</span>
+<span class="lineNum">     176 </span>            :     }
+<span class="lineNum">     177 </span>            :     /* go back to the beginning of the word so it is fully encoded */
+<span class="lineNum">     178 </span><span class="lineCov">         20 :     if (input[i] != '\r' &amp;&amp; input[i] != '\n') {</span>
+<span class="lineNum">     179 </span><span class="lineCov">         38 :         while (i &gt; 0 &amp;&amp; !IS_LWSP(input[i-1]))</span>
+<span class="lineNum">     180 </span><span class="lineCov">          8 :             i--;</span>
+<span class="lineNum">     181 </span>            :     }
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span>            :     /* write the prefix */
+<span class="lineNum">     184 </span><span class="lineCov">         20 :     str_append_data(output, input, i);</span>
+<span class="lineNum">     185 </span><span class="lineCov">         20 :     first_line_len = j = i;</span>
+<span class="lineNum">     186 </span><span class="lineCov">         20 :     while (j &gt; 0 &amp;&amp; input[j-1] != '\n') j--;</span>
+<span class="lineNum">     187 </span><span class="lineCov">         20 :     if (j != 0)</span>
+<span class="lineNum">     188 </span><span class="lineCov">          1 :         first_line_len = j;</span>
+<span class="lineNum">     189 </span>            : 
+<span class="lineNum">     190 </span><span class="lineCov">         20 :     input += i;</span>
+<span class="lineNum">     191 </span><span class="lineCov">         20 :     len -= i;</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span>            :     /* we'll encode data only up to the next LF, the rest is handled
+<span class="lineNum">     194 </span>            :        recursively. */
+<span class="lineNum">     195 </span><span class="lineCov">         20 :     next_line_input = memchr(input, '\n', len);</span>
+<span class="lineNum">     196 </span><span class="lineCov">         20 :     if (next_line_input != NULL) {</span>
+<span class="lineNum">     197 </span><span class="lineCov">          6 :         cur_line_len = next_line_input - input;</span>
+<span class="lineNum">     198 </span><span class="lineCov">          6 :         if (cur_line_len &gt; 0 &amp;&amp; input[cur_line_len-1] == '\r') {</span>
+<span class="lineNum">     199 </span><span class="lineCov">          2 :             cur_line_len--;</span>
+<span class="lineNum">     200 </span><span class="lineCov">          2 :             next_line_input = input + cur_line_len;</span>
+<span class="lineNum">     201 </span>            :         }
+<span class="lineNum">     202 </span><span class="lineCov">          6 :         next_line_len = len - cur_line_len;</span>
+<span class="lineNum">     203 </span><span class="lineCov">          6 :         len = cur_line_len;</span>
+<span class="lineNum">     204 </span>            :     }
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span>            :     /* find the last word that needs encoding */
+<span class="lineNum">     207 </span><span class="lineCov">         20 :     last_idx = 0; enc_chars = 0;</span>
+<span class="lineNum">     208 </span><span class="lineCov">         98 :     for (i = 0; i &lt; len; i++) {</span>
+<span class="lineNum">     209 </span><span class="lineCov">         78 :         if (input_idx_need_encoding(input, i, len)) {</span>
+<span class="lineNum">     210 </span><span class="lineCov">         45 :             last_idx = i + 1;</span>
+<span class="lineNum">     211 </span><span class="lineCov">         45 :             enc_chars++;</span>
+<span class="lineNum">     212 </span>            :         }
+<span class="lineNum">     213 </span>            :     }
+<span class="lineNum">     214 </span><span class="lineCov">         54 :     while (last_idx &lt; len &amp;&amp; !IS_LWSP(input[last_idx]))</span>
+<span class="lineNum">     215 </span><span class="lineCov">         14 :         last_idx++;</span>
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span>            :     /* figure out if we should use Q or B encoding. Prefer Q if it's not
+<span class="lineNum">     218 </span>            :        too much larger. */
+<span class="lineNum">     219 </span><span class="lineCov">         20 :     enc_len = last_idx;</span>
+<span class="lineNum">     220 </span><span class="lineCov">         20 :     base64_len = MAX_BASE64_ENCODED_SIZE(enc_len);</span>
+<span class="lineNum">     221 </span><span class="lineCov">         20 :     q_len = enc_len + enc_chars*3;</span>
+<span class="lineNum">     222 </span><span class="lineCov">         20 :     use_q = q_len*2/3 &lt;= base64_len;</span>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span>            :     /* and do it */
+<span class="lineNum">     225 </span><span class="lineCov">         20 :     if (enc_len == 0)</span>
+<span class="lineNum">     226 </span>            :         ;
+<span class="lineNum">     227 </span><span class="lineCov">         15 :     else if (use_q)</span>
+<span class="lineNum">     228 </span><span class="lineCov">         11 :         message_header_encode_q(input, enc_len, output, first_line_len);</span>
+<span class="lineNum">     229 </span>            :     else
+<span class="lineNum">     230 </span><span class="lineCov">          4 :         message_header_encode_b(input, enc_len, output, first_line_len);</span>
+<span class="lineNum">     231 </span><span class="lineCov">         20 :     str_append_data(output, input + last_idx, len - last_idx);</span>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineCov">         20 :     if (next_line_input != NULL) {</span>
+<span class="lineNum">     234 </span>            :         /* we're at [CR]LF */
+<span class="lineNum">     235 </span><span class="lineCov">          6 :         i = 0;</span>
+<span class="lineNum">     236 </span><span class="lineCov">          6 :         if (next_line_input[0] == '\r') {</span>
+<span class="lineNum">     237 </span><span class="lineCov">          2 :             cr = TRUE;</span>
+<span class="lineNum">     238 </span><span class="lineCov">          2 :             i++;</span>
+<span class="lineNum">     239 </span>            :         } else {
+<span class="lineNum">     240 </span><span class="lineCov">          4 :             cr = FALSE;</span>
+<span class="lineNum">     241 </span>            :         }
+<span class="lineNum">     242 </span><span class="lineCov">          6 :         i_assert(next_line_input[i] == '\n');</span>
+<span class="lineNum">     243 </span><span class="lineCov">          6 :         if (++i == next_line_len)</span>
+<span class="lineNum">     244 </span><span class="lineCov">          2 :             return; /* drop trailing [CR]LF */</span>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span><span class="lineCov">          4 :         if (cr)</span>
+<span class="lineNum">     247 </span><span class="lineCov">          1 :             str_append_c(output, '\r');</span>
+<span class="lineNum">     248 </span><span class="lineCov">          4 :         str_append_c(output, '\n');</span>
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineCov">          4 :         if (next_line_input[i] == ' ' || next_line_input[i] == '\t') {</span>
+<span class="lineNum">     251 </span><span class="lineCov">          1 :             str_append_c(output, next_line_input[i]);</span>
+<span class="lineNum">     252 </span><span class="lineCov">          1 :             i++;</span>
+<span class="lineNum">     253 </span>            :         } else {
+<span class="lineNum">     254 </span>            :             /* make it valid folding whitespace by adding a TAB */
+<span class="lineNum">     255 </span><span class="lineCov">          3 :             str_append_c(output, '\t');</span>
+<span class="lineNum">     256 </span>            :         }
+<span class="lineNum">     257 </span><span class="lineCov">          4 :         message_header_encode_data(next_line_input+i, next_line_len-i,</span>
+<span class="lineNum">     258 </span>            :                        output);
+<span class="lineNum">     259 </span>            :     }
+<span class="lineNum">     260 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

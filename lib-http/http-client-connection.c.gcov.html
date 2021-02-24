@@ -1,0 +1,1877 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-client-connection.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-client-connection.c<span style="font-size: 80%;"> (source / <a href="http-client-connection.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">908</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">52</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;llist.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;istream-timeout.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;time-util.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;file-lock.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;iostream-rawlog.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;iostream-ssl.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;http-response-parser.h&quot;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #include &quot;http-client-private.h&quot;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : /*
+<span class="lineNum">      22 </span>            :  * Connection
+<span class="lineNum">      23 </span>            :  */
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : static void http_client_connection_ready(struct http_client_connection *conn);
+<span class="lineNum">      26 </span>            : static void http_client_connection_input(struct connection *_conn);
+<a name="27"><span class="lineNum">      27 </span>            : </a>
+<span class="lineNum">      28 </span>            : static inline void
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 : http_client_connection_ref_request(struct http_client_connection *conn,</span>
+<span class="lineNum">      30 </span>            :     struct http_client_request *req)
+<span class="lineNum">      31 </span>            : {
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;conn == NULL);</span>
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 :     req-&gt;conn = conn;</span>
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     http_client_request_ref(req);</span>
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 : }</span>
+<a name="36"><span class="lineNum">      36 </span>            : </a>
+<span class="lineNum">      37 </span>            : static inline bool
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 : http_client_connection_unref_request(struct http_client_connection *conn,</span>
+<span class="lineNum">      39 </span>            :     struct http_client_request **_req)
+<span class="lineNum">      40 </span>            : {
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :     struct http_client_request *req = *_req;</span>
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;conn == conn);</span>
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :     req-&gt;conn = NULL;</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :     return http_client_request_unref(_req);</span>
+<span class="lineNum">      46 </span>            : }
+<a name="47"><span class="lineNum">      47 </span>            : </a>
+<span class="lineNum">      48 </span>            : static inline void
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 : http_client_connection_failure(struct http_client_connection *conn,</span>
+<span class="lineNum">      50 </span>            :                      const char *reason)
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :     conn-&gt;connect_failed = TRUE;</span>
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     http_client_peer_connection_failure(peer, reason);</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 : }</span>
+<a name="57"><span class="lineNum">      57 </span>            : </a>
+<span class="lineNum">      58 </span>            : unsigned int
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 : http_client_connection_count_pending(struct http_client_connection *conn)</span>
+<span class="lineNum">      60 </span>            : {
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     unsigned int pending_count = array_count(&amp;conn-&gt;request_wait_list);</span>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     if (conn-&gt;in_req_callback || conn-&gt;pending_request != NULL)</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         pending_count++;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     return pending_count;</span>
+<a name="66"><span class="lineNum">      66 </span>            : }</a>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 : bool http_client_connection_is_idle(struct http_client_connection *conn)</span>
+<span class="lineNum">      69 </span>            : {
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     return (conn-&gt;to_idle != NULL);</span>
+<a name="71"><span class="lineNum">      71 </span>            : }</a>
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 : bool http_client_connection_is_active(struct http_client_connection *conn)</span>
+<span class="lineNum">      74 </span>            : {
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     if (!conn-&gt;connected)</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     if (conn-&gt;in_req_callback || conn-&gt;pending_request != NULL)</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     return (array_is_created(&amp;conn-&gt;request_wait_list) &amp;&amp;</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         array_count(&amp;conn-&gt;request_wait_list) &gt; 0);</span>
+<span class="lineNum">      83 </span>            : }
+<a name="84"><span class="lineNum">      84 </span>            : </a>
+<span class="lineNum">      85 </span>            : static void
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 : http_client_connection_retry_requests(struct http_client_connection *conn,</span>
+<span class="lineNum">      87 </span>            :     unsigned int status, const char *error)
+<span class="lineNum">      88 </span>            : {
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;conn-&gt;peer-&gt;client-&gt;set;</span>
+<span class="lineNum">      90 </span>            :     struct http_client_request *req, **req_idx;
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;conn-&gt;request_wait_list))</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     if (set-&gt;no_auto_retry) {</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;Aborting pending requests with error&quot;);</span>
+<span class="lineNum">      97 </span>            :     } else {
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;Retrying pending requests&quot;);</span>
+<span class="lineNum">      99 </span>            :     }
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;conn-&gt;request_wait_list, req_idx) {</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         req = *req_idx;</span>
+<span class="lineNum">     103 </span>            :         /* drop reference from connection */
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         if (!http_client_connection_unref_request(conn, req_idx))</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     106 </span>            :         /* retry the request, which may drop it */
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         if (req-&gt;state &lt; HTTP_REQUEST_STATE_FINISHED) {</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :             if (set-&gt;no_auto_retry)</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :                 http_client_request_error(&amp;req, status, error);</span>
+<span class="lineNum">     110 </span>            :             else
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :                 http_client_request_retry(req, status, error);</span>
+<span class="lineNum">     112 </span>            :         }
+<span class="lineNum">     113 </span>            :     }   
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     array_clear(&amp;conn-&gt;request_wait_list);</span>
+<span class="lineNum">     115 </span>            : }
+<a name="116"><span class="lineNum">     116 </span>            : </a>
+<span class="lineNum">     117 </span>            : static void
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 : http_client_connection_server_close(struct http_client_connection **_conn)</span>
+<span class="lineNum">     119 </span>            : {
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     struct http_client *client = peer-&gt;client;</span>
+<span class="lineNum">     123 </span>            :     struct http_client_request *req, **req_idx;
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Server explicitly closed connection&quot;);</span>
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;conn-&gt;request_wait_list, req_idx) {</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         req = *req_idx;</span>
+<span class="lineNum">     129 </span>            :         /* drop reference from connection */
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         if (!http_client_connection_unref_request(conn, req_idx))</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     132 </span>            :         /* resubmit the request, which may drop it */
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         if (req-&gt;state &lt; HTTP_REQUEST_STATE_FINISHED)</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :             http_client_request_resubmit(req);</span>
+<span class="lineNum">     135 </span>            :     }   
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     array_clear(&amp;conn-&gt;request_wait_list);</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     if (client != NULL &amp;&amp; client-&gt;waiting)</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         io_loop_stop(client-&gt;ioloop);</span>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     http_client_connection_close(_conn);</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 : }</span>
+<a name="143"><span class="lineNum">     143 </span>            : </a>
+<span class="lineNum">     144 </span>            : static void
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 : http_client_connection_abort_error(struct http_client_connection **_conn,</span>
+<span class="lineNum">     146 </span>            :     unsigned int status, const char *error)
+<span class="lineNum">     147 </span>            : {
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">     149 </span>            :     struct http_client_request *req, **req_idx;
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Aborting connection: %s&quot;, error);</span>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;conn-&gt;request_wait_list, req_idx) {</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         req = *req_idx;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         i_assert(req-&gt;submitted);</span>
+<span class="lineNum">     156 </span>            :         /* drop reference from connection */
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :         if (!http_client_connection_unref_request(conn, req_idx))</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     159 </span>            :         /* drop request if not already aborted */
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         http_client_request_error(&amp;req, status, error);</span>
+<span class="lineNum">     161 </span>            :     }
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     array_clear(&amp;conn-&gt;request_wait_list);</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     http_client_connection_close(_conn);</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 : }</span>
+<a name="165"><span class="lineNum">     165 </span>            : </a>
+<span class="lineNum">     166 </span>            : static void
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 : http_client_connection_abort_any_requests(struct http_client_connection *conn)</span>
+<span class="lineNum">     168 </span>            : {
+<span class="lineNum">     169 </span>            :     struct http_client_request *req, **req_idx;
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;conn-&gt;request_wait_list)) {</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         array_foreach_modifiable(&amp;conn-&gt;request_wait_list, req_idx) {</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :             req = *req_idx;</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :             i_assert(req-&gt;submitted);</span>
+<span class="lineNum">     175 </span>            :             /* drop reference from connection */
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :             if (!http_client_connection_unref_request(conn, req_idx))</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     178 </span>            :             /* drop request if not already aborted */
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :             http_client_request_error(&amp;req,</span>
+<span class="lineNum">     180 </span>            :                 HTTP_CLIENT_REQUEST_ERROR_ABORTED,
+<span class="lineNum">     181 </span>            :                 &quot;Aborting&quot;);
+<span class="lineNum">     182 </span>            :         }
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :         array_clear(&amp;conn-&gt;request_wait_list);</span>
+<span class="lineNum">     184 </span>            :     }
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :     if (conn-&gt;pending_request != NULL) {</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :         req = conn-&gt;pending_request;</span>
+<span class="lineNum">     187 </span>            :         /* drop reference from connection */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         if (http_client_connection_unref_request(conn, &amp;conn-&gt;pending_request)) {</span>
+<span class="lineNum">     189 </span>            :             /* drop request if not already aborted */
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :             http_client_request_error(&amp;req,</span>
+<span class="lineNum">     191 </span>            :                 HTTP_CLIENT_REQUEST_ERROR_ABORTED,
+<span class="lineNum">     192 </span>            :                 &quot;Aborting&quot;);
+<span class="lineNum">     193 </span>            :         }
+<span class="lineNum">     194 </span>            :     }
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 : }</span>
+<a name="196"><span class="lineNum">     196 </span>            : </a>
+<span class="lineNum">     197 </span>            : static const char *
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 : http_client_connection_get_timing_info(struct http_client_connection *conn)</span>
+<span class="lineNum">     199 </span>            : {
+<span class="lineNum">     200 </span>            :     struct http_client_request *const *requestp;
+<span class="lineNum">     201 </span>            :     unsigned int connected_msecs;
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     string_t *str = t_str_new(64);</span>
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     if (array_count(&amp;conn-&gt;request_wait_list) &gt; 0) {</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :         requestp = array_idx(&amp;conn-&gt;request_wait_list, 0);</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         str_append(str, &quot;Request &quot;);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :         http_client_request_append_stats_text(*requestp, str);</span>
+<span class="lineNum">     209 </span>            :     } else {
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         str_append(str, &quot;No requests&quot;);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :         if (conn-&gt;conn.last_input != 0) {</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :             str_printfa(str, &quot;, last input %d secs ago&quot;,</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :                     (int)(ioloop_time - conn-&gt;conn.last_input));</span>
+<span class="lineNum">     214 </span>            :         }
+<span class="lineNum">     215 </span>            :     }
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     connected_msecs = timeval_diff_msecs(&amp;ioloop_timeval, &amp;conn-&gt;connected_timestamp);</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     str_printfa(str, &quot;, connected %u.%03u secs ago&quot;,</span>
+<span class="lineNum">     218 </span>            :             connected_msecs/1000, connected_msecs%1000);
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     return str_c(str);</span>
+<span class="lineNum">     220 </span>            : }
+<a name="221"><span class="lineNum">     221 </span>            : </a>
+<span class="lineNum">     222 </span>            : static void
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 : http_client_connection_abort_temp_error(struct http_client_connection **_conn,</span>
+<span class="lineNum">     224 </span>            :     unsigned int status, const char *error)
+<span class="lineNum">     225 </span>            : {
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     error = t_strdup_printf(&quot;%s (%s)&quot;, error,</span>
+<span class="lineNum">     229 </span>            :                 http_client_connection_get_timing_info(conn));
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event,</span>
+<span class="lineNum">     232 </span>            :         &quot;Aborting connection with temporary error: %s&quot;, error);
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     http_client_connection_retry_requests(conn, status, error);</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     http_client_connection_close(_conn);</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 : }</span>
+<a name="237"><span class="lineNum">     237 </span>            : </a>
+<span class="lineNum">     238 </span>            : static void
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 : http_client_connection_lost(struct http_client_connection **_conn,</span>
+<span class="lineNum">     240 </span>            :     const char *error) ATTR_NULL(2)
+<span class="lineNum">     241 </span>            : {
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">     243 </span>            :     const char *sslerr;
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     if (error == NULL)</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         error = &quot;Connection lost&quot;;</span>
+<span class="lineNum">     247 </span>            :     else
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         error = t_strdup_printf(&quot;Connection lost: %s&quot;, error);</span>
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream != NULL) {</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         sslerr = ssl_iostream_get_last_error(conn-&gt;ssl_iostream);</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         if (sslerr != NULL) {</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :             error = t_strdup_printf(&quot;%s (last SSL error: %s)&quot;,</span>
+<span class="lineNum">     254 </span>            :                         error, sslerr);
+<span class="lineNum">     255 </span>            :         }
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         if (ssl_iostream_has_handshake_failed(conn-&gt;ssl_iostream)) {</span>
+<span class="lineNum">     257 </span>            :             /* this isn't really a &quot;connection lost&quot;, but that we
+<span class="lineNum">     258 </span>            :                don't trust the remote's SSL certificate. don't
+<span class="lineNum">     259 </span>            :                retry. */
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :             http_client_connection_abort_error(_conn,</span>
+<span class="lineNum">     261 </span>            :                 HTTP_CLIENT_REQUEST_ERROR_BAD_RESPONSE, error);
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     263 </span>            :         }
+<span class="lineNum">     264 </span>            :     }
+<span class="lineNum">     265 </span>            : 
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     conn-&gt;lost_prematurely = (conn-&gt;conn.input != NULL &amp;&amp;</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         conn-&gt;conn.input-&gt;v_offset == 0 &amp;&amp;</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :         i_stream_get_data_size(conn-&gt;conn.input) == 0);</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     http_client_connection_abort_temp_error(_conn,</span>
+<span class="lineNum">     270 </span>            :         HTTP_CLIENT_REQUEST_ERROR_CONNECTION_LOST, error);
+<a name="271"><span class="lineNum">     271 </span>            : }</a>
+<span class="lineNum">     272 </span>            : 
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 : int http_client_connection_check_ready(struct http_client_connection *conn)</span>
+<span class="lineNum">     274 </span>            : {
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;conn-&gt;peer-&gt;client-&gt;set;</span>
+<span class="lineNum">     276 </span>            :     int ret;
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     if (conn-&gt;in_req_callback) {</span>
+<span class="lineNum">     279 </span>            :         /* this can happen when a nested ioloop is created inside request
+<span class="lineNum">     280 </span>            :            callback. we currently don't reuse connections that are occupied
+<span class="lineNum">     281 </span>            :            this way, but theoretically we could, although that would add
+<span class="lineNum">     282 </span>            :            quite a bit of complexity.
+<span class="lineNum">     283 </span>            :          */
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     285 </span>            :     }
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     if (!conn-&gt;connected || conn-&gt;output_locked || conn-&gt;output_broken ||</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         conn-&gt;close_indicated || conn-&gt;tunneling ||</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         http_client_connection_count_pending(conn) &gt;=</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :             set-&gt;max_pipelined_requests)</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     if (conn-&gt;last_ioloop != NULL &amp;&amp; conn-&gt;last_ioloop != current_ioloop) {</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         conn-&gt;last_ioloop = current_ioloop;</span>
+<span class="lineNum">     295 </span>            :         /* Active ioloop is different from what we saw earlier;
+<span class="lineNum">     296 </span>            :            we may have missed a disconnection event on this connection.
+<span class="lineNum">     297 </span>            :            Verify status by reading from connection. */
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :         if ((ret=i_stream_read(conn-&gt;conn.input)) == -1) {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :             int stream_errno = conn-&gt;conn.input-&gt;stream_errno;</span>
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :             i_assert(conn-&gt;conn.input-&gt;stream_errno != 0 || conn-&gt;conn.input-&gt;eof);</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :             http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">     303 </span>            :                 t_strdup_printf(&quot;read(%s) failed: %s&quot;,
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :                         i_stream_get_name(conn-&gt;conn.input),</span>
+<span class="lineNum">     305 </span>            :                         stream_errno != 0 ?
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :                         i_stream_get_error(conn-&gt;conn.input) :</span>
+<span class="lineNum">     307 </span>            :                         &quot;EOF&quot;));
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     309 </span>            :         }
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span>            :         /* we may have read some data */
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         if (i_stream_get_data_size(conn-&gt;conn.input) &gt; 0)</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :             i_stream_set_input_pending(conn-&gt;conn.input, TRUE);</span>
+<span class="lineNum">     314 </span>            :     }
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     316 </span>            : }
+<a name="317"><span class="lineNum">     317 </span>            : </a>
+<span class="lineNum">     318 </span>            : static void
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 : http_client_connection_detach_peer(struct http_client_connection *conn)</span>
+<span class="lineNum">     320 </span>            : {
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">     322 </span>            :     struct http_client_connection *const *conn_idx;
+<span class="lineNum">     323 </span>            :     ARRAY_TYPE(http_client_connection) *conn_arr;
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     bool found = FALSE;</span>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :     if (peer == NULL)</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     328 </span>            : 
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     http_client_peer_ref(peer);</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     conn_arr = &amp;peer-&gt;conns;</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     array_foreach(conn_arr, conn_idx) {</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :         if (*conn_idx == conn) {</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :             array_delete(conn_arr, array_foreach_idx(conn_arr, conn_idx), 1);</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :             found = TRUE;</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     336 </span>            :         }
+<span class="lineNum">     337 </span>            :     }
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     i_assert(found);</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     conn-&gt;peer = NULL;</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Detached peer&quot;);</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     if (conn-&gt;connect_succeeded)</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         http_client_peer_connection_lost(peer, conn-&gt;lost_prematurely);</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     http_client_peer_unref(&amp;peer);</span>
+<span class="lineNum">     347 </span>            : }
+<a name="348"><span class="lineNum">     348 </span>            : </a>
+<span class="lineNum">     349 </span>            : static void
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 : http_client_connection_idle_timeout(struct http_client_connection *conn)</span>
+<span class="lineNum">     351 </span>            : {
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Idle connection timed out&quot;);</span>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span>            :     /* cannot get here unless connection was established at some point */
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;connect_succeeded);</span>
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     http_client_connection_close(&amp;conn);</span>
+<a name="358"><span class="lineNum">     358 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     359 </span>            : 
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 : void http_client_connection_lost_peer(struct http_client_connection *conn)</span>
+<span class="lineNum">     361 </span>            : {
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     struct http_client *client = peer-&gt;client;</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;client-&gt;set;</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = conn-&gt;ppool;</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = ppool-&gt;peer;</span>
+<span class="lineNum">     367 </span>            :     unsigned int timeout, count;
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     if (!conn-&gt;connected) {</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         http_client_connection_unref(&amp;conn);</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     372 </span>            :     }
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;in_req_callback);</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle == NULL) {</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         count = array_count(&amp;ppool-&gt;conns);</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :         i_assert(count &gt; 0);</span>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span>            :         /* set timeout for this connection */
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         if (count &gt; http_client_peer_shared_max_connections(pshared)) {</span>
+<span class="lineNum">     382 </span>            :             /* instant death for (urgent) connections above limit */
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :             timeout = 0;</span>
+<span class="lineNum">     384 </span>            :         } else {
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :             unsigned int idle_count = array_count(&amp;ppool-&gt;idle_conns);</span>
+<span class="lineNum">     386 </span>            : 
+<span class="lineNum">     387 </span>            :             /* kill duplicate connections quicker;
+<span class="lineNum">     388 </span>            :                  linearly based on the number of connections */
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :             i_assert(count &gt;= idle_count + 1);</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :             timeout = (set-&gt;max_parallel_connections - idle_count) *</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :                 (set-&gt;max_idle_time_msecs / set-&gt;max_parallel_connections);</span>
+<span class="lineNum">     392 </span>            :         }
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event,</span>
+<span class="lineNum">     395 </span>            :             &quot;Lost peer; going idle (timeout = %u msecs)&quot;,
+<span class="lineNum">     396 </span>            :             timeout);
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         conn-&gt;to_idle =</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :             timeout_add(timeout, http_client_connection_idle_timeout, conn);</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :         array_append(&amp;ppool-&gt;idle_conns, &amp;conn, 1);</span>
+<span class="lineNum">     401 </span>            :     } else {
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;Lost peer; already idle&quot;);</span>
+<span class="lineNum">     403 </span>            :     }
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     http_client_connection_detach_peer(conn);</span>
+<a name="406"><span class="lineNum">     406 </span>            : }</a>
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 : void http_client_connection_check_idle(struct http_client_connection *conn)</span>
+<span class="lineNum">     409 </span>            : {
+<span class="lineNum">     410 </span>            :     struct http_client_peer *peer;
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = conn-&gt;ppool;</span>
+<span class="lineNum">     412 </span>            :     struct http_client *client;
+<span class="lineNum">     413 </span>            :     const struct http_client_settings *set;
+<span class="lineNum">     414 </span>            :     unsigned int timeout, count;
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     peer = conn-&gt;peer;</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :     if (peer == NULL) {</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         i_assert(conn-&gt;to_idle != NULL);</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     420 </span>            :     }
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle != NULL) {</span>
+<span class="lineNum">     423 </span>            :         /* timeout already set */
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     425 </span>            :     }
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     client = peer-&gt;client;</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :     set = &amp;client-&gt;set;</span>
+<span class="lineNum">     429 </span>            : 
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :     if (conn-&gt;connected &amp;&amp;</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :         array_is_created(&amp;conn-&gt;request_wait_list) &amp;&amp;</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         array_count(&amp;conn-&gt;request_wait_list) == 0 &amp;&amp;</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :         !conn-&gt;in_req_callback &amp;&amp;</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         conn-&gt;incoming_payload == NULL &amp;&amp;</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :         set-&gt;max_idle_time_msecs &gt; 0) {</span>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         i_assert(peer != NULL);</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :         client = peer-&gt;client;</span>
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :         if (client-&gt;waiting)</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :             io_loop_stop(client-&gt;ioloop);</span>
+<span class="lineNum">     442 </span>            : 
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :         count = array_count(&amp;peer-&gt;conns);</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :         i_assert(count &gt; 0);</span>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span>            :         /* set timeout for this connection */
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         if (count &gt; set-&gt;max_parallel_connections) {</span>
+<span class="lineNum">     448 </span>            :             /* instant death for (urgent) connections above limit */
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :             timeout = 0;</span>
+<span class="lineNum">     450 </span>            :         } else {
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :             unsigned int idle_count = array_count(&amp;ppool-&gt;idle_conns);</span>
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span>            :             /* kill duplicate connections quicker;
+<span class="lineNum">     454 </span>            :                  linearly based on the number of connections */
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :             i_assert(array_count(&amp;ppool-&gt;conns) &gt;= idle_count + 1);</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :             timeout = (set-&gt;max_parallel_connections - idle_count) *</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :                 (set-&gt;max_idle_time_msecs / set-&gt;max_parallel_connections);</span>
+<span class="lineNum">     458 </span>            :         }
+<span class="lineNum">     459 </span>            : 
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, </span>
+<span class="lineNum">     461 </span>            :             &quot;No more requests queued; going idle (timeout = %u msecs)&quot;,
+<span class="lineNum">     462 </span>            :             timeout);
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         conn-&gt;to_idle =</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :             timeout_add(timeout, http_client_connection_idle_timeout, conn);</span>
+<span class="lineNum">     466 </span>            : 
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         array_append(&amp;ppool-&gt;idle_conns, &amp;conn, 1);</span>
+<span class="lineNum">     468 </span>            :     }
+<span class="lineNum">     469 </span>            : }
+<a name="470"><span class="lineNum">     470 </span>            : </a>
+<span class="lineNum">     471 </span>            : static void
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 : http_client_connection_stop_idle(struct http_client_connection *conn)</span>
+<span class="lineNum">     473 </span>            : {
+<span class="lineNum">     474 </span>            :     struct http_client_connection *const *conn_idx;
+<span class="lineNum">     475 </span>            :     ARRAY_TYPE(http_client_connection) *conn_arr;
+<span class="lineNum">     476 </span>            : 
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle != NULL)</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;conn-&gt;to_idle);</span>
+<span class="lineNum">     479 </span>            : 
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     conn_arr = &amp;conn-&gt;ppool-&gt;idle_conns;</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :     array_foreach(conn_arr, conn_idx) {</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         if (*conn_idx == conn) {</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :             array_delete(conn_arr, array_foreach_idx(conn_arr, conn_idx), 1);</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     485 </span>            :         }
+<span class="lineNum">     486 </span>            :     }
+<a name="487"><span class="lineNum">     487 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 : void http_client_connection_claim_idle(struct http_client_connection *conn,</span>
+<span class="lineNum">     490 </span>            :     struct http_client_peer *peer)
+<span class="lineNum">     491 </span>            : {
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Claimed as idle&quot;);</span>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :     i_assert(peer-&gt;ppool == conn-&gt;ppool);</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :     http_client_connection_stop_idle(conn);</span>
+<span class="lineNum">     496 </span>            : 
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     if (conn-&gt;peer == NULL || conn-&gt;peer != peer) {</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :         http_client_connection_detach_peer(conn);</span>
+<span class="lineNum">     499 </span>            : 
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         conn-&gt;peer = peer;</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :         conn-&gt;debug = peer-&gt;client-&gt;set.debug;</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :         array_append(&amp;peer-&gt;conns, &amp;conn, 1);</span>
+<span class="lineNum">     503 </span>            :     }
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 : }</span>
+<a name="505"><span class="lineNum">     505 </span>            : </a>
+<span class="lineNum">     506 </span>            : static void
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 : http_client_connection_request_timeout(struct http_client_connection *conn)</span>
+<span class="lineNum">     508 </span>            : {
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     conn-&gt;conn.input-&gt;stream_errno = ETIMEDOUT;</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     http_client_connection_abort_temp_error(&amp;conn,</span>
+<span class="lineNum">     511 </span>            :         HTTP_CLIENT_REQUEST_ERROR_TIMED_OUT, &quot;Request timed out&quot;);
+<a name="512"><span class="lineNum">     512 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     513 </span>            : 
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 : void http_client_connection_start_request_timeout(</span>
+<span class="lineNum">     515 </span>            :     struct http_client_connection *conn)
+<span class="lineNum">     516 </span>            : {
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :     struct http_client *client = peer-&gt;client;</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;client-&gt;set;</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :     unsigned int timeout_msecs =</span>
+<span class="lineNum">     521 </span>            :         set-&gt;request_timeout_msecs;
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :     if (conn-&gt;pending_request != NULL)</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     525 </span>            : 
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :     i_assert(array_is_created(&amp;conn-&gt;request_wait_list));</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :     if (array_count(&amp;conn-&gt;request_wait_list) &gt; 0) {</span>
+<span class="lineNum">     528 </span>            :         struct http_client_request *const *requestp;
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         requestp = array_idx(&amp;conn-&gt;request_wait_list, 0);</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :         timeout_msecs = (*requestp)-&gt;attempt_timeout_msecs;</span>
+<span class="lineNum">     531 </span>            :     }
+<span class="lineNum">     532 </span>            : 
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :     if (timeout_msecs == 0)</span>
+<span class="lineNum">     534 </span>            :         ;
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     else if (conn-&gt;to_requests != NULL)</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :         timeout_reset(conn-&gt;to_requests);</span>
+<span class="lineNum">     537 </span>            :     else {
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :         conn-&gt;to_requests = timeout_add(timeout_msecs,</span>
+<span class="lineNum">     539 </span>            :                         http_client_connection_request_timeout, conn);
+<span class="lineNum">     540 </span>            :     }
+<a name="541"><span class="lineNum">     541 </span>            : }</a>
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 : void http_client_connection_reset_request_timeout(</span>
+<span class="lineNum">     544 </span>            :     struct http_client_connection *conn)
+<span class="lineNum">     545 </span>            : {
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_requests != NULL)</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :         timeout_reset(conn-&gt;to_requests);</span>
+<a name="548"><span class="lineNum">     548 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     549 </span>            : 
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 : void http_client_connection_stop_request_timeout(</span>
+<span class="lineNum">     551 </span>            :     struct http_client_connection *conn)
+<span class="lineNum">     552 </span>            : {
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_requests);</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 : }</span>
+<a name="555"><span class="lineNum">     555 </span>            : </a>
+<span class="lineNum">     556 </span>            : static void
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 : http_client_connection_continue_timeout(struct http_client_connection *conn)</span>
+<span class="lineNum">     558 </span>            : {
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">     560 </span>            :     struct http_client_request *const *wait_reqs;
+<span class="lineNum">     561 </span>            :     struct http_client_request *req;
+<span class="lineNum">     562 </span>            :     unsigned int wait_count;
+<span class="lineNum">     563 </span>            :     const char *error;
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;pending_request == NULL);</span>
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_response);</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :     pshared-&gt;no_payload_sync = TRUE;</span>
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, </span>
+<span class="lineNum">     571 </span>            :         &quot;Expected 100-continue response timed out; sending payload anyway&quot;);
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     wait_reqs = array_get(&amp;conn-&gt;request_wait_list, &amp;wait_count);</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :     i_assert(wait_count == 1);</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     req = wait_reqs[wait_count-1];</span>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     req-&gt;payload_sync_continue = TRUE;</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :     if (http_client_request_send_more(req, FALSE, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :         http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">     580 </span>            :             t_strdup_printf(&quot;Failed to send request: %s&quot;, error));
+<span class="lineNum">     581 </span>            :     }
+<a name="582"><span class="lineNum">     582 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     583 </span>            : 
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 : int http_client_connection_next_request(struct http_client_connection *conn)</span>
+<span class="lineNum">     585 </span>            : {
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     struct http_client_request *req = NULL;</span>
+<span class="lineNum">     589 </span>            :     const char *error;
+<span class="lineNum">     590 </span>            :     bool pipelined;
+<span class="lineNum">     591 </span>            :     int ret;
+<span class="lineNum">     592 </span>            : 
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :     if ((ret=http_client_connection_check_ready(conn)) &lt;= 0) {</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event, &quot;Not ready for next request&quot;);</span>
+<span class="lineNum">     596 </span>            :         }
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     598 </span>            :     }
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span>            :     /* claim request, but no urgent request can be second in line */
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     pipelined = array_count(&amp;conn-&gt;request_wait_list) &gt; 0 ||</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         conn-&gt;pending_request != NULL;</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :     req = http_client_peer_claim_request(peer, pipelined);</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :     if (req == NULL)</span>
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :         return 0;   </span>
+<span class="lineNum">     606 </span>            : 
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;state == HTTP_REQUEST_STATE_QUEUED);</span>
+<span class="lineNum">     608 </span>            : 
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :     http_client_connection_stop_idle(conn);</span>
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :     req-&gt;payload_sync_continue = FALSE;</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     if (pshared-&gt;no_payload_sync)</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :         req-&gt;payload_sync = FALSE;</span>
+<span class="lineNum">     614 </span>            : 
+<span class="lineNum">     615 </span>            :     /* add request to wait list and add a reference */
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :     array_append(&amp;conn-&gt;request_wait_list, &amp;req, 1);</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :     http_client_connection_ref_request(conn, req);</span>
+<span class="lineNum">     618 </span>            : 
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Claimed request %s&quot;,</span>
+<span class="lineNum">     620 </span>            :         http_client_request_label(req));
+<span class="lineNum">     621 </span>            : 
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :     if (http_client_request_send(req, pipelined, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :         http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">     624 </span>            :             t_strdup_printf(&quot;Failed to send request: %s&quot;, error));
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     626 </span>            :     }
+<span class="lineNum">     627 </span>            : 
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :     if (req-&gt;connect_tunnel)</span>
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :         conn-&gt;tunneling = TRUE;</span>
+<span class="lineNum">     630 </span>            : 
+<span class="lineNum">     631 </span>            :     /* RFC 7231, Section 5.1.1: Expect
+<span class="lineNum">     632 </span>            : 
+<span class="lineNum">     633 </span>            :          o  A client that sends a 100-continue expectation is not required to
+<span class="lineNum">     634 </span>            :             wait for any specific length of time; such a client MAY proceed to
+<span class="lineNum">     635 </span>            :             send the message body even if it has not yet received a response.
+<span class="lineNum">     636 </span>            :             Furthermore, since 100 (Continue) responses cannot be sent through
+<span class="lineNum">     637 </span>            :             an HTTP/1.0 intermediary, such a client SHOULD NOT wait for an
+<span class="lineNum">     638 </span>            :             indefinite period before sending the message body.
+<span class="lineNum">     639 </span>            :      */
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :     if (req-&gt;payload_sync &amp;&amp; !pshared-&gt;seen_100_response) {</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         i_assert(!pipelined);</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :         i_assert(req-&gt;payload_chunked || req-&gt;payload_size &gt; 0);</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :         i_assert(conn-&gt;to_response == NULL);</span>
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :         conn-&gt;to_response =  timeout_add(HTTP_CLIENT_CONTINUE_TIMEOUT_MSECS,</span>
+<span class="lineNum">     645 </span>            :             http_client_connection_continue_timeout, conn);
+<span class="lineNum">     646 </span>            :     }
+<span class="lineNum">     647 </span>            : 
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="649"><span class="lineNum">     649 </span>            : }</a>
+<span class="lineNum">     650 </span>            : 
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 : static void http_client_connection_destroy(struct connection *_conn)</span>
+<span class="lineNum">     652 </span>            : {
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn =</span>
+<span class="lineNum">     654 </span>            :         (struct http_client_connection *)_conn;
+<span class="lineNum">     655 </span>            :     const char *error;
+<span class="lineNum">     656 </span>            :     unsigned int msecs;
+<span class="lineNum">     657 </span>            : 
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :     switch (_conn-&gt;disconnect_reason) {</span>
+<span class="lineNum">     659 </span>            :     case CONNECTION_DISCONNECT_CONNECT_TIMEOUT:
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :         if (conn-&gt;connected_timestamp.tv_sec == 0) {</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :             msecs = timeval_diff_msecs(&amp;ioloop_timeval,</span>
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :                            &amp;conn-&gt;connect_start_timestamp);</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :             error = t_strdup_printf(</span>
+<span class="lineNum">     664 </span>            :                 &quot;connect(%s) failed: Connection timed out in %u.%03u secs&quot;,
+<span class="lineNum">     665 </span>            :                 _conn-&gt;name, msecs/1000, msecs%1000);
+<span class="lineNum">     666 </span>            :         } else {
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :             msecs = timeval_diff_msecs(&amp;ioloop_timeval,</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :                            &amp;conn-&gt;connected_timestamp);</span>
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :             error = t_strdup_printf(</span>
+<span class="lineNum">     670 </span>            :                 &quot;SSL handshaking with %s failed: Connection timed out in %u.%03u secs&quot;,
+<span class="lineNum">     671 </span>            :                 _conn-&gt;name, msecs/1000, msecs%1000);
+<span class="lineNum">     672 </span>            :         }
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;%s&quot;, error);</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :         http_client_connection_failure(conn, error);</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     676 </span>            :     case CONNECTION_DISCONNECT_CONN_CLOSED:
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :         if (conn-&gt;connect_failed) {</span>
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :             i_assert(!array_is_created(&amp;conn-&gt;request_wait_list) ||</span>
+<span class="lineNum">     679 </span>            :                 array_count(&amp;conn-&gt;request_wait_list) == 0);
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     681 </span>            :         }
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :         http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :             (_conn-&gt;input == NULL ? NULL :</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :                 i_stream_get_error(_conn-&gt;input)));</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     686 </span>            :     default:
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     688 </span>            :     }
+<span class="lineNum">     689 </span>            : 
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :     http_client_connection_close(&amp;conn);</span>
+<a name="691"><span class="lineNum">     691 </span>            : }</a>
+<span class="lineNum">     692 </span>            : 
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 : static void http_client_payload_finished(struct http_client_connection *conn)</span>
+<span class="lineNum">     694 </span>            : {
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_input);</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :     conn-&gt;conn.io = io_add_istream(conn-&gt;conn.input,</span>
+<span class="lineNum">     697 </span>            :                        http_client_connection_input, &amp;conn-&gt;conn);
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :     if (array_count(&amp;conn-&gt;request_wait_list) &gt; 0)</span>
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :         http_client_connection_start_request_timeout(conn);</span>
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 : }</span>
+<a name="701"><span class="lineNum">     701 </span>            : </a>
+<span class="lineNum">     702 </span>            : static void
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 : http_client_payload_destroyed_timeout(struct http_client_connection *conn)</span>
+<span class="lineNum">     704 </span>            : {
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     if (conn-&gt;close_indicated) {</span>
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :         http_client_connection_server_close(&amp;conn);</span>
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     708 </span>            :     }
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :     http_client_connection_input(&amp;conn-&gt;conn);</span>
+<a name="710"><span class="lineNum">     710 </span>            : }</a>
+<span class="lineNum">     711 </span>            : 
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 : static void http_client_payload_destroyed(struct http_client_request *req)</span>
+<span class="lineNum">     713 </span>            : {
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     715 </span>            : 
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :     i_assert(conn != NULL);</span>
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;pending_request == req);</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;incoming_payload != NULL);</span>
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;conn.io == NULL);</span>
+<span class="lineNum">     720 </span>            : 
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event,</span>
+<span class="lineNum">     722 </span>            :         &quot;Response payload stream destroyed (%u ms after initial response)&quot;,
+<span class="lineNum">     723 </span>            :         timeval_diff_msecs(&amp;ioloop_timeval, &amp;req-&gt;response_time));
+<span class="lineNum">     724 </span>            : 
+<span class="lineNum">     725 </span>            :     /* caller is allowed to change the socket fd to blocking while reading
+<span class="lineNum">     726 </span>            :        the payload. make sure here that it's switched back. */
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :     net_set_nonblock(conn-&gt;conn.fd_in, TRUE);</span>
+<span class="lineNum">     728 </span>            : 
+<span class="lineNum">     729 </span>            :     /* drop reference from connection */
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :     if (http_client_connection_unref_request(conn, &amp;conn-&gt;pending_request)) {</span>
+<span class="lineNum">     731 </span>            :         /* finish request if not already aborted */
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :         http_client_request_finish(req);</span>
+<span class="lineNum">     733 </span>            :     }
+<span class="lineNum">     734 </span>            : 
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     conn-&gt;incoming_payload = NULL;</span>
+<span class="lineNum">     736 </span>            : 
+<span class="lineNum">     737 </span>            :     /* input stream may have pending input. make sure input handler
+<span class="lineNum">     738 </span>            :        gets called (but don't do it directly, since we get get here
+<span class="lineNum">     739 </span>            :        somewhere from the API user's code, which we can't really know what
+<span class="lineNum">     740 </span>            :        state it is in). this call also triggers sending a new request if
+<span class="lineNum">     741 </span>            :        necessary. */
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :     if (!conn-&gt;disconnected) {</span>
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :         conn-&gt;to_input = timeout_add_short</span>
+<span class="lineNum">     744 </span>            :             (0, http_client_payload_destroyed_timeout, conn);
+<span class="lineNum">     745 </span>            :     }
+<span class="lineNum">     746 </span>            : 
+<span class="lineNum">     747 </span>            :     /* room for new requests */
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     if (http_client_connection_check_ready(conn) &gt; 0)</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :         http_client_peer_trigger_request_handler(conn-&gt;peer);</span>
+<a name="750"><span class="lineNum">     750 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     751 </span>            : 
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 : void http_client_connection_request_destroyed(</span>
+<span class="lineNum">     753 </span>            :     struct http_client_connection *conn, struct http_client_request *req)
+<span class="lineNum">     754 </span>            : {
+<span class="lineNum">     755 </span>            :     struct istream *payload;
+<span class="lineNum">     756 </span>            : 
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;conn == conn);</span>
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :     if (conn-&gt;pending_request != req)</span>
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     760 </span>            : 
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Pending request destroyed prematurely&quot;);</span>
+<span class="lineNum">     762 </span>            : 
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :     payload = conn-&gt;incoming_payload;</span>
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     if (payload == NULL) {</span>
+<span class="lineNum">     765 </span>            :         /* payload already gone */
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     767 </span>            :     }
+<span class="lineNum">     768 </span>            : 
+<span class="lineNum">     769 </span>            :     /* destroy the payload, so that the timeout istream is closed */
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :     i_stream_ref(payload);</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :     i_stream_destroy(&amp;payload);</span>
+<span class="lineNum">     772 </span>            : 
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :     payload = conn-&gt;incoming_payload;</span>
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :     if (payload == NULL) {</span>
+<span class="lineNum">     775 </span>            :         /* not going to happen, but check for it anyway */
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     777 </span>            :     }
+<span class="lineNum">     778 </span>            : 
+<span class="lineNum">     779 </span>            :     /* the application still holds a reference to the payload stream, but it
+<span class="lineNum">     780 </span>            :        is closed and we don't care about it anymore, so act as though it is
+<span class="lineNum">     781 </span>            :        destroyed. */
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :     i_stream_remove_destroy_callback(payload,</span>
+<span class="lineNum">     783 </span>            :                      http_client_payload_destroyed);
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :     http_client_payload_destroyed(req);</span>
+<span class="lineNum">     785 </span>            : }
+<a name="786"><span class="lineNum">     786 </span>            : </a>
+<span class="lineNum">     787 </span>            : static bool
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 : http_client_connection_return_response(</span>
+<span class="lineNum">     789 </span>            :     struct http_client_connection *conn,
+<span class="lineNum">     790 </span>            :     struct http_client_request *req,
+<span class="lineNum">     791 </span>            :     struct http_response *response)
+<span class="lineNum">     792 </span>            : {
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">     794 </span>            :     struct istream *payload;
+<span class="lineNum">     795 </span>            :     bool retrying;
+<span class="lineNum">     796 </span>            : 
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;in_req_callback);</span>
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;incoming_payload == NULL);</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;pending_request == NULL);</span>
+<span class="lineNum">     800 </span>            : 
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :     http_client_connection_ref(conn);</span>
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :     http_client_connection_ref_request(conn, req);</span>
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :     req-&gt;state = HTTP_REQUEST_STATE_GOT_RESPONSE;</span>
+<span class="lineNum">     804 </span>            : 
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :     if (response-&gt;payload != NULL) {</span>
+<span class="lineNum">     806 </span>            :         /* wrap the stream to capture the destroy event without destroying the
+<span class="lineNum">     807 </span>            :            actual payload stream. */
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :         conn-&gt;incoming_payload = response-&gt;payload =</span>
+<span class="lineNum">     809 </span><span class="lineNoCov">          0 :             i_stream_create_timeout(response-&gt;payload,</span>
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :                 req-&gt;attempt_timeout_msecs);</span>
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 :         i_stream_add_destroy_callback(response-&gt;payload,</span>
+<span class="lineNum">     812 </span>            :                           http_client_payload_destroyed,
+<span class="lineNum">     813 </span>            :                           req);
+<span class="lineNum">     814 </span>            :         /* the callback may add its own I/O, so we need to remove
+<span class="lineNum">     815 </span>            :            our one before calling it */
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :         io_remove(&amp;conn-&gt;conn.io);</span>
+<span class="lineNum">     817 </span>            :         /* we've received the request itself, and we can't reset the
+<span class="lineNum">     818 </span>            :            timeout during the payload reading. */
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :         http_client_connection_stop_request_timeout(conn);</span>
+<span class="lineNum">     820 </span>            :     }
+<span class="lineNum">     821 </span>            :     
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :     conn-&gt;in_req_callback = TRUE;</span>
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :     retrying = !http_client_request_callback(req, response);</span>
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :     if (conn-&gt;disconnected) {</span>
+<span class="lineNum">     825 </span>            :         /* the callback managed to get this connection disconnected */
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :         if (!retrying)</span>
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :             http_client_request_finish(req);</span>
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :         http_client_connection_unref_request(conn, &amp;req);</span>
+<span class="lineNum">     829 </span><span class="lineNoCov">          0 :         http_client_connection_unref(&amp;conn);</span>
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     831 </span>            :     }
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :     conn-&gt;in_req_callback = FALSE;</span>
+<span class="lineNum">     833 </span>            : 
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :     if (retrying) {</span>
+<span class="lineNum">     835 </span>            :         /* retrying, don't destroy the request */
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :         if (response-&gt;payload != NULL) {</span>
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :             i_stream_remove_destroy_callback(conn-&gt;incoming_payload,</span>
+<span class="lineNum">     838 </span>            :                              http_client_payload_destroyed);
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :             i_stream_unref(&amp;conn-&gt;incoming_payload);</span>
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :             conn-&gt;conn.io = io_add_istream(conn-&gt;conn.input,</span>
+<span class="lineNum">     841 </span>            :                            http_client_connection_input,
+<span class="lineNum">     842 </span>            :                            &amp;conn-&gt;conn);
+<span class="lineNum">     843 </span>            :         }
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :         http_client_connection_unref_request(conn, &amp;req);</span>
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :         return http_client_connection_unref(&amp;conn);</span>
+<span class="lineNum">     846 </span>            :     }
+<span class="lineNum">     847 </span>            : 
+<span class="lineNum">     848 </span><span class="lineNoCov">          0 :     if (response-&gt;payload != NULL) {</span>
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :         req-&gt;state = HTTP_REQUEST_STATE_PAYLOAD_IN;</span>
+<span class="lineNum">     850 </span><span class="lineNoCov">          0 :         payload = response-&gt;payload;</span>
+<span class="lineNum">     851 </span><span class="lineNoCov">          0 :         response-&gt;payload = NULL;</span>
+<span class="lineNum">     852 </span>            : 
+<span class="lineNum">     853 </span>            :         /* maintain request reference while payload is pending */
+<span class="lineNum">     854 </span><span class="lineNoCov">          0 :         conn-&gt;pending_request = req;</span>
+<span class="lineNum">     855 </span>            : 
+<span class="lineNum">     856 </span>            :         /* request is dereferenced in payload destroy callback */
+<span class="lineNum">     857 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;payload);</span>
+<span class="lineNum">     858 </span>            : 
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :         if (conn-&gt;to_input != NULL &amp;&amp; conn-&gt;conn.input != NULL) {</span>
+<span class="lineNum">     860 </span>            :             /* already finished reading the payload */
+<span class="lineNum">     861 </span><span class="lineNoCov">          0 :             http_client_payload_finished(conn);</span>
+<span class="lineNum">     862 </span>            :         }
+<span class="lineNum">     863 </span>            :     } else {
+<span class="lineNum">     864 </span><span class="lineNoCov">          0 :         http_client_request_finish(req);</span>
+<span class="lineNum">     865 </span><span class="lineNoCov">          0 :         http_client_connection_unref_request(conn, &amp;req);</span>
+<span class="lineNum">     866 </span>            :     }
+<span class="lineNum">     867 </span>            : 
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :     if (conn-&gt;incoming_payload == NULL &amp;&amp; conn-&gt;conn.input != NULL) {</span>
+<span class="lineNum">     869 </span><span class="lineNoCov">          0 :         i_assert(conn-&gt;conn.io != NULL ||</span>
+<span class="lineNum">     870 </span>            :             pshared-&gt;addr.type == HTTP_CLIENT_PEER_ADDR_RAW);
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :         return http_client_connection_unref(&amp;conn);</span>
+<span class="lineNum">     872 </span>            :     }
+<span class="lineNum">     873 </span><span class="lineNoCov">          0 :     http_client_connection_unref(&amp;conn);</span>
+<span class="lineNum">     874 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="875"><span class="lineNum">     875 </span>            : }</a>
+<span class="lineNum">     876 </span>            : 
+<span class="lineNum">     877 </span><span class="lineNoCov">          0 : static void http_client_connection_input(struct connection *_conn)</span>
+<span class="lineNum">     878 </span>            : {
+<span class="lineNum">     879 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn =</span>
+<span class="lineNum">     880 </span>            :         (struct http_client_connection *)_conn;
+<span class="lineNum">     881 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">     882 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">     883 </span>            :     struct http_response response;
+<span class="lineNum">     884 </span>            :     struct http_client_request *const *reqs;
+<span class="lineNum">     885 </span><span class="lineNoCov">          0 :     struct http_client_request *req = NULL, *req_ref;</span>
+<span class="lineNum">     886 </span>            :     enum http_response_payload_type payload_type;
+<span class="lineNum">     887 </span>            :     unsigned int count;
+<span class="lineNum">     888 </span><span class="lineNoCov">          0 :     int finished = 0, ret;</span>
+<span class="lineNum">     889 </span>            :     const char *error;
+<span class="lineNum">     890 </span>            : 
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;incoming_payload == NULL);</span>
+<span class="lineNum">     892 </span>            : 
+<span class="lineNum">     893 </span><span class="lineNoCov">          0 :     _conn-&gt;last_input = ioloop_time;</span>
+<span class="lineNum">     894 </span>            : 
+<span class="lineNum">     895 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream != NULL &amp;&amp;</span>
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :         !ssl_iostream_is_handshaked(conn-&gt;ssl_iostream)) {</span>
+<span class="lineNum">     897 </span>            :         /* finish SSL negotiation by reading from input stream */
+<span class="lineNum">     898 </span><span class="lineNoCov">          0 :         while ((ret=i_stream_read(conn-&gt;conn.input)) &gt; 0 || ret == -2) {</span>
+<span class="lineNum">     899 </span><span class="lineNoCov">          0 :             if (ssl_iostream_is_handshaked(conn-&gt;ssl_iostream))</span>
+<span class="lineNum">     900 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     901 </span>            :         }
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :             int stream_errno = conn-&gt;conn.input-&gt;stream_errno;</span>
+<span class="lineNum">     904 </span>            : 
+<span class="lineNum">     905 </span>            :             /* failed somehow */
+<span class="lineNum">     906 </span><span class="lineNoCov">          0 :             i_assert(ret != -2);</span>
+<span class="lineNum">     907 </span><span class="lineNoCov">          0 :             error = t_strdup_printf(</span>
+<span class="lineNum">     908 </span>            :                 &quot;SSL handshaking with %s failed: &quot;
+<span class="lineNum">     909 </span>            :                 &quot;read(%s) failed: %s&quot;,
+<span class="lineNum">     910 </span>            :                 _conn-&gt;name,
+<span class="lineNum">     911 </span><span class="lineNoCov">          0 :                 i_stream_get_name(conn-&gt;conn.input),</span>
+<span class="lineNum">     912 </span>            :                 stream_errno != 0 ?
+<span class="lineNum">     913 </span><span class="lineNoCov">          0 :                     i_stream_get_error(conn-&gt;conn.input) : &quot;EOF&quot;);</span>
+<span class="lineNum">     914 </span><span class="lineNoCov">          0 :             http_client_connection_failure(conn, error);</span>
+<span class="lineNum">     915 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event, &quot;%s&quot;, error);</span>
+<span class="lineNum">     916 </span><span class="lineNoCov">          0 :             http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">     917 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     918 </span>            :         }
+<span class="lineNum">     919 </span>            : 
+<span class="lineNum">     920 </span><span class="lineNoCov">          0 :         if (!ssl_iostream_is_handshaked(conn-&gt;ssl_iostream)) {</span>
+<span class="lineNum">     921 </span>            :             /* not finished */
+<span class="lineNum">     922 </span><span class="lineNoCov">          0 :             i_assert(ret == 0);</span>
+<span class="lineNum">     923 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     924 </span>            :         }
+<span class="lineNum">     925 </span>            : 
+<span class="lineNum">     926 </span>            :         /* ready for first request */
+<span class="lineNum">     927 </span><span class="lineNoCov">          0 :         http_client_connection_ready(conn);</span>
+<span class="lineNum">     928 </span>            :     }
+<span class="lineNum">     929 </span>            : 
+<span class="lineNum">     930 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_input != NULL) {</span>
+<span class="lineNum">     931 </span>            :         /* We came here from a timeout added by
+<span class="lineNum">     932 </span>            :            http_client_payload_destroyed(). The IO couldn't be added
+<span class="lineNum">     933 </span>            :            back immediately in there, because the HTTP API user may
+<span class="lineNum">     934 </span>            :            still have had its own IO pointed to the same fd. It should
+<span class="lineNum">     935 </span>            :            be removed by now, so we can add it back. */
+<span class="lineNum">     936 </span><span class="lineNoCov">          0 :         http_client_payload_finished(conn);</span>
+<span class="lineNum">     937 </span><span class="lineNoCov">          0 :         finished++;</span>
+<span class="lineNum">     938 </span>            :     }
+<span class="lineNum">     939 </span>            : 
+<span class="lineNum">     940 </span>            :     /* we've seen activity from the server; reset request timeout */
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :     http_client_connection_reset_request_timeout(conn);</span>
+<span class="lineNum">     942 </span>            : 
+<span class="lineNum">     943 </span>            :     /* get first waiting request */
+<span class="lineNum">     944 </span><span class="lineNoCov">          0 :     reqs = array_get(&amp;conn-&gt;request_wait_list, &amp;count);</span>
+<span class="lineNum">     945 </span><span class="lineNoCov">          0 :     if (count &gt; 0) {</span>
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 :         req = reqs[0];</span>
+<span class="lineNum">     947 </span>            : 
+<span class="lineNum">     948 </span>            :         /* determine whether to expect a response payload */
+<span class="lineNum">     949 </span><span class="lineNoCov">          0 :         payload_type = http_client_request_get_payload_type(req);</span>
+<span class="lineNum">     950 </span>            :     } else {
+<span class="lineNum">     951 </span><span class="lineNoCov">          0 :         req = NULL;</span>
+<span class="lineNum">     952 </span><span class="lineNoCov">          0 :         payload_type = HTTP_RESPONSE_PAYLOAD_TYPE_ALLOWED;</span>
+<span class="lineNum">     953 </span>            :     }
+<span class="lineNum">     954 </span>            : 
+<span class="lineNum">     955 </span>            :     /* drop connection with broken output if last possible input was
+<span class="lineNum">     956 </span>            :        received */
+<span class="lineNum">     957 </span><span class="lineNoCov">          0 :     if (conn-&gt;output_broken &amp;&amp; (count == 0 ||</span>
+<span class="lineNum">     958 </span><span class="lineNoCov">          0 :         (count == 1 &amp;&amp; req-&gt;state == HTTP_REQUEST_STATE_ABORTED))) {</span>
+<span class="lineNum">     959 </span><span class="lineNoCov">          0 :         http_client_connection_server_close(&amp;conn);</span>
+<span class="lineNum">     960 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     961 </span>            :     }
+<span class="lineNum">     962 </span>            : 
+<span class="lineNum">     963 </span><span class="lineNoCov">          0 :     while ((ret=http_response_parse_next</span>
+<span class="lineNum">     964 </span><span class="lineNoCov">          0 :         (conn-&gt;http_parser, payload_type, &amp;response, &amp;error)) &gt; 0) {</span>
+<span class="lineNum">     965 </span><span class="lineNoCov">          0 :         bool aborted, early = FALSE;</span>
+<span class="lineNum">     966 </span>            : 
+<span class="lineNum">     967 </span><span class="lineNoCov">          0 :         if (req == NULL) {</span>
+<span class="lineNum">     968 </span>            :             /* server sent response without any requests in the wait list */
+<span class="lineNum">     969 </span><span class="lineNoCov">          0 :             if (response.status == 408) {</span>
+<span class="lineNum">     970 </span><span class="lineNoCov">          0 :                 e_debug(conn-&gt;event,</span>
+<span class="lineNum">     971 </span>            :                     &quot;Server explicitly closed connection: 408 %s&quot;,
+<span class="lineNum">     972 </span>            :                     response.reason);
+<span class="lineNum">     973 </span>            :             } else {
+<span class="lineNum">     974 </span><span class="lineNoCov">          0 :                 e_debug(conn-&gt;event,</span>
+<span class="lineNum">     975 </span>            :                     &quot;Got unexpected input from server: %u %s&quot;,
+<span class="lineNum">     976 </span>            :                     response.status, response.reason);
+<span class="lineNum">     977 </span>            :             }
+<span class="lineNum">     978 </span><span class="lineNoCov">          0 :             http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">     979 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     980 </span>            :         }
+<span class="lineNum">     981 </span><span class="lineNoCov">          0 :         req-&gt;response_time = ioloop_timeval;</span>
+<span class="lineNum">     982 </span>            : 
+<span class="lineNum">     983 </span>            :         /* Got some response; cancel response timeout */
+<span class="lineNum">     984 </span><span class="lineNoCov">          0 :         timeout_remove(&amp;conn-&gt;to_response);</span>
+<span class="lineNum">     985 </span>            : 
+<span class="lineNum">     986 </span>            :         /* RFC 7231, Section 6.2:
+<span class="lineNum">     987 </span>            : 
+<span class="lineNum">     988 </span>            :            A client MUST be able to parse one or more 1xx responses received
+<span class="lineNum">     989 </span>            :            prior to a final response, even if the client does not expect one.  A
+<span class="lineNum">     990 </span>            :            user agent MAY ignore unexpected 1xx responses.
+<span class="lineNum">     991 </span>            :          */
+<span class="lineNum">     992 </span><span class="lineNoCov">          0 :         if (req-&gt;payload_sync &amp;&amp; response.status == 100) {</span>
+<span class="lineNum">     993 </span><span class="lineNoCov">          0 :             if (req-&gt;payload_sync_continue) {</span>
+<span class="lineNum">     994 </span><span class="lineNoCov">          0 :                 e_debug(conn-&gt;event,</span>
+<span class="lineNum">     995 </span>            :                     &quot;Got 100-continue response after timeout&quot;);
+<span class="lineNum">     996 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     997 </span>            :             }
+<span class="lineNum">     998 </span>            : 
+<span class="lineNum">     999 </span><span class="lineNoCov">          0 :             pshared-&gt;no_payload_sync = FALSE;</span>
+<span class="lineNum">    1000 </span><span class="lineNoCov">          0 :             pshared-&gt;seen_100_response = TRUE;</span>
+<span class="lineNum">    1001 </span><span class="lineNoCov">          0 :             req-&gt;payload_sync_continue = TRUE;</span>
+<span class="lineNum">    1002 </span>            : 
+<span class="lineNum">    1003 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1004 </span>            :                 &quot;Got expected 100-continue response&quot;);
+<span class="lineNum">    1005 </span>            : 
+<span class="lineNum">    1006 </span><span class="lineNoCov">          0 :             if (req-&gt;state == HTTP_REQUEST_STATE_ABORTED) {</span>
+<span class="lineNum">    1007 </span><span class="lineNoCov">          0 :                 e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1008 </span>            :                     &quot;Request aborted before sending payload was complete.&quot;);
+<span class="lineNum">    1009 </span><span class="lineNoCov">          0 :                 http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">    1010 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1011 </span>            :             }
+<span class="lineNum">    1012 </span>            : 
+<span class="lineNum">    1013 </span><span class="lineNoCov">          0 :             if (http_client_request_send_more(req, FALSE, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1014 </span><span class="lineNoCov">          0 :                 http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">    1015 </span>            :                     t_strdup_printf(&quot;Failed to send request: %s&quot;, error));
+<span class="lineNum">    1016 </span>            :             }
+<span class="lineNum">    1017 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">    1018 </span><span class="lineNoCov">          0 :         } else if (response.status / 100 == 1) {</span>
+<span class="lineNum">    1019 </span>            :             /* ignore other 1xx for now */
+<span class="lineNum">    1020 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1021 </span>            :                 &quot;Got unexpected %u response; ignoring&quot;, response.status);
+<span class="lineNum">    1022 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">    1023 </span><span class="lineNoCov">          0 :         } else  if (!req-&gt;payload_sync &amp;&amp;</span>
+<span class="lineNum">    1024 </span><span class="lineNoCov">          0 :             req-&gt;state == HTTP_REQUEST_STATE_PAYLOAD_OUT) {</span>
+<span class="lineNum">    1025 </span>            :             /* got early response from server while we're still sending request
+<span class="lineNum">    1026 </span>            :                payload. we cannot recover from this reliably, so we stop sending
+<span class="lineNum">    1027 </span>            :                payload and close the connection once the response is processed */
+<span class="lineNum">    1028 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1029 </span>            :                 &quot;Got early input from server; &quot;
+<span class="lineNum">    1030 </span>            :                 &quot;request payload not completely sent (will close connection)&quot;);
+<span class="lineNum">    1031 </span><span class="lineNoCov">          0 :             o_stream_unset_flush_callback(conn-&gt;conn.output);</span>
+<span class="lineNum">    1032 </span><span class="lineNoCov">          0 :             conn-&gt;output_broken = early = TRUE;</span>
+<span class="lineNum">    1033 </span>            :         }
+<span class="lineNum">    1034 </span>            : 
+<span class="lineNum">    1035 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1036 </span>            :             &quot;Got %u response for request %s (took %u ms + %u ms in queue)&quot;,
+<span class="lineNum">    1037 </span>            :             response.status, http_client_request_label(req),
+<span class="lineNum">    1038 </span>            :             timeval_diff_msecs(&amp;req-&gt;response_time, &amp;req-&gt;sent_time),
+<span class="lineNum">    1039 </span>            :             timeval_diff_msecs(&amp;req-&gt;sent_time, &amp;req-&gt;submit_time));
+<span class="lineNum">    1040 </span>            : 
+<span class="lineNum">    1041 </span>            :         /* make sure connection output is unlocked if 100-continue failed */
+<span class="lineNum">    1042 </span><span class="lineNoCov">          0 :         if (req-&gt;payload_sync &amp;&amp; !req-&gt;payload_sync_continue) {</span>
+<span class="lineNum">    1043 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event, &quot;Unlocked output&quot;);</span>
+<span class="lineNum">    1044 </span><span class="lineNoCov">          0 :             conn-&gt;output_locked = FALSE;</span>
+<span class="lineNum">    1045 </span>            :         }
+<span class="lineNum">    1046 </span>            : 
+<span class="lineNum">    1047 </span>            :         /* remove request from queue */
+<span class="lineNum">    1048 </span><span class="lineNoCov">          0 :         array_delete(&amp;conn-&gt;request_wait_list, 0, 1);</span>
+<span class="lineNum">    1049 </span><span class="lineNoCov">          0 :         aborted = (req-&gt;state == HTTP_REQUEST_STATE_ABORTED);</span>
+<span class="lineNum">    1050 </span><span class="lineNoCov">          0 :         req_ref = req;</span>
+<span class="lineNum">    1051 </span><span class="lineNoCov">          0 :         if (!http_client_connection_unref_request(conn, &amp;req_ref)) {</span>
+<span class="lineNum">    1052 </span><span class="lineNoCov">          0 :             i_assert(aborted);</span>
+<span class="lineNum">    1053 </span><span class="lineNoCov">          0 :             req = NULL;</span>
+<span class="lineNum">    1054 </span>            :         }
+<span class="lineNum">    1055 </span>            : 
+<span class="lineNum">    1056 </span><span class="lineNoCov">          0 :         conn-&gt;close_indicated = response.connection_close;</span>
+<span class="lineNum">    1057 </span>            : 
+<span class="lineNum">    1058 </span><span class="lineNoCov">          0 :         if (!aborted) {</span>
+<span class="lineNum">    1059 </span><span class="lineNoCov">          0 :             bool handled = FALSE;</span>
+<span class="lineNum">    1060 </span>            : 
+<span class="lineNum">    1061 </span>            :             /* response cannot be 2xx if request payload was not completely sent
+<span class="lineNum">    1062 </span>            :              */
+<span class="lineNum">    1063 </span><span class="lineNoCov">          0 :             if (early &amp;&amp; response.status / 100 == 2) {</span>
+<span class="lineNum">    1064 </span><span class="lineNoCov">          0 :                 http_client_request_error(&amp;req,</span>
+<span class="lineNum">    1065 </span>            :                     HTTP_CLIENT_REQUEST_ERROR_BAD_RESPONSE,
+<span class="lineNum">    1066 </span>            :                     &quot;Server responded with success response &quot;
+<span class="lineNum">    1067 </span>            :                     &quot;before all payload was sent&quot;);
+<span class="lineNum">    1068 </span><span class="lineNoCov">          0 :                 http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">    1069 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1070 </span>            :             } 
+<span class="lineNum">    1071 </span>            : 
+<span class="lineNum">    1072 </span>            :             /* don't redirect/retry if we're sending data in small
+<span class="lineNum">    1073 </span>            :                blocks via http_client_request_send_payload()
+<span class="lineNum">    1074 </span>            :                and we're not waiting for 100 continue */
+<span class="lineNum">    1075 </span><span class="lineNoCov">          0 :             if (!req-&gt;payload_wait ||</span>
+<span class="lineNum">    1076 </span><span class="lineNoCov">          0 :                 (req-&gt;payload_sync &amp;&amp; !req-&gt;payload_sync_continue)) {</span>
+<span class="lineNum">    1077 </span>            :                 /* failed Expect: */
+<span class="lineNum">    1078 </span><span class="lineNoCov">          0 :                 if (response.status == 417 &amp;&amp; req-&gt;payload_sync) {</span>
+<span class="lineNum">    1079 </span>            :                     /* drop Expect: continue */
+<span class="lineNum">    1080 </span><span class="lineNoCov">          0 :                     req-&gt;payload_sync = FALSE;</span>
+<span class="lineNum">    1081 </span><span class="lineNoCov">          0 :                     conn-&gt;output_locked = FALSE;</span>
+<span class="lineNum">    1082 </span><span class="lineNoCov">          0 :                     pshared-&gt;no_payload_sync = TRUE;</span>
+<span class="lineNum">    1083 </span><span class="lineNoCov">          0 :                     if (http_client_request_try_retry(req))</span>
+<span class="lineNum">    1084 </span><span class="lineNoCov">          0 :                         handled = TRUE;</span>
+<span class="lineNum">    1085 </span>            :                 /* redirection */
+<span class="lineNum">    1086 </span><span class="lineNoCov">          0 :                 } else if (!req-&gt;client-&gt;set.no_auto_redirect &amp;&amp;</span>
+<span class="lineNum">    1087 </span><span class="lineNoCov">          0 :                     response.status / 100 == 3 &amp;&amp; response.status != 304 &amp;&amp;</span>
+<span class="lineNum">    1088 </span><span class="lineNoCov">          0 :                     response.location != NULL) {</span>
+<span class="lineNum">    1089 </span>            :                     /* redirect (possibly after delay) */
+<span class="lineNum">    1090 </span><span class="lineNoCov">          0 :                     if (http_client_request_delay_from_response(req, &amp;response) &gt;= 0) {</span>
+<span class="lineNum">    1091 </span>            :                         http_client_request_redirect
+<span class="lineNum">    1092 </span><span class="lineNoCov">          0 :                             (req, response.status, response.location);</span>
+<span class="lineNum">    1093 </span><span class="lineNoCov">          0 :                         handled = TRUE;</span>
+<span class="lineNum">    1094 </span>            :                     }
+<span class="lineNum">    1095 </span>            :                 /* service unavailable */
+<span class="lineNum">    1096 </span><span class="lineNoCov">          0 :                 } else if (response.status == 503) {</span>
+<span class="lineNum">    1097 </span>            :                     /* automatically retry after delay if indicated */
+<span class="lineNum">    1098 </span><span class="lineNoCov">          0 :                     if ( response.retry_after != (time_t)-1 &amp;&amp;</span>
+<span class="lineNum">    1099 </span><span class="lineNoCov">          0 :                         http_client_request_delay_from_response(req, &amp;response) &gt; 0 &amp;&amp;</span>
+<span class="lineNum">    1100 </span><span class="lineNoCov">          0 :                         http_client_request_try_retry(req))</span>
+<span class="lineNum">    1101 </span><span class="lineNoCov">          0 :                         handled = TRUE;</span>
+<span class="lineNum">    1102 </span>            :                 /* request timeout (by server) */
+<span class="lineNum">    1103 </span><span class="lineNoCov">          0 :                 } else if (response.status == 408) {</span>
+<span class="lineNum">    1104 </span>            :                     /* automatically retry */
+<span class="lineNum">    1105 </span><span class="lineNoCov">          0 :                     if (http_client_request_try_retry(req))</span>
+<span class="lineNum">    1106 </span><span class="lineNoCov">          0 :                         handled = TRUE;</span>
+<span class="lineNum">    1107 </span>            :                     /* connection close is implicit, although server should indicate
+<span class="lineNum">    1108 </span>            :                        that explicitly */
+<span class="lineNum">    1109 </span><span class="lineNoCov">          0 :                     conn-&gt;close_indicated = TRUE;</span>
+<span class="lineNum">    1110 </span>            :                 }
+<span class="lineNum">    1111 </span>            :             }
+<span class="lineNum">    1112 </span>            : 
+<span class="lineNum">    1113 </span><span class="lineNoCov">          0 :             if (!handled) {</span>
+<span class="lineNum">    1114 </span>            :                 /* response for application */
+<span class="lineNum">    1115 </span><span class="lineNoCov">          0 :                 if (!http_client_connection_return_response</span>
+<span class="lineNum">    1116 </span><span class="lineNoCov">          0 :                     (conn, req, &amp;response))</span>
+<span class="lineNum">    1117 </span><span class="lineNoCov">          0 :                     return;</span>
+<span class="lineNum">    1118 </span>            :             }
+<span class="lineNum">    1119 </span>            :         }
+<span class="lineNum">    1120 </span>            : 
+<span class="lineNum">    1121 </span><span class="lineNoCov">          0 :         finished++;</span>
+<span class="lineNum">    1122 </span>            : 
+<span class="lineNum">    1123 </span>            :         /* server closing connection? */
+<span class="lineNum">    1124 </span><span class="lineNoCov">          0 :         if (conn-&gt;close_indicated) {</span>
+<span class="lineNum">    1125 </span><span class="lineNoCov">          0 :             http_client_connection_server_close(&amp;conn);</span>
+<span class="lineNum">    1126 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">    1127 </span>            :         }
+<span class="lineNum">    1128 </span>            : 
+<span class="lineNum">    1129 </span>            :         /* get next waiting request */
+<span class="lineNum">    1130 </span><span class="lineNoCov">          0 :         reqs = array_get(&amp;conn-&gt;request_wait_list, &amp;count);</span>
+<span class="lineNum">    1131 </span><span class="lineNoCov">          0 :         if (count &gt; 0) {</span>
+<span class="lineNum">    1132 </span><span class="lineNoCov">          0 :             req = reqs[0];</span>
+<span class="lineNum">    1133 </span>            : 
+<span class="lineNum">    1134 </span>            :             /* determine whether to expect a response payload */
+<span class="lineNum">    1135 </span><span class="lineNoCov">          0 :             payload_type = http_client_request_get_payload_type(req);</span>
+<span class="lineNum">    1136 </span>            :         } else {
+<span class="lineNum">    1137 </span>            :             /* no more requests waiting for the connection */
+<span class="lineNum">    1138 </span><span class="lineNoCov">          0 :             req = NULL;</span>
+<span class="lineNum">    1139 </span><span class="lineNoCov">          0 :             payload_type = HTTP_RESPONSE_PAYLOAD_TYPE_ALLOWED;</span>
+<span class="lineNum">    1140 </span>            :         }
+<span class="lineNum">    1141 </span>            : 
+<span class="lineNum">    1142 </span>            :         /* drop connection with broken output if last possible input was
+<span class="lineNum">    1143 </span>            :            received */
+<span class="lineNum">    1144 </span><span class="lineNoCov">          0 :         if (conn-&gt;output_broken &amp;&amp; (count == 0 ||</span>
+<span class="lineNum">    1145 </span><span class="lineNoCov">          0 :             (count == 1 &amp;&amp; req-&gt;state == HTTP_REQUEST_STATE_ABORTED))) {</span>
+<span class="lineNum">    1146 </span><span class="lineNoCov">          0 :             http_client_connection_server_close(&amp;conn);</span>
+<span class="lineNum">    1147 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">    1148 </span>            :         }
+<span class="lineNum">    1149 </span>            :     }
+<span class="lineNum">    1150 </span>            : 
+<span class="lineNum">    1151 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0 &amp;&amp;</span>
+<span class="lineNum">    1152 </span><span class="lineNoCov">          0 :         (conn-&gt;conn.input-&gt;eof || conn-&gt;conn.input-&gt;stream_errno != 0)) {</span>
+<span class="lineNum">    1153 </span><span class="lineNoCov">          0 :         int stream_errno = conn-&gt;conn.input-&gt;stream_errno;</span>
+<span class="lineNum">    1154 </span><span class="lineNoCov">          0 :         http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">    1155 </span>            :             t_strdup_printf(&quot;read(%s) failed: %s&quot;,
+<span class="lineNum">    1156 </span><span class="lineNoCov">          0 :                     i_stream_get_name(conn-&gt;conn.input),</span>
+<span class="lineNum">    1157 </span>            :                     stream_errno != 0 ?
+<span class="lineNum">    1158 </span><span class="lineNoCov">          0 :                     i_stream_get_error(conn-&gt;conn.input) :</span>
+<span class="lineNum">    1159 </span>            :                     &quot;EOF&quot;));
+<span class="lineNum">    1160 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1161 </span>            :     }
+<span class="lineNum">    1162 </span>            : 
+<span class="lineNum">    1163 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">    1164 </span><span class="lineNoCov">          0 :         http_client_connection_abort_error(&amp;conn,</span>
+<span class="lineNum">    1165 </span>            :             HTTP_CLIENT_REQUEST_ERROR_BAD_RESPONSE, error);
+<span class="lineNum">    1166 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1167 </span>            :     }
+<span class="lineNum">    1168 </span>            : 
+<span class="lineNum">    1169 </span><span class="lineNoCov">          0 :     if (finished &gt; 0) {</span>
+<span class="lineNum">    1170 </span>            :         /* connection still alive after (at least one) request;
+<span class="lineNum">    1171 </span>            :            we can pipeline -&gt; mark for subsequent connections */
+<span class="lineNum">    1172 </span><span class="lineNoCov">          0 :         pshared-&gt;allows_pipelining = TRUE;</span>
+<span class="lineNum">    1173 </span>            : 
+<span class="lineNum">    1174 </span>            :         /* room for new requests */
+<span class="lineNum">    1175 </span><span class="lineNoCov">          0 :         if (peer != NULL &amp;&amp;</span>
+<span class="lineNum">    1176 </span><span class="lineNoCov">          0 :             http_client_connection_check_ready(conn) &gt; 0)</span>
+<span class="lineNum">    1177 </span><span class="lineNoCov">          0 :             http_client_peer_trigger_request_handler(peer);</span>
+<span class="lineNum">    1178 </span>            :     }
+<a name="1179"><span class="lineNum">    1179 </span>            : }</a>
+<span class="lineNum">    1180 </span>            : 
+<span class="lineNum">    1181 </span><span class="lineNoCov">          0 : int http_client_connection_output(struct http_client_connection *conn)</span>
+<span class="lineNum">    1182 </span>            : {
+<span class="lineNum">    1183 </span>            :     struct http_client_request *const *reqs;
+<span class="lineNum">    1184 </span><span class="lineNoCov">          0 :     struct ostream *output = conn-&gt;conn.output;</span>
+<span class="lineNum">    1185 </span>            :     unsigned int count;
+<span class="lineNum">    1186 </span>            :     const char *error;
+<span class="lineNum">    1187 </span>            :     int ret;
+<span class="lineNum">    1188 </span>            : 
+<span class="lineNum">    1189 </span>            :     /* we've seen activity from the server; reset request timeout */
+<span class="lineNum">    1190 </span><span class="lineNoCov">          0 :     http_client_connection_reset_request_timeout(conn);</span>
+<span class="lineNum">    1191 </span>            : 
+<span class="lineNum">    1192 </span><span class="lineNoCov">          0 :     if ((ret = o_stream_flush(output)) &lt;= 0) {</span>
+<span class="lineNum">    1193 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">    1194 </span><span class="lineNoCov">          0 :             http_client_connection_lost(&amp;conn,</span>
+<span class="lineNum">    1195 </span>            :                 t_strdup_printf(&quot;write(%s) failed: %s&quot;,
+<span class="lineNum">    1196 </span>            :                         o_stream_get_name(output),
+<span class="lineNum">    1197 </span>            :                         o_stream_get_error(output)));
+<span class="lineNum">    1198 </span>            :         }
+<span class="lineNum">    1199 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">    1200 </span>            :     }
+<span class="lineNum">    1201 </span>            : 
+<span class="lineNum">    1202 </span><span class="lineNoCov">          0 :     i_assert(!conn-&gt;output_broken);</span>
+<span class="lineNum">    1203 </span>            : 
+<span class="lineNum">    1204 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream != NULL &amp;&amp;</span>
+<span class="lineNum">    1205 </span><span class="lineNoCov">          0 :         !ssl_iostream_is_handshaked(conn-&gt;ssl_iostream))</span>
+<span class="lineNum">    1206 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">    1207 </span>            : 
+<span class="lineNum">    1208 </span><span class="lineNoCov">          0 :     reqs = array_get(&amp;conn-&gt;request_wait_list, &amp;count);</span>
+<span class="lineNum">    1209 </span><span class="lineNoCov">          0 :     if (count &gt; 0 &amp;&amp; conn-&gt;output_locked) {</span>
+<span class="lineNum">    1210 </span><span class="lineNoCov">          0 :         struct http_client_request *req = reqs[count-1];</span>
+<span class="lineNum">    1211 </span><span class="lineNoCov">          0 :         bool pipelined = (count &gt; 1 || conn-&gt;pending_request != NULL);</span>
+<span class="lineNum">    1212 </span>            : 
+<span class="lineNum">    1213 </span><span class="lineNoCov">          0 :         if (req-&gt;state == HTTP_REQUEST_STATE_ABORTED) {</span>
+<span class="lineNum">    1214 </span><span class="lineNoCov">          0 :             e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1215 </span>            :                 &quot;Request aborted before sending payload was complete.&quot;);
+<span class="lineNum">    1216 </span><span class="lineNoCov">          0 :             if (count == 1) {</span>
+<span class="lineNum">    1217 </span><span class="lineNoCov">          0 :                 http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">    1218 </span>            :             } else {
+<span class="lineNum">    1219 </span><span class="lineNoCov">          0 :                 o_stream_unset_flush_callback(output);</span>
+<span class="lineNum">    1220 </span><span class="lineNoCov">          0 :                 conn-&gt;output_broken = TRUE;</span>
+<span class="lineNum">    1221 </span>            :             }
+<span class="lineNum">    1222 </span><span class="lineNoCov">          0 :             return 1;</span>
+<span class="lineNum">    1223 </span>            :         }
+<span class="lineNum">    1224 </span>            : 
+<span class="lineNum">    1225 </span><span class="lineNoCov">          0 :         if (!req-&gt;payload_sync || req-&gt;payload_sync_continue) {</span>
+<span class="lineNum">    1226 </span><span class="lineNoCov">          0 :             if (http_client_request_send_more(req, pipelined, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1227 </span><span class="lineNoCov">          0 :                 http_client_connection_lost(&amp;conn, error);</span>
+<span class="lineNum">    1228 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">    1229 </span>            :             }
+<span class="lineNum">    1230 </span><span class="lineNoCov">          0 :             if (!conn-&gt;output_locked) {</span>
+<span class="lineNum">    1231 </span>            :                 /* room for new requests */
+<span class="lineNum">    1232 </span><span class="lineNoCov">          0 :                 if (http_client_connection_check_ready(conn) &gt; 0)</span>
+<span class="lineNum">    1233 </span><span class="lineNoCov">          0 :                     http_client_peer_trigger_request_handler(conn-&gt;peer);</span>
+<span class="lineNum">    1234 </span>            :             }
+<span class="lineNum">    1235 </span>            :         }
+<span class="lineNum">    1236 </span>            :     }
+<span class="lineNum">    1237 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">    1238 </span>            : }
+<a name="1239"><span class="lineNum">    1239 </span>            : </a>
+<span class="lineNum">    1240 </span>            : void
+<span class="lineNum">    1241 </span><span class="lineNoCov">          0 : http_client_connection_start_tunnel(struct http_client_connection **_conn,</span>
+<span class="lineNum">    1242 </span>            :     struct http_client_tunnel *tunnel)
+<span class="lineNum">    1243 </span>            : {
+<span class="lineNum">    1244 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">    1245 </span>            : 
+<span class="lineNum">    1246 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;tunneling);</span>
+<span class="lineNum">    1247 </span>            : 
+<span class="lineNum">    1248 </span>            :     /* claim connection streams */
+<span class="lineNum">    1249 </span><span class="lineNoCov">          0 :     i_zero(tunnel);</span>
+<span class="lineNum">    1250 </span><span class="lineNoCov">          0 :     tunnel-&gt;input = conn-&gt;conn.input;</span>
+<span class="lineNum">    1251 </span><span class="lineNoCov">          0 :     tunnel-&gt;output = conn-&gt;conn.output;</span>
+<span class="lineNum">    1252 </span><span class="lineNoCov">          0 :     tunnel-&gt;fd_in = conn-&gt;conn.fd_in;</span>
+<span class="lineNum">    1253 </span><span class="lineNoCov">          0 :     tunnel-&gt;fd_out = conn-&gt;conn.fd_out;</span>
+<span class="lineNum">    1254 </span>            : 
+<span class="lineNum">    1255 </span>            :     /* detach from connection */
+<span class="lineNum">    1256 </span><span class="lineNoCov">          0 :     conn-&gt;conn.input = NULL;</span>
+<span class="lineNum">    1257 </span><span class="lineNoCov">          0 :     conn-&gt;conn.output = NULL;</span>
+<span class="lineNum">    1258 </span><span class="lineNoCov">          0 :     conn-&gt;conn.fd_in = -1;</span>
+<span class="lineNum">    1259 </span><span class="lineNoCov">          0 :     conn-&gt;conn.fd_out = -1;</span>
+<span class="lineNum">    1260 </span><span class="lineNoCov">          0 :     conn-&gt;closing = TRUE;</span>
+<span class="lineNum">    1261 </span><span class="lineNoCov">          0 :     conn-&gt;connected = FALSE;</span>
+<span class="lineNum">    1262 </span><span class="lineNoCov">          0 :     connection_disconnect(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1263 </span>            : 
+<span class="lineNum">    1264 </span><span class="lineNoCov">          0 :     http_client_connection_unref(_conn);</span>
+<span class="lineNum">    1265 </span><span class="lineNoCov">          0 : }</span>
+<a name="1266"><span class="lineNum">    1266 </span>            : </a>
+<span class="lineNum">    1267 </span>            : static void 
+<span class="lineNum">    1268 </span><span class="lineNoCov">          0 : http_client_connection_ready(struct http_client_connection *conn)</span>
+<span class="lineNum">    1269 </span>            : {
+<span class="lineNum">    1270 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">    1271 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = conn-&gt;ppool;</span>
+<span class="lineNum">    1272 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = ppool-&gt;peer;</span>
+<span class="lineNum">    1273 </span>            :     ARRAY_TYPE(http_client_connection) *conn_arr;
+<span class="lineNum">    1274 </span>            :     struct http_client_connection *const *conn_idx;
+<span class="lineNum">    1275 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;peer-&gt;client-&gt;set;</span>
+<span class="lineNum">    1276 </span>            : 
+<span class="lineNum">    1277 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Ready for requests&quot;);</span>
+<span class="lineNum">    1278 </span>            : 
+<span class="lineNum">    1279 </span>            :     /* connected */
+<span class="lineNum">    1280 </span><span class="lineNoCov">          0 :     conn-&gt;connected = TRUE;</span>
+<span class="lineNum">    1281 </span><span class="lineNoCov">          0 :     conn-&gt;last_ioloop = current_ioloop;</span>
+<span class="lineNum">    1282 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_connect);</span>
+<span class="lineNum">    1283 </span>            : 
+<span class="lineNum">    1284 </span>            :     /* remove from pending list */
+<span class="lineNum">    1285 </span><span class="lineNoCov">          0 :     conn_arr = &amp;ppool-&gt;pending_conns;</span>
+<span class="lineNum">    1286 </span><span class="lineNoCov">          0 :     array_foreach(conn_arr, conn_idx) {</span>
+<span class="lineNum">    1287 </span><span class="lineNoCov">          0 :         if (*conn_idx == conn) {</span>
+<span class="lineNum">    1288 </span><span class="lineNoCov">          0 :             array_delete(conn_arr, array_foreach_idx(conn_arr, conn_idx), 1);</span>
+<span class="lineNum">    1289 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">    1290 </span>            :         }
+<span class="lineNum">    1291 </span>            :     }
+<span class="lineNum">    1292 </span>            : 
+<span class="lineNum">    1293 </span>            :     /* indicate connection success */
+<span class="lineNum">    1294 </span><span class="lineNoCov">          0 :     conn-&gt;connect_succeeded = TRUE;</span>
+<span class="lineNum">    1295 </span><span class="lineNoCov">          0 :     http_client_peer_connection_success(peer);</span>
+<span class="lineNum">    1296 </span>            : 
+<span class="lineNum">    1297 </span>            :     /* start raw log */
+<span class="lineNum">    1298 </span><span class="lineNoCov">          0 :     if (ppool-&gt;rawlog_dir != NULL) {</span>
+<span class="lineNum">    1299 </span><span class="lineNoCov">          0 :         iostream_rawlog_create(ppool-&gt;rawlog_dir,</span>
+<span class="lineNum">    1300 </span><span class="lineNoCov">          0 :                        &amp;conn-&gt;conn.input, &amp;conn-&gt;conn.output);</span>
+<span class="lineNum">    1301 </span>            :     }
+<span class="lineNum">    1302 </span>            : 
+<span class="lineNum">    1303 </span>            :     /* direct tunneling connections handle connect requests just by providing a
+<span class="lineNum">    1304 </span>            :        raw connection */
+<span class="lineNum">    1305 </span><span class="lineNoCov">          0 :     if (pshared-&gt;addr.type == HTTP_CLIENT_PEER_ADDR_RAW) {</span>
+<span class="lineNum">    1306 </span>            :         struct http_client_request *req;
+<span class="lineNum">    1307 </span>            : 
+<span class="lineNum">    1308 </span>            :         
+<span class="lineNum">    1309 </span><span class="lineNoCov">          0 :         req = http_client_peer_claim_request(conn-&gt;peer, FALSE);</span>
+<span class="lineNum">    1310 </span><span class="lineNoCov">          0 :         if (req != NULL) {</span>
+<span class="lineNum">    1311 </span>            :             struct http_response response;
+<span class="lineNum">    1312 </span>            : 
+<span class="lineNum">    1313 </span><span class="lineNoCov">          0 :             conn-&gt;tunneling = TRUE;</span>
+<span class="lineNum">    1314 </span>            : 
+<span class="lineNum">    1315 </span><span class="lineNoCov">          0 :             i_zero(&amp;response);</span>
+<span class="lineNum">    1316 </span><span class="lineNoCov">          0 :             response.status = 200;</span>
+<span class="lineNum">    1317 </span><span class="lineNoCov">          0 :             response.reason = &quot;OK&quot;;</span>
+<span class="lineNum">    1318 </span>            : 
+<span class="lineNum">    1319 </span><span class="lineNoCov">          0 :             (void)http_client_connection_return_response(conn, req, &amp;response);</span>
+<span class="lineNum">    1320 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">    1321 </span>            :         } 
+<span class="lineNum">    1322 </span>            :         
+<span class="lineNum">    1323 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1324 </span>            :             &quot;No raw connect requests pending; closing useless connection&quot;);
+<span class="lineNum">    1325 </span><span class="lineNoCov">          0 :         http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">    1326 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1327 </span>            :     }
+<span class="lineNum">    1328 </span>            : 
+<span class="lineNum">    1329 </span>            :     /* start protocol I/O */
+<span class="lineNum">    1330 </span><span class="lineNoCov">          0 :     conn-&gt;http_parser = http_response_parser_init</span>
+<span class="lineNum">    1331 </span><span class="lineNoCov">          0 :         (conn-&gt;conn.input, &amp;set-&gt;response_hdr_limits, 0);</span>
+<span class="lineNum">    1332 </span><span class="lineNoCov">          0 :     o_stream_set_flush_callback(conn-&gt;conn.output,</span>
+<span class="lineNum">    1333 </span>            :     http_client_connection_output, conn);
+<span class="lineNum">    1334 </span>            : }
+<a name="1335"><span class="lineNum">    1335 </span>            : </a>
+<span class="lineNum">    1336 </span>            : static int
+<span class="lineNum">    1337 </span><span class="lineNoCov">          0 : http_client_connection_ssl_handshaked(const char **error_r, void *context)</span>
+<span class="lineNum">    1338 </span>            : {
+<span class="lineNum">    1339 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = context;</span>
+<span class="lineNum">    1340 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">    1341 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">    1342 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;peer-&gt;client-&gt;set;</span>
+<span class="lineNum">    1343 </span><span class="lineNoCov">          0 :     const char *error, *host = pshared-&gt;addr.a.tcp.https_name;</span>
+<span class="lineNum">    1344 </span>            : 
+<span class="lineNum">    1345 </span><span class="lineNoCov">          0 :     if (ssl_iostream_check_cert_validity(conn-&gt;ssl_iostream, host, &amp;error) == 0)</span>
+<span class="lineNum">    1346 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;SSL handshake successful&quot;);</span>
+<span class="lineNum">    1347 </span><span class="lineNoCov">          0 :     else if (set-&gt;ssl-&gt;allow_invalid_cert) {</span>
+<span class="lineNum">    1348 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;SSL handshake successful, &quot;</span>
+<span class="lineNum">    1349 </span>            :             &quot;ignoring invalid certificate: %s&quot;, error);
+<span class="lineNum">    1350 </span>            :     } else {
+<span class="lineNum">    1351 </span><span class="lineNoCov">          0 :         *error_r = error;</span>
+<span class="lineNum">    1352 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1353 </span>            :     }
+<span class="lineNum">    1354 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">    1355 </span>            : }
+<a name="1356"><span class="lineNum">    1356 </span>            : </a>
+<span class="lineNum">    1357 </span>            : static int 
+<span class="lineNum">    1358 </span><span class="lineNoCov">          0 : http_client_connection_ssl_init(struct http_client_connection *conn,</span>
+<span class="lineNum">    1359 </span>            :                 const char **error_r)
+<span class="lineNum">    1360 </span>            : {
+<span class="lineNum">    1361 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">    1362 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = conn-&gt;ppool;</span>
+<span class="lineNum">    1363 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = ppool-&gt;peer;</span>
+<span class="lineNum">    1364 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;peer-&gt;client-&gt;set;</span>
+<span class="lineNum">    1365 </span>            :     struct ssl_iostream_settings ssl_set;
+<span class="lineNum">    1366 </span><span class="lineNoCov">          0 :     struct ssl_iostream_context *ssl_ctx = ppool-&gt;ssl_ctx;</span>
+<span class="lineNum">    1367 </span>            :     const char *error;
+<span class="lineNum">    1368 </span>            : 
+<span class="lineNum">    1369 </span><span class="lineNoCov">          0 :     i_assert(ssl_ctx != NULL);</span>
+<span class="lineNum">    1370 </span>            : 
+<span class="lineNum">    1371 </span><span class="lineNoCov">          0 :     i_zero(&amp;ssl_set);</span>
+<span class="lineNum">    1372 </span><span class="lineNoCov">          0 :     if (!set-&gt;ssl-&gt;allow_invalid_cert) {</span>
+<span class="lineNum">    1373 </span><span class="lineNoCov">          0 :         ssl_set.verbose_invalid_cert = TRUE;</span>
+<span class="lineNum">    1374 </span>            :     }
+<span class="lineNum">    1375 </span>            : 
+<span class="lineNum">    1376 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Starting SSL handshake&quot;);</span>
+<span class="lineNum">    1377 </span>            : 
+<span class="lineNum">    1378 </span><span class="lineNoCov">          0 :     if (io_stream_create_ssl_client(ssl_ctx,</span>
+<span class="lineNum">    1379 </span>            :                     pshared-&gt;addr.a.tcp.https_name, &amp;ssl_set,
+<span class="lineNum">    1380 </span>            :                     &amp;conn-&gt;conn.input, &amp;conn-&gt;conn.output,
+<span class="lineNum">    1381 </span>            :                     &amp;conn-&gt;ssl_iostream, &amp;error) &lt; 0) {
+<span class="lineNum">    1382 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(</span>
+<span class="lineNum">    1383 </span>            :             &quot;Couldn't initialize SSL client for %s: %s&quot;,
+<span class="lineNum">    1384 </span>            :             conn-&gt;conn.name, error);
+<span class="lineNum">    1385 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1386 </span>            :     }
+<span class="lineNum">    1387 </span><span class="lineNoCov">          0 :     ssl_iostream_set_handshake_callback(conn-&gt;ssl_iostream,</span>
+<span class="lineNum">    1388 </span>            :                         http_client_connection_ssl_handshaked, conn);
+<span class="lineNum">    1389 </span><span class="lineNoCov">          0 :     if (ssl_iostream_handshake(conn-&gt;ssl_iostream) &lt; 0) {</span>
+<span class="lineNum">    1390 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;SSL handshake to %s failed: %s&quot;,</span>
+<span class="lineNum">    1391 </span>            :             conn-&gt;conn.name, ssl_iostream_get_last_error(conn-&gt;ssl_iostream));
+<span class="lineNum">    1392 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1393 </span>            :     }
+<span class="lineNum">    1394 </span>            : 
+<span class="lineNum">    1395 </span><span class="lineNoCov">          0 :     if (ssl_iostream_is_handshaked(conn-&gt;ssl_iostream)) {</span>
+<span class="lineNum">    1396 </span><span class="lineNoCov">          0 :         http_client_connection_ready(conn);</span>
+<span class="lineNum">    1397 </span>            :     } else {
+<span class="lineNum">    1398 </span>            :         /* wait for handshake to complete; connection input handler does the rest
+<span class="lineNum">    1399 </span>            :            by reading from the input stream */
+<span class="lineNum">    1400 </span><span class="lineNoCov">          0 :         o_stream_set_flush_callback(conn-&gt;conn.output,</span>
+<span class="lineNum">    1401 </span>            :             http_client_connection_output, conn);
+<span class="lineNum">    1402 </span>            :     }
+<span class="lineNum">    1403 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">    1404 </span>            : }
+<a name="1405"><span class="lineNum">    1405 </span>            : </a>
+<span class="lineNum">    1406 </span>            : static void 
+<span class="lineNum">    1407 </span><span class="lineNoCov">          0 : http_client_connection_connected(struct connection *_conn, bool success)</span>
+<span class="lineNum">    1408 </span>            : {
+<span class="lineNum">    1409 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn =</span>
+<span class="lineNum">    1410 </span>            :         (struct http_client_connection *)_conn;
+<span class="lineNum">    1411 </span><span class="lineNoCov">          0 :     struct http_client_peer *peer = conn-&gt;peer;</span>
+<span class="lineNum">    1412 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">    1413 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;peer-&gt;client-&gt;set;</span>
+<span class="lineNum">    1414 </span>            :     const char *error;
+<span class="lineNum">    1415 </span>            : 
+<span class="lineNum">    1416 </span><span class="lineNoCov">          0 :     if (!success) {</span>
+<span class="lineNum">    1417 </span><span class="lineNoCov">          0 :         http_client_connection_failure(conn, t_strdup_printf(</span>
+<span class="lineNum">    1418 </span>            :             &quot;connect(%s) failed: %m&quot;, _conn-&gt;name));
+<span class="lineNum">    1419 </span>            :     } else {
+<span class="lineNum">    1420 </span><span class="lineNoCov">          0 :         conn-&gt;connected_timestamp = ioloop_timeval;</span>
+<span class="lineNum">    1421 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;Connected&quot;);</span>
+<span class="lineNum">    1422 </span>            : 
+<span class="lineNum">    1423 </span><span class="lineNoCov">          0 :         (void)net_set_tcp_nodelay(_conn-&gt;fd_out, TRUE);</span>
+<span class="lineNum">    1424 </span><span class="lineNoCov">          0 :         if (set-&gt;socket_send_buffer_size &gt; 0) {</span>
+<span class="lineNum">    1425 </span><span class="lineNoCov">          0 :             if (net_set_send_buffer_size(_conn-&gt;fd_out,</span>
+<span class="lineNum">    1426 </span>            :                 set-&gt;socket_send_buffer_size) &lt; 0)
+<span class="lineNum">    1427 </span><span class="lineNoCov">          0 :                 i_error(&quot;net_set_send_buffer_size(%&quot;PRIuSIZE_T&quot;) failed: %m&quot;,</span>
+<span class="lineNum">    1428 </span>            :                     set-&gt;socket_send_buffer_size);
+<span class="lineNum">    1429 </span>            :         }
+<span class="lineNum">    1430 </span><span class="lineNoCov">          0 :         if (set-&gt;socket_recv_buffer_size &gt; 0) {</span>
+<span class="lineNum">    1431 </span><span class="lineNoCov">          0 :             if (net_set_recv_buffer_size(_conn-&gt;fd_in,</span>
+<span class="lineNum">    1432 </span>            :                 set-&gt;socket_recv_buffer_size) &lt; 0)
+<span class="lineNum">    1433 </span><span class="lineNoCov">          0 :                 i_error(&quot;net_set_recv_buffer_size(%&quot;PRIuSIZE_T&quot;) failed: %m&quot;,</span>
+<span class="lineNum">    1434 </span>            :                     set-&gt;socket_recv_buffer_size);
+<span class="lineNum">    1435 </span>            :         }
+<span class="lineNum">    1436 </span>            : 
+<span class="lineNum">    1437 </span><span class="lineNoCov">          0 :         if (http_client_peer_addr_is_https(&amp;pshared-&gt;addr)) {</span>
+<span class="lineNum">    1438 </span><span class="lineNoCov">          0 :             if (http_client_connection_ssl_init(conn, &amp;error) &lt; 0) {</span>
+<span class="lineNum">    1439 </span><span class="lineNoCov">          0 :                 e_debug(conn-&gt;event, &quot;%s&quot;, error);</span>
+<span class="lineNum">    1440 </span><span class="lineNoCov">          0 :                 http_client_connection_failure(conn, error);</span>
+<span class="lineNum">    1441 </span><span class="lineNoCov">          0 :                 http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">    1442 </span>            :             }
+<span class="lineNum">    1443 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">    1444 </span>            :         }
+<span class="lineNum">    1445 </span><span class="lineNoCov">          0 :         http_client_connection_ready(conn);</span>
+<span class="lineNum">    1446 </span>            :     }
+<span class="lineNum">    1447 </span>            : }
+<span class="lineNum">    1448 </span>            : 
+<span class="lineNum">    1449 </span>            : static const struct connection_settings http_client_connection_set = {
+<span class="lineNum">    1450 </span>            :     .input_max_size = (size_t)-1,
+<span class="lineNum">    1451 </span>            :     .output_max_size = (size_t)-1,
+<span class="lineNum">    1452 </span>            :     .client = TRUE,
+<span class="lineNum">    1453 </span>            :     .delayed_unix_client_connected_callback = TRUE
+<span class="lineNum">    1454 </span>            : };
+<span class="lineNum">    1455 </span>            : 
+<span class="lineNum">    1456 </span>            : static const struct connection_vfuncs http_client_connection_vfuncs = {
+<span class="lineNum">    1457 </span>            :     .destroy = http_client_connection_destroy,
+<span class="lineNum">    1458 </span>            :     .input = http_client_connection_input,
+<span class="lineNum">    1459 </span>            :     .client_connected = http_client_connection_connected
+<span class="lineNum">    1460 </span>            : };
+<a name="1461"><span class="lineNum">    1461 </span>            : </a>
+<span class="lineNum">    1462 </span>            : struct connection_list *
+<span class="lineNum">    1463 </span><span class="lineNoCov">          0 : http_client_connection_list_init(void)</span>
+<span class="lineNum">    1464 </span>            : {
+<span class="lineNum">    1465 </span><span class="lineNoCov">          0 :     return connection_list_init</span>
+<span class="lineNum">    1466 </span>            :         (&amp;http_client_connection_set, &amp;http_client_connection_vfuncs);
+<span class="lineNum">    1467 </span>            : }
+<a name="1468"><span class="lineNum">    1468 </span>            : </a>
+<span class="lineNum">    1469 </span>            : static void
+<span class="lineNum">    1470 </span><span class="lineNoCov">          0 : http_client_connection_delayed_connect_error(struct http_client_connection *conn)</span>
+<span class="lineNum">    1471 </span>            : {
+<span class="lineNum">    1472 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_input);</span>
+<span class="lineNum">    1473 </span><span class="lineNoCov">          0 :     errno = conn-&gt;connect_errno;</span>
+<span class="lineNum">    1474 </span><span class="lineNoCov">          0 :     http_client_connection_connected(&amp;conn-&gt;conn, FALSE);</span>
+<span class="lineNum">    1475 </span><span class="lineNoCov">          0 :     http_client_connection_close(&amp;conn);</span>
+<a name="1476"><span class="lineNum">    1476 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1477 </span>            : 
+<span class="lineNum">    1478 </span><span class="lineNoCov">          0 : static void http_client_connect_timeout(struct http_client_connection *conn)</span>
+<span class="lineNum">    1479 </span>            : {
+<span class="lineNum">    1480 </span><span class="lineNoCov">          0 :     conn-&gt;conn.disconnect_reason = CONNECTION_DISCONNECT_CONNECT_TIMEOUT;</span>
+<span class="lineNum">    1481 </span><span class="lineNoCov">          0 :     http_client_connection_destroy(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1482 </span><span class="lineNoCov">          0 : }</span>
+<a name="1483"><span class="lineNum">    1483 </span>            : </a>
+<span class="lineNum">    1484 </span>            : static void
+<span class="lineNum">    1485 </span><span class="lineNoCov">          0 : http_client_connection_connect(struct http_client_connection *conn,</span>
+<span class="lineNum">    1486 </span>            :     unsigned int timeout_msecs)
+<span class="lineNum">    1487 </span>            : {
+<span class="lineNum">    1488 </span><span class="lineNoCov">          0 :     conn-&gt;connect_start_timestamp = ioloop_timeval;</span>
+<span class="lineNum">    1489 </span><span class="lineNoCov">          0 :     if (connection_client_connect(&amp;conn-&gt;conn) &lt; 0) {</span>
+<span class="lineNum">    1490 </span><span class="lineNoCov">          0 :         conn-&gt;connect_errno = errno;</span>
+<span class="lineNum">    1491 </span><span class="lineNoCov">          0 :         e_debug(conn-&gt;event, &quot;Connect failed: %m&quot;);</span>
+<span class="lineNum">    1492 </span><span class="lineNoCov">          0 :         conn-&gt;to_input = timeout_add_short(0,</span>
+<span class="lineNum">    1493 </span>            :             http_client_connection_delayed_connect_error, conn);
+<span class="lineNum">    1494 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1495 </span>            :     }
+<span class="lineNum">    1496 </span>            : 
+<span class="lineNum">    1497 </span>            :     /* don't use connection.h timeout because we want this timeout
+<span class="lineNum">    1498 </span>            :        to include also the SSL handshake */
+<span class="lineNum">    1499 </span><span class="lineNoCov">          0 :     if (timeout_msecs &gt; 0) {</span>
+<span class="lineNum">    1500 </span><span class="lineNoCov">          0 :         conn-&gt;to_connect = timeout_add(timeout_msecs,</span>
+<span class="lineNum">    1501 </span>            :             http_client_connect_timeout, conn);
+<span class="lineNum">    1502 </span>            :     }
+<span class="lineNum">    1503 </span>            : }
+<a name="1504"><span class="lineNum">    1504 </span>            : </a>
+<span class="lineNum">    1505 </span>            : static void
+<span class="lineNum">    1506 </span><span class="lineNoCov">          0 : http_client_connect_tunnel_timeout(struct http_client_connection *conn)</span>
+<span class="lineNum">    1507 </span>            : {
+<span class="lineNum">    1508 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">    1509 </span><span class="lineNoCov">          0 :     const char *error, *name = http_client_peer_addr2str(&amp;pshared-&gt;addr);</span>
+<span class="lineNum">    1510 </span>            :     unsigned int msecs;
+<span class="lineNum">    1511 </span>            : 
+<span class="lineNum">    1512 </span><span class="lineNoCov">          0 :     msecs = timeval_diff_msecs(&amp;ioloop_timeval,</span>
+<span class="lineNum">    1513 </span><span class="lineNoCov">          0 :                    &amp;conn-&gt;connect_start_timestamp);</span>
+<span class="lineNum">    1514 </span><span class="lineNoCov">          0 :     error = t_strdup_printf(</span>
+<span class="lineNum">    1515 </span>            :         &quot;Tunnel connect(%s) failed: &quot;
+<span class="lineNum">    1516 </span>            :         &quot;Connection timed out in %u.%03u secs&quot;,
+<span class="lineNum">    1517 </span>            :         name, msecs/1000, msecs%1000);
+<span class="lineNum">    1518 </span>            : 
+<span class="lineNum">    1519 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;%s&quot;, error);</span>
+<span class="lineNum">    1520 </span><span class="lineNoCov">          0 :     http_client_connection_failure(conn, error);</span>
+<span class="lineNum">    1521 </span><span class="lineNoCov">          0 :     http_client_connection_close(&amp;conn);</span>
+<span class="lineNum">    1522 </span><span class="lineNoCov">          0 : }</span>
+<a name="1523"><span class="lineNum">    1523 </span>            : </a>
+<span class="lineNum">    1524 </span>            : static void
+<span class="lineNum">    1525 </span><span class="lineNoCov">          0 : http_client_connection_tunnel_response(const struct http_response *response,</span>
+<span class="lineNum">    1526 </span>            :                    struct http_client_connection *conn)
+<span class="lineNum">    1527 </span>            : {
+<span class="lineNum">    1528 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = conn-&gt;ppool-&gt;peer;</span>
+<span class="lineNum">    1529 </span><span class="lineNoCov">          0 :     struct http_client_context *cctx = pshared-&gt;cctx;</span>
+<span class="lineNum">    1530 </span>            :     struct http_client_tunnel tunnel;
+<span class="lineNum">    1531 </span><span class="lineNoCov">          0 :     const char *name = http_client_peer_addr2str(&amp;pshared-&gt;addr);</span>
+<span class="lineNum">    1532 </span><span class="lineNoCov">          0 :     struct http_client_request *req = conn-&gt;connect_request;</span>
+<span class="lineNum">    1533 </span>            : 
+<span class="lineNum">    1534 </span><span class="lineNoCov">          0 :     conn-&gt;connect_request = NULL;</span>
+<span class="lineNum">    1535 </span>            : 
+<span class="lineNum">    1536 </span><span class="lineNoCov">          0 :     if (response-&gt;status != 200) {</span>
+<span class="lineNum">    1537 </span><span class="lineNoCov">          0 :         http_client_connection_failure(conn, t_strdup_printf(</span>
+<span class="lineNum">    1538 </span>            :             &quot;Tunnel connect(%s) failed: %s&quot;, name,
+<span class="lineNum">    1539 </span>            :                 http_response_get_message(response)));
+<span class="lineNum">    1540 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1541 </span>            :     }
+<span class="lineNum">    1542 </span>            : 
+<span class="lineNum">    1543 </span><span class="lineNoCov">          0 :     http_client_request_start_tunnel(req, &amp;tunnel);</span>
+<span class="lineNum">    1544 </span>            : 
+<span class="lineNum">    1545 </span>            :     connection_init_from_streams
+<span class="lineNum">    1546 </span><span class="lineNoCov">          0 :         (cctx-&gt;conn_list, &amp;conn-&gt;conn, name, tunnel.input, tunnel.output);</span>
+<span class="lineNum">    1547 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;tunnel.input);</span>
+<span class="lineNum">    1548 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;tunnel.output);</span>
+<span class="lineNum">    1549 </span><span class="lineNoCov">          0 :     conn-&gt;connect_initialized = TRUE;</span>
+<span class="lineNum">    1550 </span>            : }
+<a name="1551"><span class="lineNum">    1551 </span>            : </a>
+<span class="lineNum">    1552 </span>            : static void
+<span class="lineNum">    1553 </span><span class="lineNoCov">          0 : http_client_connection_connect_tunnel(struct http_client_connection *conn,</span>
+<span class="lineNum">    1554 </span>            :     const struct ip_addr *ip, in_port_t port,
+<span class="lineNum">    1555 </span>            :     unsigned int timeout_msecs)
+<span class="lineNum">    1556 </span>            : {
+<span class="lineNum">    1557 </span><span class="lineNoCov">          0 :     struct http_client *client = conn-&gt;peer-&gt;client;</span>
+<span class="lineNum">    1558 </span>            : 
+<span class="lineNum">    1559 </span><span class="lineNoCov">          0 :     conn-&gt;connect_start_timestamp = ioloop_timeval;</span>
+<span class="lineNum">    1560 </span>            : 
+<span class="lineNum">    1561 </span><span class="lineNoCov">          0 :     conn-&gt;connect_request = http_client_request_connect_ip</span>
+<span class="lineNum">    1562 </span>            :         (client, ip, port, http_client_connection_tunnel_response, conn);
+<span class="lineNum">    1563 </span><span class="lineNoCov">          0 :     http_client_request_set_urgent(conn-&gt;connect_request);</span>
+<span class="lineNum">    1564 </span><span class="lineNoCov">          0 :     http_client_request_submit(conn-&gt;connect_request);</span>
+<span class="lineNum">    1565 </span>            : 
+<span class="lineNum">    1566 </span>            :     /* don't use connection.h timeout because we want this timeout
+<span class="lineNum">    1567 </span>            :        to include also the SSL handshake */
+<span class="lineNum">    1568 </span><span class="lineNoCov">          0 :     if (timeout_msecs &gt; 0) {</span>
+<span class="lineNum">    1569 </span><span class="lineNoCov">          0 :         conn-&gt;to_connect = timeout_add(timeout_msecs,</span>
+<span class="lineNum">    1570 </span>            :             http_client_connect_tunnel_timeout, conn);
+<span class="lineNum">    1571 </span>            :     }
+<span class="lineNum">    1572 </span><span class="lineNoCov">          0 : }</span>
+<a name="1573"><span class="lineNum">    1573 </span>            : </a>
+<span class="lineNum">    1574 </span>            : struct http_client_connection *
+<span class="lineNum">    1575 </span><span class="lineNoCov">          0 : http_client_connection_create(struct http_client_peer *peer)</span>
+<span class="lineNum">    1576 </span>            : {
+<span class="lineNum">    1577 </span><span class="lineNoCov">          0 :     struct http_client_peer_shared *pshared = peer-&gt;shared;</span>
+<span class="lineNum">    1578 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = peer-&gt;ppool;</span>
+<span class="lineNum">    1579 </span><span class="lineNoCov">          0 :     struct http_client_context *cctx = pshared-&gt;cctx;</span>
+<span class="lineNum">    1580 </span><span class="lineNoCov">          0 :     struct http_client *client = peer-&gt;client;</span>
+<span class="lineNum">    1581 </span><span class="lineNoCov">          0 :     const struct http_client_settings *set = &amp;client-&gt;set;</span>
+<span class="lineNum">    1582 </span>            :     struct http_client_connection *conn;
+<span class="lineNum">    1583 </span>            :     static unsigned int id = 0;
+<span class="lineNum">    1584 </span><span class="lineNoCov">          0 :     const struct http_client_peer_addr *addr = &amp;pshared-&gt;addr;</span>
+<span class="lineNum">    1585 </span><span class="lineNoCov">          0 :     const char *conn_type = &quot;UNKNOWN&quot;;</span>
+<span class="lineNum">    1586 </span>            :     unsigned int timeout_msecs;
+<span class="lineNum">    1587 </span>            : 
+<span class="lineNum">    1588 </span><span class="lineNoCov">          0 :     switch (pshared-&gt;addr.type) {</span>
+<span class="lineNum">    1589 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTP:
+<span class="lineNum">    1590 </span><span class="lineNoCov">          0 :         conn_type = &quot;HTTP&quot;;</span>
+<span class="lineNum">    1591 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1592 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTPS:
+<span class="lineNum">    1593 </span><span class="lineNoCov">          0 :         conn_type = &quot;HTTPS&quot;;</span>
+<span class="lineNum">    1594 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1595 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTPS_TUNNEL:
+<span class="lineNum">    1596 </span><span class="lineNoCov">          0 :         conn_type = &quot;Tunneled HTTPS&quot;;</span>
+<span class="lineNum">    1597 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1598 </span>            :     case HTTP_CLIENT_PEER_ADDR_RAW:
+<span class="lineNum">    1599 </span><span class="lineNoCov">          0 :         conn_type = &quot;Raw&quot;;</span>
+<span class="lineNum">    1600 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1601 </span>            :     case HTTP_CLIENT_PEER_ADDR_UNIX:
+<span class="lineNum">    1602 </span><span class="lineNoCov">          0 :         conn_type = &quot;Unix&quot;;</span>
+<span class="lineNum">    1603 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1604 </span>            :     }
+<span class="lineNum">    1605 </span>            : 
+<span class="lineNum">    1606 </span><span class="lineNoCov">          0 :     timeout_msecs = set-&gt;connect_timeout_msecs;</span>
+<span class="lineNum">    1607 </span><span class="lineNoCov">          0 :     if (timeout_msecs == 0)</span>
+<span class="lineNum">    1608 </span><span class="lineNoCov">          0 :         timeout_msecs = set-&gt;request_timeout_msecs;</span>
+<span class="lineNum">    1609 </span>            : 
+<span class="lineNum">    1610 </span><span class="lineNoCov">          0 :     conn = i_new(struct http_client_connection, 1);</span>
+<span class="lineNum">    1611 </span><span class="lineNoCov">          0 :     conn-&gt;refcount = 1;</span>
+<span class="lineNum">    1612 </span><span class="lineNoCov">          0 :     conn-&gt;id = id++;</span>
+<span class="lineNum">    1613 </span><span class="lineNoCov">          0 :     conn-&gt;ppool = ppool;</span>
+<span class="lineNum">    1614 </span><span class="lineNoCov">          0 :     conn-&gt;peer = peer;</span>
+<span class="lineNum">    1615 </span><span class="lineNoCov">          0 :     conn-&gt;debug = client-&gt;set.debug;</span>
+<span class="lineNum">    1616 </span><span class="lineNoCov">          0 :     if (pshared-&gt;addr.type != HTTP_CLIENT_PEER_ADDR_RAW)</span>
+<span class="lineNum">    1617 </span><span class="lineNoCov">          0 :         i_array_init(&amp;conn-&gt;request_wait_list, 16);</span>
+<span class="lineNum">    1618 </span><span class="lineNoCov">          0 :     conn-&gt;io_wait_timer = io_wait_timer_add();</span>
+<span class="lineNum">    1619 </span>            : 
+<span class="lineNum">    1620 </span><span class="lineNoCov">          0 :     conn-&gt;label = i_strdup_printf(&quot;%s [%d]&quot;,</span>
+<span class="lineNum">    1621 </span><span class="lineNoCov">          0 :         http_client_peer_shared_label(pshared), conn-&gt;id);</span>
+<span class="lineNum">    1622 </span><span class="lineNoCov">          0 :     conn-&gt;event = event_create(peer-&gt;client-&gt;event);</span>
+<span class="lineNum">    1623 </span><span class="lineNoCov">          0 :     event_set_append_log_prefix(conn-&gt;event,</span>
+<span class="lineNum">    1624 </span><span class="lineNoCov">          0 :         t_strdup_printf(&quot;conn %s: &quot;, conn-&gt;label));</span>
+<span class="lineNum">    1625 </span>            : 
+<span class="lineNum">    1626 </span><span class="lineNoCov">          0 :     switch (pshared-&gt;addr.type) {</span>
+<span class="lineNum">    1627 </span>            :     case HTTP_CLIENT_PEER_ADDR_HTTPS_TUNNEL:
+<span class="lineNum">    1628 </span>            :         http_client_connection_connect_tunnel
+<span class="lineNum">    1629 </span><span class="lineNoCov">          0 :             (conn, &amp;addr-&gt;a.tcp.ip, addr-&gt;a.tcp.port, timeout_msecs);</span>
+<span class="lineNum">    1630 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1631 </span>            :     case HTTP_CLIENT_PEER_ADDR_UNIX:
+<span class="lineNum">    1632 </span><span class="lineNoCov">          0 :         connection_init_client_unix(cctx-&gt;conn_list, &amp;conn-&gt;conn,</span>
+<span class="lineNum">    1633 </span>            :             addr-&gt;a.un.path);
+<span class="lineNum">    1634 </span><span class="lineNoCov">          0 :         conn-&gt;connect_initialized = TRUE;</span>
+<span class="lineNum">    1635 </span><span class="lineNoCov">          0 :         http_client_connection_connect(conn, timeout_msecs);</span>
+<span class="lineNum">    1636 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1637 </span>            :     default:
+<span class="lineNum">    1638 </span><span class="lineNoCov">          0 :         connection_init_client_ip(cctx-&gt;conn_list, &amp;conn-&gt;conn,</span>
+<span class="lineNum">    1639 </span><span class="lineNoCov">          0 :             &amp;addr-&gt;a.tcp.ip, addr-&gt;a.tcp.port);</span>
+<span class="lineNum">    1640 </span><span class="lineNoCov">          0 :         conn-&gt;connect_initialized = TRUE;</span>
+<span class="lineNum">    1641 </span><span class="lineNoCov">          0 :         http_client_connection_connect(conn, timeout_msecs);</span>
+<span class="lineNum">    1642 </span>            :     }
+<span class="lineNum">    1643 </span>            : 
+<span class="lineNum">    1644 </span><span class="lineNoCov">          0 :     array_append(&amp;ppool-&gt;pending_conns, &amp;conn, 1);</span>
+<span class="lineNum">    1645 </span><span class="lineNoCov">          0 :     array_append(&amp;ppool-&gt;conns, &amp;conn, 1);</span>
+<span class="lineNum">    1646 </span><span class="lineNoCov">          0 :     array_append(&amp;peer-&gt;conns, &amp;conn, 1);</span>
+<span class="lineNum">    1647 </span>            : 
+<span class="lineNum">    1648 </span><span class="lineNoCov">          0 :     http_client_peer_pool_ref(ppool);</span>
+<span class="lineNum">    1649 </span>            : 
+<span class="lineNum">    1650 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event,</span>
+<span class="lineNum">    1651 </span>            :         &quot;%s connection created (%d parallel connections exist)%s&quot;,
+<span class="lineNum">    1652 </span>            :         conn_type, array_count(&amp;ppool-&gt;conns),
+<span class="lineNum">    1653 </span>            :         (conn-&gt;to_input == NULL ? &quot;&quot; : &quot; [broken]&quot;));
+<span class="lineNum">    1654 </span><span class="lineNoCov">          0 :     return conn;</span>
+<a name="1655"><span class="lineNum">    1655 </span>            : }</a>
+<span class="lineNum">    1656 </span>            : 
+<span class="lineNum">    1657 </span><span class="lineNoCov">          0 : void http_client_connection_ref(struct http_client_connection *conn)</span>
+<span class="lineNum">    1658 </span>            : {
+<span class="lineNum">    1659 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;refcount &gt; 0);</span>
+<span class="lineNum">    1660 </span><span class="lineNoCov">          0 :     conn-&gt;refcount++;</span>
+<span class="lineNum">    1661 </span><span class="lineNoCov">          0 : }</span>
+<a name="1662"><span class="lineNum">    1662 </span>            : </a>
+<span class="lineNum">    1663 </span>            : static void
+<span class="lineNum">    1664 </span><span class="lineNoCov">          0 : http_client_connection_disconnect(struct http_client_connection *conn)</span>
+<span class="lineNum">    1665 </span>            : {
+<span class="lineNum">    1666 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = conn-&gt;ppool;</span>
+<span class="lineNum">    1667 </span>            :     ARRAY_TYPE(http_client_connection) *conn_arr;
+<span class="lineNum">    1668 </span>            :     struct http_client_connection *const *conn_idx;
+<span class="lineNum">    1669 </span>            : 
+<span class="lineNum">    1670 </span><span class="lineNoCov">          0 :     if (conn-&gt;disconnected)</span>
+<span class="lineNum">    1671 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1672 </span><span class="lineNoCov">          0 :     conn-&gt;disconnected = TRUE;</span>
+<span class="lineNum">    1673 </span>            : 
+<span class="lineNum">    1674 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Connection disconnect&quot;);</span>
+<span class="lineNum">    1675 </span>            : 
+<span class="lineNum">    1676 </span><span class="lineNoCov">          0 :     conn-&gt;closing = TRUE;</span>
+<span class="lineNum">    1677 </span><span class="lineNoCov">          0 :     conn-&gt;connected = FALSE;</span>
+<span class="lineNum">    1678 </span>            : 
+<span class="lineNum">    1679 </span><span class="lineNoCov">          0 :     if (conn-&gt;connect_request != NULL)</span>
+<span class="lineNum">    1680 </span><span class="lineNoCov">          0 :         http_client_request_abort(&amp;conn-&gt;connect_request);</span>
+<span class="lineNum">    1681 </span>            : 
+<span class="lineNum">    1682 </span><span class="lineNoCov">          0 :     if (conn-&gt;incoming_payload != NULL) {</span>
+<span class="lineNum">    1683 </span>            :         /* the stream is still accessed by lib-http caller. */
+<span class="lineNum">    1684 </span><span class="lineNoCov">          0 :         i_stream_remove_destroy_callback(conn-&gt;incoming_payload,</span>
+<span class="lineNum">    1685 </span>            :                          http_client_payload_destroyed);
+<span class="lineNum">    1686 </span><span class="lineNoCov">          0 :         conn-&gt;incoming_payload = NULL;</span>
+<span class="lineNum">    1687 </span>            :     }
+<span class="lineNum">    1688 </span>            : 
+<span class="lineNum">    1689 </span><span class="lineNoCov">          0 :     http_client_connection_abort_any_requests(conn);</span>
+<span class="lineNum">    1690 </span>            : 
+<span class="lineNum">    1691 </span><span class="lineNoCov">          0 :     if (conn-&gt;http_parser != NULL)</span>
+<span class="lineNum">    1692 </span><span class="lineNoCov">          0 :         http_response_parser_deinit(&amp;conn-&gt;http_parser);</span>
+<span class="lineNum">    1693 </span>            : 
+<span class="lineNum">    1694 </span><span class="lineNoCov">          0 :     if (conn-&gt;connect_initialized)</span>
+<span class="lineNum">    1695 </span><span class="lineNoCov">          0 :         connection_disconnect(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1696 </span>            : 
+<span class="lineNum">    1697 </span><span class="lineNoCov">          0 :     io_remove(&amp;conn-&gt;io_req_payload);</span>
+<span class="lineNum">    1698 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_requests);</span>
+<span class="lineNum">    1699 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_connect);</span>
+<span class="lineNum">    1700 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_input);</span>
+<span class="lineNum">    1701 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;conn-&gt;to_response);</span>
+<span class="lineNum">    1702 </span>            : 
+<span class="lineNum">    1703 </span>            :     /* remove this connection from the lists */
+<span class="lineNum">    1704 </span><span class="lineNoCov">          0 :     conn_arr = &amp;ppool-&gt;conns;</span>
+<span class="lineNum">    1705 </span><span class="lineNoCov">          0 :     array_foreach(conn_arr, conn_idx) {</span>
+<span class="lineNum">    1706 </span><span class="lineNoCov">          0 :         if (*conn_idx == conn) {</span>
+<span class="lineNum">    1707 </span><span class="lineNoCov">          0 :             array_delete(conn_arr, array_foreach_idx(conn_arr, conn_idx), 1);</span>
+<span class="lineNum">    1708 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">    1709 </span>            :         }
+<span class="lineNum">    1710 </span>            :     }
+<span class="lineNum">    1711 </span><span class="lineNoCov">          0 :     conn_arr = &amp;ppool-&gt;pending_conns;</span>
+<span class="lineNum">    1712 </span><span class="lineNoCov">          0 :     array_foreach(conn_arr, conn_idx) {</span>
+<span class="lineNum">    1713 </span><span class="lineNoCov">          0 :         if (*conn_idx == conn) {</span>
+<span class="lineNum">    1714 </span><span class="lineNoCov">          0 :             array_delete(conn_arr, array_foreach_idx(conn_arr, conn_idx), 1);</span>
+<span class="lineNum">    1715 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">    1716 </span>            :         }
+<span class="lineNum">    1717 </span>            :     }
+<span class="lineNum">    1718 </span>            : 
+<span class="lineNum">    1719 </span><span class="lineNoCov">          0 :     http_client_connection_detach_peer(conn);</span>
+<span class="lineNum">    1720 </span>            : 
+<span class="lineNum">    1721 </span><span class="lineNoCov">          0 :     http_client_connection_stop_idle(conn); // FIXME: needed?</span>
+<a name="1722"><span class="lineNum">    1722 </span>            : }</a>
+<span class="lineNum">    1723 </span>            : 
+<span class="lineNum">    1724 </span><span class="lineNoCov">          0 : bool http_client_connection_unref(struct http_client_connection **_conn)</span>
+<span class="lineNum">    1725 </span>            : {
+<span class="lineNum">    1726 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">    1727 </span><span class="lineNoCov">          0 :     struct http_client_peer_pool *ppool = conn-&gt;ppool;</span>
+<span class="lineNum">    1728 </span>            : 
+<span class="lineNum">    1729 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;refcount &gt; 0);</span>
+<span class="lineNum">    1730 </span>            : 
+<span class="lineNum">    1731 </span><span class="lineNoCov">          0 :     *_conn = NULL;</span>
+<span class="lineNum">    1732 </span>            : 
+<span class="lineNum">    1733 </span><span class="lineNoCov">          0 :     if (--conn-&gt;refcount &gt; 0)</span>
+<span class="lineNum">    1734 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">    1735 </span>            : 
+<span class="lineNum">    1736 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Connection destroy&quot;);</span>
+<span class="lineNum">    1737 </span>            : 
+<span class="lineNum">    1738 </span><span class="lineNoCov">          0 :     http_client_connection_disconnect(conn);</span>
+<span class="lineNum">    1739 </span>            : 
+<span class="lineNum">    1740 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;io_req_payload == NULL);</span>
+<span class="lineNum">    1741 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;to_requests == NULL);</span>
+<span class="lineNum">    1742 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;to_connect == NULL);</span>
+<span class="lineNum">    1743 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;to_input == NULL);</span>
+<span class="lineNum">    1744 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;to_idle == NULL);</span>
+<span class="lineNum">    1745 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;to_response == NULL);</span>
+<span class="lineNum">    1746 </span>            : 
+<span class="lineNum">    1747 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;conn-&gt;request_wait_list))</span>
+<span class="lineNum">    1748 </span><span class="lineNoCov">          0 :         array_free(&amp;conn-&gt;request_wait_list);</span>
+<span class="lineNum">    1749 </span>            : 
+<span class="lineNum">    1750 </span><span class="lineNoCov">          0 :     if (conn-&gt;ssl_iostream != NULL)</span>
+<span class="lineNum">    1751 </span><span class="lineNoCov">          0 :         ssl_iostream_unref(&amp;conn-&gt;ssl_iostream);</span>
+<span class="lineNum">    1752 </span><span class="lineNoCov">          0 :     if (conn-&gt;connect_initialized)</span>
+<span class="lineNum">    1753 </span><span class="lineNoCov">          0 :         connection_deinit(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1754 </span><span class="lineNoCov">          0 :     io_wait_timer_remove(&amp;conn-&gt;io_wait_timer);</span>
+<span class="lineNum">    1755 </span>            :     
+<span class="lineNum">    1756 </span><span class="lineNoCov">          0 :     event_unref(&amp;conn-&gt;event);</span>
+<span class="lineNum">    1757 </span><span class="lineNoCov">          0 :     i_free(conn-&gt;label);</span>
+<span class="lineNum">    1758 </span><span class="lineNoCov">          0 :     i_free(conn);</span>
+<span class="lineNum">    1759 </span>            : 
+<span class="lineNum">    1760 </span><span class="lineNoCov">          0 :     http_client_peer_pool_unref(&amp;ppool);</span>
+<span class="lineNum">    1761 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="1762"><span class="lineNum">    1762 </span>            : }</a>
+<span class="lineNum">    1763 </span>            : 
+<span class="lineNum">    1764 </span><span class="lineNoCov">          0 : void http_client_connection_close(struct http_client_connection **_conn)</span>
+<span class="lineNum">    1765 </span>            : {
+<span class="lineNum">    1766 </span><span class="lineNoCov">          0 :     struct http_client_connection *conn = *_conn;</span>
+<span class="lineNum">    1767 </span>            : 
+<span class="lineNum">    1768 </span><span class="lineNoCov">          0 :     e_debug(conn-&gt;event, &quot;Connection close&quot;);</span>
+<span class="lineNum">    1769 </span>            : 
+<span class="lineNum">    1770 </span><span class="lineNoCov">          0 :     http_client_connection_disconnect(conn);</span>
+<span class="lineNum">    1771 </span>            : 
+<span class="lineNum">    1772 </span><span class="lineNoCov">          0 :     http_client_connection_unref(_conn);</span>
+<a name="1773"><span class="lineNum">    1773 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1774 </span>            : 
+<span class="lineNum">    1775 </span><span class="lineNoCov">          0 : void http_client_connection_switch_ioloop(struct http_client_connection *conn)</span>
+<span class="lineNum">    1776 </span>            : {
+<span class="lineNum">    1777 </span><span class="lineNoCov">          0 :     if (conn-&gt;io_req_payload != NULL)</span>
+<span class="lineNum">    1778 </span><span class="lineNoCov">          0 :         conn-&gt;io_req_payload = io_loop_move_io(&amp;conn-&gt;io_req_payload);</span>
+<span class="lineNum">    1779 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_requests != NULL)</span>
+<span class="lineNum">    1780 </span><span class="lineNoCov">          0 :         conn-&gt;to_requests = io_loop_move_timeout(&amp;conn-&gt;to_requests);</span>
+<span class="lineNum">    1781 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_connect != NULL)</span>
+<span class="lineNum">    1782 </span><span class="lineNoCov">          0 :         conn-&gt;to_connect = io_loop_move_timeout(&amp;conn-&gt;to_connect);</span>
+<span class="lineNum">    1783 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_input != NULL)</span>
+<span class="lineNum">    1784 </span><span class="lineNoCov">          0 :         conn-&gt;to_input = io_loop_move_timeout(&amp;conn-&gt;to_input);</span>
+<span class="lineNum">    1785 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_idle != NULL)</span>
+<span class="lineNum">    1786 </span><span class="lineNoCov">          0 :         conn-&gt;to_idle = io_loop_move_timeout(&amp;conn-&gt;to_idle);</span>
+<span class="lineNum">    1787 </span><span class="lineNoCov">          0 :     if (conn-&gt;to_response != NULL)</span>
+<span class="lineNum">    1788 </span><span class="lineNoCov">          0 :         conn-&gt;to_response = io_loop_move_timeout(&amp;conn-&gt;to_response);</span>
+<span class="lineNum">    1789 </span><span class="lineNoCov">          0 :     if (conn-&gt;incoming_payload != NULL)</span>
+<span class="lineNum">    1790 </span><span class="lineNoCov">          0 :         i_stream_switch_ioloop(conn-&gt;incoming_payload);</span>
+<span class="lineNum">    1791 </span><span class="lineNoCov">          0 :     conn-&gt;io_wait_timer = io_wait_timer_move(&amp;conn-&gt;io_wait_timer);</span>
+<span class="lineNum">    1792 </span><span class="lineNoCov">          0 :     connection_switch_ioloop(&amp;conn-&gt;conn);</span>
+<span class="lineNum">    1793 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,625 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/lib-signals.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - lib-signals.c<span style="font-size: 80%;"> (source / <a href="lib-signals.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">178</td>
+            <td class="headerCovTableEntry">235</td>
+            <td class="headerCovTableEntryMed">75.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntryMed">85.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2001-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;lib-signals.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">      10 </span>            : #include &lt;signal.h&gt;
+<span class="lineNum">      11 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #define MAX_SIGNAL_VALUE 63
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #define SIGNAL_IS_TERMINAL(signo) \
+<span class="lineNum">      16 </span>            :     ((signo) == SIGINT || (signo) == SIGQUIT || (signo) == SIGTERM)
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : #if !defined(SA_SIGINFO) &amp;&amp; !defined(SI_NOINFO)
+<span class="lineNum">      19 </span>            : /* without SA_SIGINFO we don't know what the real code is. we need SI_NOINFO
+<span class="lineNum">      20 </span>            :    to make sure lib_signal_code_to_str() returns &quot;&quot;. */
+<span class="lineNum">      21 </span>            : #  define SI_NOINFO -1
+<span class="lineNum">      22 </span>            : #endif
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : struct signal_handler {
+<span class="lineNum">      25 </span>            :     signal_handler_t *handler;
+<span class="lineNum">      26 </span>            :     void *context;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            :     enum libsig_flags flags;
+<span class="lineNum">      29 </span>            :     struct signal_handler *next;
+<span class="lineNum">      30 </span>            :     struct ioloop *current_ioloop;
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            :     bool shadowed:1;
+<span class="lineNum">      33 </span>            : };
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : volatile unsigned int signal_term_counter = 0;
+<span class="lineNum">      36 </span>            : 
+<span class="lineNum">      37 </span>            : /* Remember that these are accessed inside signal handler which may be called
+<span class="lineNum">      38 </span>            :    even while we're initializing/deinitializing. Try hard to keep everything
+<span class="lineNum">      39 </span>            :    in consistent state. */
+<span class="lineNum">      40 </span>            : static struct signal_handler *signal_handlers[MAX_SIGNAL_VALUE+1] = { NULL, };
+<span class="lineNum">      41 </span>            : static int sig_pipe_fd[2] = { -1, -1 };
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            : static bool signals_initialized = FALSE;
+<span class="lineNum">      44 </span>            : static struct io *io_sig = NULL;
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span>            : static siginfo_t pending_signals[MAX_SIGNAL_VALUE+1];
+<span class="lineNum">      47 </span>            : static ARRAY(siginfo_t) pending_shadowed_signals;
+<span class="lineNum">      48 </span>            : static bool have_pending_signals = FALSE;
+<span class="lineNum">      49 </span>            : static bool ioloop_attached = FALSE;
+<a name="50"><span class="lineNum">      50 </span>            : static bool ioloop_switched = FALSE;</a>
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 : const char *lib_signal_code_to_str(int signo, int sicode)</span>
+<span class="lineNum">      53 </span>            : {
+<span class="lineNum">      54 </span>            :     /* common */
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     switch (sicode) {</span>
+<span class="lineNum">      56 </span>            : #ifdef SI_NOINFO
+<span class="lineNum">      57 </span>            :     case SI_NOINFO:
+<span class="lineNum">      58 </span>            :         return &quot;&quot;;
+<span class="lineNum">      59 </span>            : #endif
+<span class="lineNum">      60 </span>            :     case SI_USER:
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :         return &quot;kill&quot;;</span>
+<span class="lineNum">      62 </span>            : #ifdef SI_KERNEL
+<span class="lineNum">      63 </span>            :     case SI_KERNEL:
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         return &quot;kernel&quot;;</span>
+<span class="lineNum">      65 </span>            : #endif
+<span class="lineNum">      66 </span>            :     case SI_TIMER:
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :         return &quot;timer&quot;;</span>
+<span class="lineNum">      68 </span>            :     }
+<span class="lineNum">      69 </span>            : 
+<span class="lineNum">      70 </span>            :     /* If SEGV_MAPERR is supported, the rest of them must be too.
+<span class="lineNum">      71 </span>            :        FreeBSD 6 at least doesn't support these. */
+<span class="lineNum">      72 </span>            : #ifdef SEGV_MAPERR
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     switch (signo) {</span>
+<span class="lineNum">      74 </span>            :     case SIGSEGV:
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :         switch (sicode) {</span>
+<span class="lineNum">      76 </span>            :         case SEGV_MAPERR:
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :             return &quot;address not mapped&quot;;</span>
+<span class="lineNum">      78 </span>            :         case SEGV_ACCERR:
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :             return &quot;invalid permissions&quot;;</span>
+<span class="lineNum">      80 </span>            :         }
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">      82 </span>            :     case SIGBUS:
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         switch (sicode) {</span>
+<span class="lineNum">      84 </span>            :         case BUS_ADRALN:
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :             return &quot;invalid address alignment&quot;;</span>
+<span class="lineNum">      86 </span>            : #ifdef BUS_ADRERR /* for OSX 10.3 */
+<span class="lineNum">      87 </span>            :         case BUS_ADRERR:
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :             return &quot;nonexistent physical address&quot;;</span>
+<span class="lineNum">      89 </span>            : #endif
+<span class="lineNum">      90 </span>            : #ifdef BUS_OBJERR /* for OSX 10.3 */
+<span class="lineNum">      91 </span>            :         case BUS_OBJERR:
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :             return &quot;object-specific hardware error&quot;;</span>
+<span class="lineNum">      93 </span>            : #endif
+<span class="lineNum">      94 </span>            :         }
+<span class="lineNum">      95 </span>            :     }
+<span class="lineNum">      96 </span>            : #endif
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;unknown %d&quot;, sicode);</span>
+<span class="lineNum">      98 </span>            : }
+<a name="99"><span class="lineNum">      99 </span>            : </a>
+<span class="lineNum">     100 </span>            : #ifdef SA_SIGINFO
+<span class="lineNum">     101 </span><span class="lineCov">         10 : static void sig_handler(int signo, siginfo_t *si, void *context ATTR_UNUSED)</span>
+<span class="lineNum">     102 </span>            : #else
+<span class="lineNum">     103 </span>            : static void sig_handler(int signo)
+<span class="lineNum">     104 </span>            : #endif
+<span class="lineNum">     105 </span>            : {
+<span class="lineNum">     106 </span>            :     struct signal_handler *h;
+<span class="lineNum">     107 </span>            :     int saved_errno;
+<span class="lineNum">     108 </span><span class="lineCov">         10 :     char c = 0;</span>
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span>            : #if defined(SI_NOINFO) || !defined(SA_SIGINFO)
+<span class="lineNum">     111 </span>            : #ifndef SA_SIGINFO
+<span class="lineNum">     112 </span>            :     siginfo_t *si = NULL;
+<span class="lineNum">     113 </span>            : #endif
+<span class="lineNum">     114 </span>            :     siginfo_t tmp_si;
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span>            :     if (si == NULL) {
+<span class="lineNum">     117 </span>            :         /* Solaris can leave this to NULL */
+<span class="lineNum">     118 </span>            :         i_zero(&amp;tmp_si);
+<span class="lineNum">     119 </span>            :         tmp_si.si_signo = signo;
+<span class="lineNum">     120 </span>            :         tmp_si.si_code = SI_NOINFO;
+<span class="lineNum">     121 </span>            :         si = &amp;tmp_si;
+<span class="lineNum">     122 </span>            :     }
+<span class="lineNum">     123 </span>            : #endif
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineCov">         10 :     if (signo &lt; 0 || signo &gt; MAX_SIGNAL_VALUE)</span>
+<span class="lineNum">     126 </span><span class="lineCov">         10 :         return;</span>
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineCov">         10 :     if (SIGNAL_IS_TERMINAL(signo))</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         signal_term_counter++;</span>
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span>            :     /* remember that we're inside a signal handler which might have been
+<span class="lineNum">     132 </span>            :        called at any time. don't do anything that's unsafe. we might also
+<span class="lineNum">     133 </span>            :        get interrupted by another signal while inside this handler. */
+<span class="lineNum">     134 </span><span class="lineCov">         10 :     saved_errno = errno;</span>
+<span class="lineNum">     135 </span><span class="lineCov">         20 :     for (h = signal_handlers[signo]; h != NULL; h = h-&gt;next) {</span>
+<span class="lineNum">     136 </span><span class="lineCov">         10 :         if ((h-&gt;flags &amp; LIBSIG_FLAG_DELAYED) == 0)</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             h-&gt;handler(si, h-&gt;context);</span>
+<span class="lineNum">     138 </span><span class="lineCov">         10 :         else if (pending_signals[signo].si_signo == 0) {</span>
+<span class="lineNum">     139 </span><span class="lineCov">         10 :             pending_signals[signo] = *si;</span>
+<span class="lineNum">     140 </span><span class="lineCov">         10 :             if (!have_pending_signals) {</span>
+<span class="lineNum">     141 </span><span class="lineCov">         10 :                 if (write(sig_pipe_fd[1], &amp;c, 1) != 1)</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :                     lib_signals_syscall_error(&quot;signal: write(sigpipe) failed: &quot;);</span>
+<span class="lineNum">     143 </span><span class="lineCov">         10 :                 have_pending_signals = TRUE;</span>
+<span class="lineNum">     144 </span>            :             }
+<span class="lineNum">     145 </span>            :         }
+<span class="lineNum">     146 </span>            :     }
+<span class="lineNum">     147 </span><span class="lineCov">         10 :     errno = saved_errno;</span>
+<span class="lineNum">     148 </span>            : }
+<a name="149"><span class="lineNum">     149 </span>            : </a>
+<span class="lineNum">     150 </span>            : #ifdef SA_SIGINFO
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 : static void sig_ignore(int signo ATTR_UNUSED, siginfo_t *si ATTR_UNUSED,</span>
+<span class="lineNum">     152 </span>            :                void *context ATTR_UNUSED)
+<span class="lineNum">     153 </span>            : #else
+<span class="lineNum">     154 </span>            : static void sig_ignore(int signo ATTR_UNUSED)
+<span class="lineNum">     155 </span>            : #endif
+<span class="lineNum">     156 </span>            : {
+<span class="lineNum">     157 </span>            :     /* if we used SIG_IGN instead of this function,
+<span class="lineNum">     158 </span>            :        the system call might be restarted */
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 : }</span>
+<a name="160"><span class="lineNum">     160 </span>            : </a>
+<span class="lineNum">     161 </span>            : static void
+<span class="lineNum">     162 </span><span class="lineCov">         10 : signal_handle_shadowed(void)</span>
+<span class="lineNum">     163 </span>            : {
+<span class="lineNum">     164 </span>            :     const   siginfo_t *sis;
+<span class="lineNum">     165 </span>            :     unsigned int count, i;
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineCov">         11 :     if (!array_is_created(&amp;pending_shadowed_signals) ||</span>
+<span class="lineNum">     168 </span><span class="lineCov">          1 :         array_count(&amp;pending_shadowed_signals) == 0)</span>
+<span class="lineNum">     169 </span><span class="lineCov">         19 :         return;</span>
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineCov">          1 :     sis = array_get(&amp;pending_shadowed_signals, &amp;count);</span>
+<span class="lineNum">     172 </span><span class="lineCov">          2 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     173 </span>            :         struct signal_handler *h;
+<span class="lineNum">     174 </span><span class="lineCov">          1 :         bool shadowed = FALSE;</span>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span><span class="lineCov">          1 :         i_assert(sis[i].si_signo &gt; 0);</span>
+<span class="lineNum">     177 </span><span class="lineCov">          2 :         for (h = signal_handlers[sis[i].si_signo]; h != NULL; h = h-&gt;next) {</span>
+<span class="lineNum">     178 </span><span class="lineCov">          2 :             if ((h-&gt;flags &amp; LIBSIG_FLAG_DELAYED) == 0 ||</span>
+<span class="lineNum">     179 </span><span class="lineCov">          1 :                 (h-&gt;flags &amp; LIBSIG_FLAG_NO_IOLOOP_AUTOMOVE) == 0)</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     181 </span><span class="lineCov">          1 :             if (h-&gt;shadowed &amp;&amp; h-&gt;current_ioloop != current_ioloop) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :                 shadowed = TRUE;</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     184 </span>            :             }
+<span class="lineNum">     185 </span>            :             /* handler can be called now */
+<span class="lineNum">     186 </span><span class="lineCov">          1 :             h-&gt;shadowed = FALSE;</span>
+<span class="lineNum">     187 </span><span class="lineCov">          1 :             h-&gt;handler(&amp;sis[i], h-&gt;context);</span>
+<span class="lineNum">     188 </span>            :         }
+<span class="lineNum">     189 </span><span class="lineCov">          1 :         if (!shadowed) {</span>
+<span class="lineNum">     190 </span>            :             /* no handlers are shadowed anymore; delete the signal info */
+<span class="lineNum">     191 </span><span class="lineCov">          1 :             array_delete(&amp;pending_shadowed_signals, i, 1);</span>
+<span class="lineNum">     192 </span><span class="lineCov">          1 :             sis = array_get(&amp;pending_shadowed_signals, &amp;count);</span>
+<span class="lineNum">     193 </span>            :         }
+<span class="lineNum">     194 </span>            :     }
+<span class="lineNum">     195 </span>            : }
+<a name="196"><span class="lineNum">     196 </span>            : </a>
+<span class="lineNum">     197 </span>            : static void
+<span class="lineNum">     198 </span><span class="lineCov">         33 : signal_check_shadowed(void)</span>
+<span class="lineNum">     199 </span>            : {
+<span class="lineNum">     200 </span><span class="lineCov">         34 :     if (!array_is_created(&amp;pending_shadowed_signals) ||</span>
+<span class="lineNum">     201 </span><span class="lineCov">          1 :         array_count(&amp;pending_shadowed_signals) == 0)</span>
+<span class="lineNum">     202 </span><span class="lineCov">         65 :         return;</span>
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineCov">          1 :     if (io_sig != NULL)</span>
+<span class="lineNum">     205 </span><span class="lineCov">          1 :         io_set_pending(io_sig);</span>
+<span class="lineNum">     206 </span>            : }
+<a name="207"><span class="lineNum">     207 </span>            : </a>
+<span class="lineNum">     208 </span>            : static void
+<span class="lineNum">     209 </span><span class="lineCov">          1 : signal_shadow(int signo, const siginfo_t *si)</span>
+<span class="lineNum">     210 </span>            : {
+<span class="lineNum">     211 </span>            :     const   siginfo_t *sis;
+<span class="lineNum">     212 </span>            :     unsigned int count, i;
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span>            :     /* remember last signal info for handlers that cannot run in
+<span class="lineNum">     215 </span>            :        current ioloop */
+<span class="lineNum">     216 </span><span class="lineCov">          1 :     if (!array_is_created(&amp;pending_shadowed_signals))</span>
+<span class="lineNum">     217 </span><span class="lineCov">          1 :         i_array_init(&amp;pending_shadowed_signals, 4);</span>
+<span class="lineNum">     218 </span><span class="lineCov">          1 :     sis = array_get(&amp;pending_shadowed_signals, &amp;count);</span>
+<span class="lineNum">     219 </span><span class="lineCov">          1 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :         i_assert(sis[i].si_signo != 0);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         if (sis[i].si_signo == signo)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     223 </span>            :     }
+<span class="lineNum">     224 </span><span class="lineCov">          1 :     array_idx_set(&amp;pending_shadowed_signals, i, si);</span>
+<span class="lineNum">     225 </span><span class="lineCov">          1 : }</span>
+<a name="226"><span class="lineNum">     226 </span>            : </a>
+<span class="lineNum">     227 </span>            : static void ATTR_NULL(1)
+<span class="lineNum">     228 </span><span class="lineCov">         10 : signal_read(void *context ATTR_UNUSED)</span>
+<span class="lineNum">     229 </span>            : {
+<span class="lineNum">     230 </span>            :     siginfo_t signals[MAX_SIGNAL_VALUE+1];
+<span class="lineNum">     231 </span>            :     sigset_t fullset, oldset;
+<span class="lineNum">     232 </span>            :     struct signal_handler *h;
+<span class="lineNum">     233 </span>            :     char buf[64];
+<span class="lineNum">     234 </span>            :     int signo;
+<span class="lineNum">     235 </span>            :     ssize_t ret;
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineCov">         10 :     if (ioloop_switched) {</span>
+<span class="lineNum">     238 </span><span class="lineCov">         10 :         ioloop_switched = FALSE;</span>
+<span class="lineNum">     239 </span>            :         /* handle any delayed signal handlers that emerged from the shadow */
+<span class="lineNum">     240 </span><span class="lineCov">         10 :         signal_handle_shadowed();</span>
+<span class="lineNum">     241 </span>            :     }
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineCov">         10 :     if (sigfillset(&amp;fullset) &lt; 0)</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigfillset() failed: %m&quot;);</span>
+<span class="lineNum">     245 </span><span class="lineCov">         10 :     if (sigprocmask(SIG_BLOCK, &amp;fullset, &amp;oldset) &lt; 0)</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigprocmask() failed: %m&quot;);</span>
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span>            :     /* typically we should read only a single byte, but if a signal
+<span class="lineNum">     249 </span>            :        is sent while signal handler is running we might get more. */
+<span class="lineNum">     250 </span><span class="lineCov">         10 :     ret = read(sig_pipe_fd[0], buf, sizeof(buf));</span>
+<span class="lineNum">     251 </span><span class="lineCov">         10 :     if (ret &gt; 0) {</span>
+<span class="lineNum">     252 </span><span class="lineCov">         10 :         memcpy(signals, pending_signals, sizeof(signals));</span>
+<span class="lineNum">     253 </span><span class="lineCov">         10 :         memset(pending_signals, 0, sizeof(pending_signals));</span>
+<span class="lineNum">     254 </span><span class="lineCov">         10 :         have_pending_signals = FALSE;</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :     } else if (ret &lt; 0) {</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         if (errno != EAGAIN)</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :             i_fatal(&quot;read(sigpipe) failed: %m&quot;);</span>
+<span class="lineNum">     258 </span>            :     } else {
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         i_fatal(&quot;read(sigpipe) failed: EOF&quot;);</span>
+<span class="lineNum">     260 </span>            :     }
+<span class="lineNum">     261 </span><span class="lineCov">         10 :     if (sigprocmask(SIG_SETMASK, &amp;oldset, NULL) &lt; 0)</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigprocmask() failed: %m&quot;);</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">         10 :     if (ret &lt; 0)</span>
+<span class="lineNum">     265 </span><span class="lineCov">         10 :         return;</span>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span>            :     /* call the delayed handlers after signals are copied and unblocked */
+<span class="lineNum">     268 </span><span class="lineCov">        640 :     for (signo = 0; signo &lt; MAX_SIGNAL_VALUE; signo++) {</span>
+<span class="lineNum">     269 </span><span class="lineCov">        630 :         bool shadowed = FALSE;</span>
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span><span class="lineCov">        630 :         if (signals[signo].si_signo == 0)</span>
+<span class="lineNum">     272 </span><span class="lineCov">        620 :             continue;</span>
+<span class="lineNum">     273 </span>            : 
+<span class="lineNum">     274 </span><span class="lineCov">         20 :         for (h = signal_handlers[signo]; h != NULL; h = h-&gt;next) {</span>
+<span class="lineNum">     275 </span><span class="lineCov">         10 :             if ((h-&gt;flags &amp; LIBSIG_FLAG_DELAYED) == 0) {</span>
+<span class="lineNum">     276 </span>            :                 /* handler already called immediately in signal context */
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     278 </span>            :             }
+<span class="lineNum">     279 </span><span class="lineCov">         17 :             if ((h-&gt;flags &amp; LIBSIG_FLAG_NO_IOLOOP_AUTOMOVE) != 0 &amp;&amp;</span>
+<span class="lineNum">     280 </span><span class="lineCov">          7 :                 h-&gt;current_ioloop != current_ioloop) {</span>
+<span class="lineNum">     281 </span>            :                 /* cannot run handler in current ioloop (shadowed) */
+<span class="lineNum">     282 </span><span class="lineCov">          1 :                 h-&gt;shadowed = TRUE;</span>
+<span class="lineNum">     283 </span><span class="lineCov">          1 :                 shadowed = TRUE;</span>
+<span class="lineNum">     284 </span><span class="lineCov">          1 :                 continue;</span>
+<span class="lineNum">     285 </span>            :             }
+<span class="lineNum">     286 </span>            :             /* handler can be called now */
+<span class="lineNum">     287 </span><span class="lineCov">          9 :             h-&gt;handler(&amp;signals[signo], h-&gt;context);</span>
+<span class="lineNum">     288 </span>            :         }
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineCov">         10 :         if (shadowed) {</span>
+<span class="lineNum">     291 </span>            :             /* remember last signal info for handlers that cannot run in
+<span class="lineNum">     292 </span>            :                current ioloop (shadowed) */
+<span class="lineNum">     293 </span><span class="lineCov">          1 :             signal_shadow(signo, &amp;signals[signo]);</span>
+<span class="lineNum">     294 </span>            :         }
+<span class="lineNum">     295 </span>            :     }
+<span class="lineNum">     296 </span>            : }
+<a name="297"><span class="lineNum">     297 </span>            : </a>
+<span class="lineNum">     298 </span>            : static void
+<span class="lineNum">     299 </span><span class="lineCov">         32 : lib_signals_enable_delayed_hander(void)</span>
+<span class="lineNum">     300 </span>            : {
+<span class="lineNum">     301 </span><span class="lineCov">         32 :     if (current_ioloop != NULL) {</span>
+<span class="lineNum">     302 </span><span class="lineCov">         28 :         io_sig = io_add(sig_pipe_fd[0], IO_READ,</span>
+<span class="lineNum">     303 </span>            :             signal_read, NULL);
+<span class="lineNum">     304 </span>            :     }
+<span class="lineNum">     305 </span><span class="lineCov">         32 : }</span>
+<a name="306"><span class="lineNum">     306 </span>            : </a>
+<span class="lineNum">     307 </span>            : static void
+<span class="lineNum">     308 </span><span class="lineCov">         38 : lib_signals_disable_delayed_hander(void)</span>
+<span class="lineNum">     309 </span>            : {
+<span class="lineNum">     310 </span><span class="lineCov">         38 :     if (io_sig != NULL)</span>
+<span class="lineNum">     311 </span><span class="lineCov">         28 :         io_remove(&amp;io_sig);</span>
+<span class="lineNum">     312 </span><span class="lineCov">         38 : }</span>
+<a name="313"><span class="lineNum">     313 </span>            : </a>
+<span class="lineNum">     314 </span>            : static void
+<span class="lineNum">     315 </span><span class="lineCov">         26 : lib_signals_ioloop_switched(struct ioloop *prev_ioloop ATTR_UNUSED)</span>
+<span class="lineNum">     316 </span>            : {
+<span class="lineNum">     317 </span><span class="lineCov">         26 :     ioloop_switched = TRUE;</span>
+<span class="lineNum">     318 </span>            : 
+<span class="lineNum">     319 </span><span class="lineCov">         26 :     lib_signals_disable_delayed_hander();</span>
+<span class="lineNum">     320 </span><span class="lineCov">         26 :     lib_signals_enable_delayed_hander();</span>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span>            :     /* check whether we can now handle any shadowed delayed signals */
+<span class="lineNum">     323 </span><span class="lineCov">         26 :     signal_check_shadowed();</span>
+<a name="324"><span class="lineNum">     324 </span><span class="lineCov">         26 : }</span></a>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineCov">          7 : void lib_signals_ioloop_detach(void)</span>
+<span class="lineNum">     327 </span>            : {
+<span class="lineNum">     328 </span><span class="lineCov">          7 :     if (!ioloop_attached) {</span>
+<span class="lineNum">     329 </span><span class="lineCov">          1 :         i_assert(io_sig == NULL);</span>
+<span class="lineNum">     330 </span><span class="lineCov">          8 :         return;</span>
+<span class="lineNum">     331 </span>            :     }
+<span class="lineNum">     332 </span><span class="lineCov">          6 :     ioloop_attached = FALSE;</span>
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineCov">          6 :     lib_signals_disable_delayed_hander();</span>
+<span class="lineNum">     335 </span><span class="lineCov">          6 :     io_loop_remove_switch_callback(lib_signals_ioloop_switched);</span>
+<a name="336"><span class="lineNum">     336 </span>            : }</a>
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineCov">          6 : void lib_signals_ioloop_attach(void)</span>
+<span class="lineNum">     339 </span>            : {
+<span class="lineNum">     340 </span><span class="lineCov">          6 :     if (ioloop_attached)</span>
+<span class="lineNum">     341 </span><span class="lineCov">          6 :         return;</span>
+<span class="lineNum">     342 </span><span class="lineCov">          6 :     ioloop_attached = TRUE;</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineCov">          6 :     lib_signals_disable_delayed_hander();</span>
+<span class="lineNum">     345 </span><span class="lineCov">          6 :     lib_signals_enable_delayed_hander();</span>
+<span class="lineNum">     346 </span><span class="lineCov">          6 :     io_loop_add_switch_callback(lib_signals_ioloop_switched);</span>
+<a name="347"><span class="lineNum">     347 </span>            : }</a>
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineCov">          9 : static void lib_signals_set(int signo, enum libsig_flags flags)</span>
+<span class="lineNum">     350 </span>            : {
+<span class="lineNum">     351 </span>            :     struct sigaction act;
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineCov">          9 :     if (sigemptyset(&amp;act.sa_mask) &lt; 0)</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigemptyset(): %m&quot;);</span>
+<span class="lineNum">     355 </span>            : #ifdef SA_SIGINFO
+<span class="lineNum">     356 </span><span class="lineCov">          9 :     act.sa_flags = SA_SIGINFO;</span>
+<span class="lineNum">     357 </span><span class="lineCov">          9 :     act.sa_sigaction = sig_handler;</span>
+<span class="lineNum">     358 </span>            : #else
+<span class="lineNum">     359 </span>            :     act.sa_flags = 0;
+<span class="lineNum">     360 </span>            :     act.sa_handler = sig_handler;
+<span class="lineNum">     361 </span>            : #endif
+<span class="lineNum">     362 </span><span class="lineCov">          9 :     if ((flags &amp; LIBSIG_FLAG_RESTART) != 0)</span>
+<span class="lineNum">     363 </span><span class="lineCov">          9 :         act.sa_flags |= SA_RESTART;</span>
+<span class="lineNum">     364 </span><span class="lineCov">          9 :     if (sigaction(signo, &amp;act, NULL) &lt; 0)</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigaction(%d): %m&quot;, signo);</span>
+<a name="366"><span class="lineNum">     366 </span><span class="lineCov">          9 : }</span></a>
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span><span class="lineCov">          9 : void lib_signals_set_handler(int signo, enum libsig_flags flags,</span>
+<span class="lineNum">     369 </span>            :                  signal_handler_t *handler, void *context)
+<span class="lineNum">     370 </span>            : {
+<span class="lineNum">     371 </span>            :     struct signal_handler *h;
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineCov">          9 :     i_assert(handler != NULL);</span>
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span><span class="lineCov">          9 :     if (signo &lt; 0 || signo &gt; MAX_SIGNAL_VALUE) {</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :         i_panic(&quot;Trying to set signal %d handler, but max is %d&quot;,</span>
+<span class="lineNum">     377 </span>            :             signo, MAX_SIGNAL_VALUE);
+<span class="lineNum">     378 </span>            :     }
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineCov">          9 :     if (signal_handlers[signo] == NULL &amp;&amp; signals_initialized)</span>
+<span class="lineNum">     381 </span><span class="lineCov">          9 :         lib_signals_set(signo, flags);</span>
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span><span class="lineCov">          9 :     h = i_new(struct signal_handler, 1);</span>
+<span class="lineNum">     384 </span><span class="lineCov">          9 :     h-&gt;handler = handler;</span>
+<span class="lineNum">     385 </span><span class="lineCov">          9 :     h-&gt;context = context;</span>
+<span class="lineNum">     386 </span><span class="lineCov">          9 :     h-&gt;flags = flags;</span>
+<span class="lineNum">     387 </span><span class="lineCov">          9 :     h-&gt;current_ioloop = current_ioloop;</span>
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span>            :     /* atomically set to signal_handlers[] list */
+<span class="lineNum">     390 </span><span class="lineCov">          9 :     h-&gt;next = signal_handlers[signo];</span>
+<span class="lineNum">     391 </span><span class="lineCov">          9 :     signal_handlers[signo] = h;</span>
+<span class="lineNum">     392 </span>            : 
+<span class="lineNum">     393 </span><span class="lineCov">          9 :     if ((flags &amp; LIBSIG_FLAG_DELAYED) != 0 &amp;&amp; sig_pipe_fd[0] == -1) {</span>
+<span class="lineNum">     394 </span>            :         /* first delayed handler */
+<span class="lineNum">     395 </span><span class="lineCov">          6 :         if (pipe(sig_pipe_fd) &lt; 0)</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :             i_fatal(&quot;pipe() failed: %m&quot;);</span>
+<span class="lineNum">     397 </span><span class="lineCov">          6 :         fd_set_nonblock(sig_pipe_fd[0], TRUE);</span>
+<span class="lineNum">     398 </span><span class="lineCov">          6 :         fd_set_nonblock(sig_pipe_fd[1], TRUE);</span>
+<span class="lineNum">     399 </span><span class="lineCov">          6 :         fd_close_on_exec(sig_pipe_fd[0], TRUE);</span>
+<span class="lineNum">     400 </span><span class="lineCov">          6 :         fd_close_on_exec(sig_pipe_fd[1], TRUE);</span>
+<span class="lineNum">     401 </span><span class="lineCov">          6 :         if (signals_initialized)</span>
+<span class="lineNum">     402 </span><span class="lineCov">          6 :             lib_signals_ioloop_attach();</span>
+<span class="lineNum">     403 </span>            :     }
+<a name="404"><span class="lineNum">     404 </span><span class="lineCov">          9 : }</span></a>
+<span class="lineNum">     405 </span>            : 
+<span class="lineNum">     406 </span><span class="lineCov">          2 : void lib_signals_ignore(int signo, bool restart_syscalls)</span>
+<span class="lineNum">     407 </span>            : {
+<span class="lineNum">     408 </span>            :     struct sigaction act;
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineCov">          2 :     if (signo &lt; 0 || signo &gt; MAX_SIGNAL_VALUE) {</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :         i_panic(&quot;Trying to ignore signal %d, but max is %d&quot;,</span>
+<span class="lineNum">     412 </span>            :             signo, MAX_SIGNAL_VALUE);
+<span class="lineNum">     413 </span>            :     }
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineCov">          2 :     i_assert(signal_handlers[signo] == NULL);</span>
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineCov">          2 :     if (sigemptyset(&amp;act.sa_mask) &lt; 0)</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigemptyset(): %m&quot;);</span>
+<span class="lineNum">     419 </span><span class="lineCov">          2 :     if (restart_syscalls) {</span>
+<span class="lineNum">     420 </span><span class="lineCov">          1 :         act.sa_flags = SA_RESTART;</span>
+<span class="lineNum">     421 </span><span class="lineCov">          1 :         act.sa_handler = SIG_IGN;</span>
+<span class="lineNum">     422 </span>            :     } else {
+<span class="lineNum">     423 </span>            : #ifdef SA_SIGINFO
+<span class="lineNum">     424 </span><span class="lineCov">          1 :         act.sa_flags = SA_SIGINFO;</span>
+<span class="lineNum">     425 </span><span class="lineCov">          1 :         act.sa_sigaction = sig_ignore;</span>
+<span class="lineNum">     426 </span>            : #else
+<span class="lineNum">     427 </span>            :         act.sa_flags = 0;
+<span class="lineNum">     428 </span>            :         act.sa_handler = sig_ignore;
+<span class="lineNum">     429 </span>            : #endif
+<span class="lineNum">     430 </span>            :     }
+<span class="lineNum">     431 </span>            : 
+<span class="lineNum">     432 </span><span class="lineCov">          2 :     if (sigaction(signo, &amp;act, NULL) &lt; 0)</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sigaction(%d): %m&quot;, signo);</span>
+<a name="434"><span class="lineNum">     434 </span><span class="lineCov">          2 : }</span></a>
+<span class="lineNum">     435 </span>            : 
+<span class="lineNum">     436 </span><span class="lineCov">          4 : void lib_signals_unset_handler(int signo, signal_handler_t *handler,</span>
+<span class="lineNum">     437 </span>            :                    void *context)
+<span class="lineNum">     438 </span>            : {
+<span class="lineNum">     439 </span>            :     struct signal_handler *h, **p;
+<span class="lineNum">     440 </span>            : 
+<span class="lineNum">     441 </span><span class="lineCov">          4 :     for (p = &amp;signal_handlers[signo]; *p != NULL; p = &amp;(*p)-&gt;next) {</span>
+<span class="lineNum">     442 </span><span class="lineCov">          4 :         if ((*p)-&gt;handler == handler &amp;&amp; (*p)-&gt;context == context) {</span>
+<span class="lineNum">     443 </span><span class="lineCov">          4 :             h = *p;</span>
+<span class="lineNum">     444 </span><span class="lineCov">          4 :             *p = h-&gt;next;</span>
+<span class="lineNum">     445 </span><span class="lineCov">          4 :             i_free(h);</span>
+<span class="lineNum">     446 </span><span class="lineCov">          8 :             return;</span>
+<span class="lineNum">     447 </span>            :         }
+<span class="lineNum">     448 </span>            :     }
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :     i_panic(&quot;lib_signals_unset_handler(%d, %p, %p): handler not found&quot;,</span>
+<span class="lineNum">     451 </span>            :         signo, (void *)handler, context);
+<a name="452"><span class="lineNum">     452 </span>            : }</a>
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineCov">          7 : void lib_signals_switch_ioloop(int signo,</span>
+<span class="lineNum">     455 </span>            :     signal_handler_t *handler, void *context)
+<span class="lineNum">     456 </span>            : {
+<span class="lineNum">     457 </span>            :     struct signal_handler *h;
+<span class="lineNum">     458 </span>            : 
+<span class="lineNum">     459 </span><span class="lineCov">          7 :     for (h = signal_handlers[signo]; h != NULL; h = h-&gt;next) {</span>
+<span class="lineNum">     460 </span><span class="lineCov">          7 :         if (h-&gt;handler == handler &amp;&amp; h-&gt;context == context) {</span>
+<span class="lineNum">     461 </span><span class="lineCov">          7 :             i_assert((h-&gt;flags &amp; LIBSIG_FLAG_DELAYED) != 0);</span>
+<span class="lineNum">     462 </span><span class="lineCov">          7 :             i_assert((h-&gt;flags &amp; LIBSIG_FLAG_NO_IOLOOP_AUTOMOVE) != 0);</span>
+<span class="lineNum">     463 </span><span class="lineCov">          7 :             h-&gt;current_ioloop = current_ioloop;</span>
+<span class="lineNum">     464 </span>            :             /* check whether we can now handle any shadowed delayed signals */
+<span class="lineNum">     465 </span><span class="lineCov">          7 :             signal_check_shadowed();</span>
+<span class="lineNum">     466 </span><span class="lineCov">          7 :             return;</span>
+<span class="lineNum">     467 </span>            :         }
+<span class="lineNum">     468 </span>            :     }
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :     i_panic(&quot;lib_signals_switch_ioloop(%d, %p, %p): handler not found&quot;,</span>
+<span class="lineNum">     471 </span>            :         signo, (void *)handler, context);
+<a name="472"><span class="lineNum">     472 </span>            : }</a>
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 : void lib_signals_syscall_error(const char *prefix)</span>
+<span class="lineNum">     475 </span>            : {
+<span class="lineNum">     476 </span>            :     /* @UNSAFE: We're in a signal handler. It's very limited what is
+<span class="lineNum">     477 </span>            :        allowed in here. Especially strerror() isn't at least officially
+<span class="lineNum">     478 </span>            :        allowed. */
+<span class="lineNum">     479 </span>            :     char errno_buf[MAX_INT_STRLEN], *errno_str;
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     errno_str = dec2str_buf(errno_buf, errno);</span>
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     size_t prefix_len = strlen(prefix);</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :     size_t errno_str_len = strlen(errno_str);</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     char buf[prefix_len + errno_str_len + 1];</span>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :     memcpy(buf, prefix, prefix_len);</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :     memcpy(buf + prefix_len, errno_str, errno_str_len);</span>
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :     buf[prefix_len + errno_str_len] = '\n';</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :     if (write_full(STDERR_FILENO, buf, prefix_len + errno_str_len + 1) &lt; 0) {</span>
+<span class="lineNum">     490 </span>            :         /* can't really do anything */
+<span class="lineNum">     491 </span>            :     }
+<a name="492"><span class="lineNum">     492 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span><span class="lineCov">          7 : void lib_signals_init(void)</span>
+<span class="lineNum">     495 </span>            : {
+<span class="lineNum">     496 </span>            :     int i;
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span><span class="lineCov">          7 :     signals_initialized = TRUE;</span>
+<span class="lineNum">     499 </span>            : 
+<span class="lineNum">     500 </span>            :     /* add signals that were already registered */
+<span class="lineNum">     501 </span><span class="lineCov">        448 :     for (i = 0; i &lt; MAX_SIGNAL_VALUE; i++) {</span>
+<span class="lineNum">     502 </span><span class="lineCov">        441 :         if (signal_handlers[i] != NULL)</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :             lib_signals_set(i, signal_handlers[i]-&gt;flags);</span>
+<span class="lineNum">     504 </span>            :     }
+<span class="lineNum">     505 </span>            : 
+<span class="lineNum">     506 </span><span class="lineCov">          7 :     if (sig_pipe_fd[0] != -1)</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :         lib_signals_ioloop_attach();</span>
+<a name="508"><span class="lineNum">     508 </span><span class="lineCov">          7 : }</span></a>
+<span class="lineNum">     509 </span>            : 
+<span class="lineNum">     510 </span><span class="lineCov">          7 : void lib_signals_deinit(void)</span>
+<span class="lineNum">     511 </span>            : {
+<span class="lineNum">     512 </span>            :     struct signal_handler *handlers, *h;
+<span class="lineNum">     513 </span>            :     int i;
+<span class="lineNum">     514 </span>            : 
+<span class="lineNum">     515 </span><span class="lineCov">        448 :     for (i = 0; i &lt; MAX_SIGNAL_VALUE; i++) {</span>
+<span class="lineNum">     516 </span><span class="lineCov">        441 :         if (signal_handlers[i] != NULL) {</span>
+<span class="lineNum">     517 </span>            :             /* atomically remove from signal_handlers[] list */
+<span class="lineNum">     518 </span><span class="lineCov">          5 :             handlers = signal_handlers[i];</span>
+<span class="lineNum">     519 </span><span class="lineCov">          5 :             signal_handlers[i] = NULL;</span>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineCov">         15 :             while (handlers != NULL) {</span>
+<span class="lineNum">     522 </span><span class="lineCov">          5 :                 h = handlers;</span>
+<span class="lineNum">     523 </span><span class="lineCov">          5 :                 handlers = h-&gt;next;</span>
+<span class="lineNum">     524 </span><span class="lineCov">          5 :                 i_free(h);</span>
+<span class="lineNum">     525 </span>            :             }
+<span class="lineNum">     526 </span>            :         }
+<span class="lineNum">     527 </span>            :     }
+<span class="lineNum">     528 </span>            : 
+<span class="lineNum">     529 </span><span class="lineCov">          7 :     lib_signals_ioloop_detach();</span>
+<span class="lineNum">     530 </span>            : 
+<span class="lineNum">     531 </span><span class="lineCov">          7 :     if (sig_pipe_fd[0] != -1) {</span>
+<span class="lineNum">     532 </span><span class="lineCov">          6 :         if (close(sig_pipe_fd[0]) &lt; 0)</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :             i_error(&quot;close(sigpipe) failed: %m&quot;);</span>
+<span class="lineNum">     534 </span><span class="lineCov">          6 :         if (close(sig_pipe_fd[1]) &lt; 0)</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :             i_error(&quot;close(sigpipe) failed: %m&quot;);</span>
+<span class="lineNum">     536 </span><span class="lineCov">          6 :         sig_pipe_fd[0] = sig_pipe_fd[1] = -1;</span>
+<span class="lineNum">     537 </span>            :     }
+<span class="lineNum">     538 </span>            : 
+<span class="lineNum">     539 </span><span class="lineCov">          7 :     if (array_is_created(&amp;pending_shadowed_signals))</span>
+<span class="lineNum">     540 </span><span class="lineCov">          1 :         array_free(&amp;pending_shadowed_signals);</span>
+<span class="lineNum">     541 </span><span class="lineCov">          7 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

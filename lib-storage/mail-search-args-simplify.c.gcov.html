@@ -1,0 +1,882 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/mail-search-args-simplify.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-storage</a> - mail-search-args-simplify.c<span style="font-size: 80%;"> (source / <a href="mail-search-args-simplify.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">350</td>
+            <td class="headerCovTableEntry">385</td>
+            <td class="headerCovTableEntryHi">90.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">22</td>
+            <td class="headerCovTableEntry">22</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;mail-search.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : struct mail_search_simplify_prev_arg {
+<span class="lineNum">       9 </span>            :     struct {
+<span class="lineNum">      10 </span>            :         enum mail_search_arg_type type;
+<span class="lineNum">      11 </span>            :         enum mail_search_arg_flag search_flags;
+<span class="lineNum">      12 </span>            :         enum mail_search_date_type date_type;
+<span class="lineNum">      13 </span>            :         enum mail_flags mail_flags;
+<span class="lineNum">      14 </span>            :         bool match_not;
+<span class="lineNum">      15 </span>            :         bool fuzzy;
+<span class="lineNum">      16 </span>            :     } bin_mask;
+<span class="lineNum">      17 </span>            :     const char *hdr_field_name_mask;
+<span class="lineNum">      18 </span>            :     const char *str_mask;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :     struct mail_search_arg *prev_arg;
+<span class="lineNum">      21 </span>            : };
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : struct mail_search_simplify_ctx {
+<span class="lineNum">      24 </span>            :     pool_t pool;
+<span class="lineNum">      25 </span>            :     /* arg mask =&gt; prev_arg */
+<span class="lineNum">      26 </span>            :     HASH_TABLE(struct mail_search_simplify_prev_arg *,
+<span class="lineNum">      27 </span>            :            struct mail_search_simplify_prev_arg *) prev_args;
+<span class="lineNum">      28 </span>            :     bool parent_and;
+<span class="lineNum">      29 </span>            :     bool removals;
+<span class="lineNum">      30 </span>            :     bool initialized;
+<span class="lineNum">      31 </span>            : };
+<a name="32"><span class="lineNum">      32 </span>            : </a>
+<span class="lineNum">      33 </span>            : static int
+<span class="lineNum">      34 </span><span class="lineCov">         85 : mail_search_simplify_prev_arg_cmp(const struct mail_search_simplify_prev_arg *arg1,</span>
+<span class="lineNum">      35 </span>            :                   const struct mail_search_simplify_prev_arg *arg2)
+<span class="lineNum">      36 </span>            : {
+<span class="lineNum">      37 </span>            :     int ret;
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span><span class="lineCov">         85 :     ret = memcmp(&amp;arg1-&gt;bin_mask, &amp;arg2-&gt;bin_mask, sizeof(arg1-&gt;bin_mask));</span>
+<span class="lineNum">      40 </span><span class="lineCov">         85 :     if (ret == 0)</span>
+<span class="lineNum">      41 </span><span class="lineCov">         85 :         ret = null_strcmp(arg1-&gt;hdr_field_name_mask, arg2-&gt;hdr_field_name_mask);</span>
+<span class="lineNum">      42 </span><span class="lineCov">         85 :     if (ret == 0)</span>
+<span class="lineNum">      43 </span><span class="lineCov">         85 :         ret = null_strcmp(arg1-&gt;str_mask, arg2-&gt;str_mask);</span>
+<span class="lineNum">      44 </span><span class="lineCov">         85 :     return ret;</span>
+<span class="lineNum">      45 </span>            : }
+<a name="46"><span class="lineNum">      46 </span>            : </a>
+<span class="lineNum">      47 </span>            : static unsigned int
+<span class="lineNum">      48 </span><span class="lineCov">       1241 : mail_search_simplify_prev_arg_hash(const struct mail_search_simplify_prev_arg *arg)</span>
+<span class="lineNum">      49 </span>            : {
+<span class="lineNum">      50 </span>            :     unsigned int hash;
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineCov">       1241 :     hash = mem_hash(&amp;arg-&gt;bin_mask, sizeof(arg-&gt;bin_mask));</span>
+<span class="lineNum">      53 </span><span class="lineCov">       1241 :     if (arg-&gt;hdr_field_name_mask != NULL)</span>
+<span class="lineNum">      54 </span><span class="lineCov">         49 :         hash ^= str_hash(arg-&gt;hdr_field_name_mask);</span>
+<span class="lineNum">      55 </span><span class="lineCov">       1241 :     if (arg-&gt;str_mask != NULL)</span>
+<span class="lineNum">      56 </span><span class="lineCov">        807 :         hash ^= str_hash(arg-&gt;str_mask);</span>
+<span class="lineNum">      57 </span><span class="lineCov">       1241 :     return hash;</span>
+<a name="58"><span class="lineNum">      58 </span>            : }</a>
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span><span class="lineCov">        663 : static void mail_search_arg_get_base_mask(const struct mail_search_arg *arg,</span>
+<span class="lineNum">      61 </span>            :                       struct mail_search_simplify_prev_arg *mask_r)
+<span class="lineNum">      62 </span>            : {
+<span class="lineNum">      63 </span><span class="lineCov">        663 :     i_zero(mask_r);</span>
+<span class="lineNum">      64 </span><span class="lineCov">        663 :     mask_r-&gt;bin_mask.type = arg-&gt;type;</span>
+<span class="lineNum">      65 </span><span class="lineCov">        663 :     mask_r-&gt;bin_mask.fuzzy = arg-&gt;fuzzy;</span>
+<span class="lineNum">      66 </span><span class="lineCov">        663 :     mask_r-&gt;bin_mask.search_flags = arg-&gt;value.search_flags;</span>
+<span class="lineNum">      67 </span><span class="lineCov">        663 : }</span>
+<a name="68"><span class="lineNum">      68 </span>            : </a>
+<span class="lineNum">      69 </span>            : static struct mail_search_arg **
+<span class="lineNum">      70 </span><span class="lineCov">        663 : mail_search_args_simplify_get_prev_argp(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">      71 </span>            :                     const struct mail_search_simplify_prev_arg *mask)
+<span class="lineNum">      72 </span>            : {
+<span class="lineNum">      73 </span>            :     struct mail_search_simplify_prev_arg *prev_arg;
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">        663 :     prev_arg = hash_table_lookup(ctx-&gt;prev_args, mask);</span>
+<span class="lineNum">      76 </span><span class="lineCov">        663 :     if (prev_arg == NULL) {</span>
+<span class="lineNum">      77 </span><span class="lineCov">        578 :         prev_arg = p_new(ctx-&gt;pool, struct mail_search_simplify_prev_arg, 1);</span>
+<span class="lineNum">      78 </span><span class="lineCov">        578 :         prev_arg-&gt;bin_mask = mask-&gt;bin_mask;</span>
+<span class="lineNum">      79 </span><span class="lineCov">        578 :         prev_arg-&gt;hdr_field_name_mask =</span>
+<span class="lineNum">      80 </span><span class="lineCov">        578 :             p_strdup(ctx-&gt;pool, mask-&gt;hdr_field_name_mask);</span>
+<span class="lineNum">      81 </span><span class="lineCov">        578 :         prev_arg-&gt;str_mask =</span>
+<span class="lineNum">      82 </span><span class="lineCov">        578 :             p_strdup(ctx-&gt;pool, mask-&gt;str_mask);</span>
+<span class="lineNum">      83 </span><span class="lineCov">        578 :         hash_table_insert(ctx-&gt;prev_args, prev_arg, prev_arg);</span>
+<span class="lineNum">      84 </span>            :     }
+<span class="lineNum">      85 </span><span class="lineCov">        663 :     return &amp;prev_arg-&gt;prev_arg;</span>
+<span class="lineNum">      86 </span>            : }
+<a name="87"><span class="lineNum">      87 </span>            : </a>
+<span class="lineNum">      88 </span>            : static bool
+<span class="lineNum">      89 </span><span class="lineCov">        503 : mail_search_args_merge_mask(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">      90 </span>            :                 struct mail_search_arg *args,
+<span class="lineNum">      91 </span>            :                 const struct mail_search_simplify_prev_arg *mask)
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span>            :     struct mail_search_arg **prev_argp;
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineCov">        503 :     prev_argp = mail_search_args_simplify_get_prev_argp(ctx, mask);</span>
+<span class="lineNum">      96 </span><span class="lineCov">        503 :     if (*prev_argp == NULL) {</span>
+<span class="lineNum">      97 </span><span class="lineCov">        468 :         *prev_argp = args;</span>
+<span class="lineNum">      98 </span><span class="lineCov">        468 :         return FALSE;</span>
+<span class="lineNum">      99 </span>            :     }
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineCov">         35 :     if (ctx-&gt;initialized)</span>
+<span class="lineNum">     102 </span><span class="lineCov">         35 :         mail_search_arg_one_deinit(args);</span>
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineCov">         35 :     if ((*prev_argp)-&gt;match_not != args-&gt;match_not) {</span>
+<span class="lineNum">     105 </span>            :         /* a &amp;&amp; !a = 0 */
+<span class="lineNum">     106 </span><span class="lineCov">         16 :         if (ctx-&gt;initialized)</span>
+<span class="lineNum">     107 </span><span class="lineCov">         16 :             mail_search_arg_one_deinit(*prev_argp);</span>
+<span class="lineNum">     108 </span><span class="lineCov">         16 :         (*prev_argp)-&gt;type = SEARCH_ALL;</span>
+<span class="lineNum">     109 </span><span class="lineCov">         16 :         (*prev_argp)-&gt;match_not = ctx-&gt;parent_and;</span>
+<span class="lineNum">     110 </span>            :     }
+<span class="lineNum">     111 </span>            :     /* duplicate keyword. */
+<span class="lineNum">     112 </span><span class="lineCov">         35 :     return TRUE;</span>
+<a name="113"><span class="lineNum">     113 </span>            : }</a>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineCov">         87 : static bool mail_search_args_merge_flags(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">     116 </span>            :                      struct mail_search_arg *args)
+<span class="lineNum">     117 </span>            : {
+<span class="lineNum">     118 </span>            :     struct mail_search_simplify_prev_arg mask;
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineCov">         87 :     mail_search_arg_get_base_mask(args, &amp;mask);</span>
+<span class="lineNum">     121 </span><span class="lineCov">         87 :     mask.bin_mask.mail_flags = args-&gt;value.flags;</span>
+<span class="lineNum">     122 </span><span class="lineCov">         87 :     return mail_search_args_merge_mask(ctx, args, &amp;mask);</span>
+<span class="lineNum">     123 </span>            : }
+<a name="124"><span class="lineNum">     124 </span>            : </a>
+<span class="lineNum">     125 </span>            : static bool
+<span class="lineNum">     126 </span><span class="lineCov">         24 : mail_search_args_merge_keywords(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">     127 </span>            :                 struct mail_search_arg *args)
+<span class="lineNum">     128 </span>            : {
+<span class="lineNum">     129 </span>            :     struct mail_search_simplify_prev_arg mask;
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineCov">         24 :     mail_search_arg_get_base_mask(args, &amp;mask);</span>
+<span class="lineNum">     132 </span><span class="lineCov">         24 :     mask.str_mask = args-&gt;value.str;</span>
+<span class="lineNum">     133 </span><span class="lineCov">         24 :     return mail_search_args_merge_mask(ctx, args, &amp;mask);</span>
+<a name="134"><span class="lineNum">     134 </span>            : }</a>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineCov">         71 : static void mail_search_args_simplify_set(struct mail_search_arg *args)</span>
+<span class="lineNum">     137 </span>            : {
+<span class="lineNum">     138 </span>            :     const struct seq_range *seqset;
+<span class="lineNum">     139 </span>            :     unsigned int count;
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineCov">         71 :     if (args-&gt;match_not) {</span>
+<span class="lineNum">     142 </span>            :         /* invert the set to drop the NOT. Note that (uint32_t)-1
+<span class="lineNum">     143 </span>            :            matches the last existing mail, which we don't know at this
+<span class="lineNum">     144 </span>            :            point. lib-imap/imap-seqset.c has similar code that
+<span class="lineNum">     145 </span>            :            disallows using (uint32_t)-1 as a real UID. */
+<span class="lineNum">     146 </span><span class="lineCov">         11 :         if (seq_range_exists(&amp;args-&gt;value.seqset, (uint32_t)-1))</span>
+<span class="lineNum">     147 </span><span class="lineCov">         74 :             return;</span>
+<span class="lineNum">     148 </span><span class="lineCov">          8 :         args-&gt;match_not = FALSE;</span>
+<span class="lineNum">     149 </span><span class="lineCov">          8 :         seq_range_array_invert(&amp;args-&gt;value.seqset, 1, (uint32_t)-2);</span>
+<span class="lineNum">     150 </span>            :     }
+<span class="lineNum">     151 </span><span class="lineCov">         68 :     seqset = array_get(&amp;args-&gt;value.seqset, &amp;count);</span>
+<span class="lineNum">     152 </span><span class="lineCov">         68 :     if (count == 1 &amp;&amp; seqset-&gt;seq1 == 1 &amp;&amp; seqset-&gt;seq2 &gt;= (uint32_t)-2) {</span>
+<span class="lineNum">     153 </span>            :         /* 1:* is the same as ALL. */
+<span class="lineNum">     154 </span><span class="lineCov">          6 :         args-&gt;type = SEARCH_ALL;</span>
+<span class="lineNum">     155 </span><span class="lineCov">         62 :     } else if (count == 0) {</span>
+<span class="lineNum">     156 </span>            :         /* empty set is the same as NOT ALL. this is mainly coming
+<span class="lineNum">     157 </span>            :            from mail_search_args_merge_set() intersection. */
+<span class="lineNum">     158 </span><span class="lineCov">          2 :         args-&gt;type = SEARCH_ALL;</span>
+<span class="lineNum">     159 </span><span class="lineCov">          2 :         args-&gt;match_not = TRUE;</span>
+<span class="lineNum">     160 </span>            :     }
+<a name="161"><span class="lineNum">     161 </span>            : }</a>
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">         63 : static bool mail_search_args_merge_set(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">     164 </span>            :                        struct mail_search_arg *args)
+<span class="lineNum">     165 </span>            : {
+<span class="lineNum">     166 </span>            :     struct mail_search_simplify_prev_arg mask;
+<span class="lineNum">     167 </span>            :     struct mail_search_arg **prev_argp;
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span><span class="lineCov">         63 :     if (args-&gt;match_not) {</span>
+<span class="lineNum">     170 </span>            :         /* &quot;*&quot; used - can't simplify it */
+<span class="lineNum">     171 </span><span class="lineCov">          3 :         return FALSE;</span>
+<span class="lineNum">     172 </span>            :     }
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span><span class="lineCov">         60 :     mail_search_arg_get_base_mask(args, &amp;mask);</span>
+<span class="lineNum">     175 </span><span class="lineCov">         60 :     mask.bin_mask.match_not = args-&gt;match_not;</span>
+<span class="lineNum">     176 </span><span class="lineCov">         60 :     prev_argp = mail_search_args_simplify_get_prev_argp(ctx, &amp;mask);</span>
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineCov">         60 :     if (*prev_argp == NULL) {</span>
+<span class="lineNum">     179 </span><span class="lineCov">         42 :         *prev_argp = args;</span>
+<span class="lineNum">     180 </span><span class="lineCov">         42 :         return FALSE;</span>
+<span class="lineNum">     181 </span><span class="lineCov">         18 :     } else if (ctx-&gt;parent_and) {</span>
+<span class="lineNum">     182 </span><span class="lineCov">         10 :         seq_range_array_intersect(&amp;(*prev_argp)-&gt;value.seqset,</span>
+<span class="lineNum">     183 </span><span class="lineCov">         10 :                       &amp;args-&gt;value.seqset);</span>
+<span class="lineNum">     184 </span><span class="lineCov">         10 :         return TRUE;</span>
+<span class="lineNum">     185 </span>            :     } else {
+<span class="lineNum">     186 </span><span class="lineCov">          8 :         seq_range_array_merge(&amp;(*prev_argp)-&gt;value.seqset,</span>
+<span class="lineNum">     187 </span><span class="lineCov">          8 :                       &amp;args-&gt;value.seqset);</span>
+<span class="lineNum">     188 </span><span class="lineCov">          8 :         return TRUE;</span>
+<span class="lineNum">     189 </span>            :     }
+<a name="190"><span class="lineNum">     190 </span>            : }</a>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineCov">         61 : static bool mail_search_args_merge_time(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">     193 </span>            :                     struct mail_search_arg *args)
+<span class="lineNum">     194 </span>            : {
+<span class="lineNum">     195 </span>            :     struct mail_search_simplify_prev_arg mask;
+<span class="lineNum">     196 </span>            :     struct mail_search_arg **prev_argp, *prev_arg;
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineCov">         61 :     mail_search_arg_get_base_mask(args, &amp;mask);</span>
+<span class="lineNum">     199 </span><span class="lineCov">         61 :     mask.bin_mask.match_not = args-&gt;match_not;</span>
+<span class="lineNum">     200 </span><span class="lineCov">         61 :     mask.bin_mask.date_type = args-&gt;value.date_type;</span>
+<span class="lineNum">     201 </span><span class="lineCov">         61 :     prev_argp = mail_search_args_simplify_get_prev_argp(ctx, &amp;mask);</span>
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineCov">         61 :     if (*prev_argp == NULL) {</span>
+<span class="lineNum">     204 </span><span class="lineCov">         40 :         *prev_argp = args;</span>
+<span class="lineNum">     205 </span><span class="lineCov">         40 :         return FALSE;</span>
+<span class="lineNum">     206 </span>            :     }
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span><span class="lineCov">         21 :     prev_arg = *prev_argp;</span>
+<span class="lineNum">     209 </span><span class="lineCov">         21 :     switch (args-&gt;type) {</span>
+<span class="lineNum">     210 </span>            :     case SEARCH_BEFORE:
+<span class="lineNum">     211 </span><span class="lineCov">          9 :         if (ctx-&gt;parent_and) {</span>
+<span class="lineNum">     212 </span><span class="lineCov">          6 :             if (prev_arg-&gt;value.time &lt; args-&gt;value.time) {</span>
+<span class="lineNum">     213 </span>            :                 /* prev_arg &lt; 5 AND arg &lt; 10 */
+<span class="lineNum">     214 </span>            :             } else {
+<span class="lineNum">     215 </span>            :                 /* prev_arg &lt; 10 AND arg &lt; 5 */
+<span class="lineNum">     216 </span><span class="lineCov">          4 :                 prev_arg-&gt;value.time = args-&gt;value.time;</span>
+<span class="lineNum">     217 </span>            :             }
+<span class="lineNum">     218 </span>            :         } else {
+<span class="lineNum">     219 </span><span class="lineCov">          3 :             if (prev_arg-&gt;value.time &lt; args-&gt;value.time) {</span>
+<span class="lineNum">     220 </span>            :                 /* prev_arg &lt; 5 OR arg &lt; 10 */
+<span class="lineNum">     221 </span><span class="lineCov">          2 :                 prev_arg-&gt;value.time = args-&gt;value.time;</span>
+<span class="lineNum">     222 </span>            :             } else {
+<span class="lineNum">     223 </span>            :                 /* prev_arg &lt; 10 OR arg &lt; 5 */
+<span class="lineNum">     224 </span>            :             }
+<span class="lineNum">     225 </span>            :         }
+<span class="lineNum">     226 </span><span class="lineCov">          9 :         return TRUE;</span>
+<span class="lineNum">     227 </span>            :     case SEARCH_ON:
+<span class="lineNum">     228 </span><span class="lineCov">          3 :         if (prev_arg-&gt;value.time == args-&gt;value.time)</span>
+<span class="lineNum">     229 </span><span class="lineCov">          1 :             return TRUE;</span>
+<span class="lineNum">     230 </span><span class="lineCov">          2 :         return FALSE;</span>
+<span class="lineNum">     231 </span>            :     case SEARCH_SINCE:
+<span class="lineNum">     232 </span><span class="lineCov">          9 :         if (ctx-&gt;parent_and) {</span>
+<span class="lineNum">     233 </span><span class="lineCov">          6 :             if (prev_arg-&gt;value.time &lt; args-&gt;value.time) {</span>
+<span class="lineNum">     234 </span>            :                 /* prev_arg &gt;= 5 AND arg &gt;= 10 */
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :                 prev_arg-&gt;value.time = args-&gt;value.time;</span>
+<span class="lineNum">     236 </span>            :             } else {
+<span class="lineNum">     237 </span>            :                 /* prev_arg &gt;= 10 AND arg &gt;= 5 */
+<span class="lineNum">     238 </span>            :             }
+<span class="lineNum">     239 </span>            :         } else {
+<span class="lineNum">     240 </span><span class="lineCov">          3 :             if (prev_arg-&gt;value.time &lt; args-&gt;value.time) {</span>
+<span class="lineNum">     241 </span>            :                 /* prev_arg &gt;= 5 OR arg &gt;= 10 */
+<span class="lineNum">     242 </span>            :             } else {
+<span class="lineNum">     243 </span>            :                 /* prev_arg &gt;= 10 OR arg &gt;= 5 */
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :                 prev_arg-&gt;value.time = args-&gt;value.time;</span>
+<span class="lineNum">     245 </span>            :             }
+<span class="lineNum">     246 </span>            :         }
+<span class="lineNum">     247 </span><span class="lineCov">          9 :         return TRUE;</span>
+<span class="lineNum">     248 </span>            :     default:
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     250 </span>            :     }
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="252"><span class="lineNum">     252 </span>            : }</a>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineCov">         39 : static bool mail_search_args_merge_size(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">     255 </span>            :                     struct mail_search_arg *args)
+<span class="lineNum">     256 </span>            : {
+<span class="lineNum">     257 </span>            :     struct mail_search_simplify_prev_arg mask;
+<span class="lineNum">     258 </span>            :     struct mail_search_arg **prev_argp, *prev_arg;
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineCov">         39 :     mail_search_arg_get_base_mask(args, &amp;mask);</span>
+<span class="lineNum">     261 </span><span class="lineCov">         39 :     mask.bin_mask.match_not = args-&gt;match_not;</span>
+<span class="lineNum">     262 </span><span class="lineCov">         39 :     prev_argp = mail_search_args_simplify_get_prev_argp(ctx, &amp;mask);</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">         39 :     if (*prev_argp == NULL) {</span>
+<span class="lineNum">     265 </span><span class="lineCov">         28 :         *prev_argp = args;</span>
+<span class="lineNum">     266 </span><span class="lineCov">         28 :         return FALSE;</span>
+<span class="lineNum">     267 </span>            :     }
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineCov">         11 :     prev_arg = *prev_argp;</span>
+<span class="lineNum">     270 </span><span class="lineCov">         11 :     switch (args-&gt;type) {</span>
+<span class="lineNum">     271 </span>            :     case SEARCH_SMALLER:
+<span class="lineNum">     272 </span><span class="lineCov">          5 :         if (ctx-&gt;parent_and) {</span>
+<span class="lineNum">     273 </span><span class="lineCov">          2 :             if (prev_arg-&gt;value.size &lt; args-&gt;value.size) {</span>
+<span class="lineNum">     274 </span>            :                 /* prev_arg &lt; 5 AND arg &lt; 10 */
+<span class="lineNum">     275 </span>            :             } else {
+<span class="lineNum">     276 </span>            :                 /* prev_arg &lt; 10 AND arg &lt; 5 */
+<span class="lineNum">     277 </span><span class="lineCov">          1 :                 prev_arg-&gt;value.size = args-&gt;value.size;</span>
+<span class="lineNum">     278 </span>            :             }
+<span class="lineNum">     279 </span>            :         } else {
+<span class="lineNum">     280 </span><span class="lineCov">          3 :             if (prev_arg-&gt;value.size &lt; args-&gt;value.size) {</span>
+<span class="lineNum">     281 </span>            :                 /* prev_arg &lt; 5 OR arg &lt; 10 */
+<span class="lineNum">     282 </span><span class="lineCov">          2 :                 prev_arg-&gt;value.size = args-&gt;value.size;</span>
+<span class="lineNum">     283 </span>            :             } else {
+<span class="lineNum">     284 </span>            :                 /* prev_arg &lt; 10 OR arg &lt; 5 */
+<span class="lineNum">     285 </span>            :             }
+<span class="lineNum">     286 </span>            :         }
+<span class="lineNum">     287 </span><span class="lineCov">          5 :         return TRUE;</span>
+<span class="lineNum">     288 </span>            :     case SEARCH_LARGER:
+<span class="lineNum">     289 </span><span class="lineCov">          6 :         if (ctx-&gt;parent_and) {</span>
+<span class="lineNum">     290 </span><span class="lineCov">          3 :             if (prev_arg-&gt;value.size &lt; args-&gt;value.size) {</span>
+<span class="lineNum">     291 </span>            :                 /* prev_arg &gt;= 5 AND arg &gt;= 10 */
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :                 prev_arg-&gt;value.size = args-&gt;value.size;</span>
+<span class="lineNum">     293 </span>            :             } else {
+<span class="lineNum">     294 </span>            :                 /* prev_arg &gt;= 10 AND arg &gt;= 5 */
+<span class="lineNum">     295 </span>            :             }
+<span class="lineNum">     296 </span>            :         } else {
+<span class="lineNum">     297 </span><span class="lineCov">          3 :             if (prev_arg-&gt;value.size &lt; args-&gt;value.size) {</span>
+<span class="lineNum">     298 </span>            :                 /* prev_arg &gt;= 5 OR arg &gt;= 10 */
+<span class="lineNum">     299 </span>            :             } else {
+<span class="lineNum">     300 </span>            :                 /* prev_arg &gt;= 10 OR arg &gt;= 5 */
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :                 prev_arg-&gt;value.size = args-&gt;value.size;</span>
+<span class="lineNum">     302 </span>            :             }
+<span class="lineNum">     303 </span>            :         }
+<span class="lineNum">     304 </span><span class="lineCov">          6 :         return TRUE;</span>
+<span class="lineNum">     305 </span>            :     default:
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     307 </span>            :     }
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="309"><span class="lineNum">     309 </span>            : }</a>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineCov">        392 : static bool mail_search_args_merge_text(struct mail_search_simplify_ctx *ctx,</span>
+<span class="lineNum">     312 </span>            :                     struct mail_search_arg *args)
+<span class="lineNum">     313 </span>            : {
+<span class="lineNum">     314 </span>            :     struct mail_search_simplify_prev_arg mask;
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span><span class="lineCov">        392 :     mail_search_arg_get_base_mask(args, &amp;mask);</span>
+<span class="lineNum">     317 </span><span class="lineCov">        392 :     mask.hdr_field_name_mask = args-&gt;hdr_field_name;</span>
+<span class="lineNum">     318 </span><span class="lineCov">        392 :     mask.str_mask = args-&gt;value.str;</span>
+<span class="lineNum">     319 </span><span class="lineCov">        392 :     return mail_search_args_merge_mask(ctx, args, &amp;mask);</span>
+<span class="lineNum">     320 </span>            : }
+<a name="321"><span class="lineNum">     321 </span>            : </a>
+<span class="lineNum">     322 </span>            : static bool
+<span class="lineNum">     323 </span><span class="lineCov">        343 : mail_search_args_have_equal(const struct mail_search_arg *args,</span>
+<span class="lineNum">     324 </span>            :                 const struct mail_search_arg *wanted_arg)
+<span class="lineNum">     325 </span>            : {
+<span class="lineNum">     326 </span>            :     const struct mail_search_arg *arg;
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span><span class="lineCov">        677 :     for (arg = args; arg != NULL; arg = arg-&gt;next) {</span>
+<span class="lineNum">     329 </span><span class="lineCov">        532 :         if (mail_search_arg_one_equals(arg, wanted_arg))</span>
+<span class="lineNum">     330 </span><span class="lineCov">        198 :             return TRUE;</span>
+<span class="lineNum">     331 </span>            :     }
+<span class="lineNum">     332 </span><span class="lineCov">        145 :     return FALSE;</span>
+<span class="lineNum">     333 </span>            : }
+<a name="334"><span class="lineNum">     334 </span>            : </a>
+<span class="lineNum">     335 </span>            : static bool
+<span class="lineNum">     336 </span><span class="lineCov">         57 : mail_search_args_remove_equal(struct mail_search_args *all_args,</span>
+<span class="lineNum">     337 </span>            :                   struct mail_search_arg **argsp,
+<span class="lineNum">     338 </span>            :                   const struct mail_search_arg *wanted_arg,
+<span class="lineNum">     339 </span>            :                   bool check_subs)
+<span class="lineNum">     340 </span>            : {
+<span class="lineNum">     341 </span>            :     struct mail_search_arg **argp;
+<span class="lineNum">     342 </span><span class="lineCov">         57 :     bool found = FALSE;</span>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineCov">        246 :     for (argp = argsp; (*argp) != NULL; ) {</span>
+<span class="lineNum">     345 </span><span class="lineCov">        132 :         if (mail_search_arg_one_equals(*argp, wanted_arg)) {</span>
+<span class="lineNum">     346 </span><span class="lineCov">         38 :             if (all_args-&gt;init_refcount &gt; 0)</span>
+<span class="lineNum">     347 </span><span class="lineCov">         38 :                 mail_search_arg_one_deinit(*argp);</span>
+<span class="lineNum">     348 </span><span class="lineCov">         38 :             *argp = (*argp)-&gt;next;</span>
+<span class="lineNum">     349 </span><span class="lineCov">         38 :             found = TRUE;</span>
+<span class="lineNum">     350 </span><span class="lineCov">         94 :         } else if (check_subs) {</span>
+<span class="lineNum">     351 </span><span class="lineCov">         38 :             i_assert((*argp)-&gt;type == SEARCH_SUB ||</span>
+<span class="lineNum">     352 </span>            :                  (*argp)-&gt;type == SEARCH_OR);
+<span class="lineNum">     353 </span><span class="lineCov">         38 :             if (!mail_search_args_remove_equal(all_args, &amp;(*argp)-&gt;value.subargs, wanted_arg, FALSE)) {</span>
+<span class="lineNum">     354 </span>            :                 /* we already verified that this should have
+<span class="lineNum">     355 </span>            :                    existed. */
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :                 i_unreached();</span>
+<span class="lineNum">     357 </span>            :             }
+<span class="lineNum">     358 </span><span class="lineCov">         38 :             if ((*argp)-&gt;value.subargs == NULL)</span>
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :                 *argp = (*argp)-&gt;next;</span>
+<span class="lineNum">     360 </span>            :             else
+<span class="lineNum">     361 </span><span class="lineCov">         38 :                 argp = &amp;(*argp)-&gt;next;</span>
+<span class="lineNum">     362 </span><span class="lineCov">         38 :             found = TRUE;</span>
+<span class="lineNum">     363 </span>            :         } else {
+<span class="lineNum">     364 </span><span class="lineCov">         56 :             argp = &amp;(*argp)-&gt;next;</span>
+<span class="lineNum">     365 </span>            :         }
+<span class="lineNum">     366 </span>            :     }
+<span class="lineNum">     367 </span><span class="lineCov">         57 :     return found;</span>
+<span class="lineNum">     368 </span>            : }
+<a name="369"><span class="lineNum">     369 </span>            : </a>
+<span class="lineNum">     370 </span>            : static bool
+<span class="lineNum">     371 </span><span class="lineCov">        107 : mail_search_args_have_all_equal(struct mail_search_arg *parent_arg,</span>
+<span class="lineNum">     372 </span>            :                 const struct mail_search_arg *wanted_args)
+<span class="lineNum">     373 </span>            : {
+<span class="lineNum">     374 </span>            :     const struct mail_search_arg *arg;
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineCov">        107 :     i_assert(parent_arg-&gt;type == SEARCH_SUB ||</span>
+<span class="lineNum">     377 </span>            :          parent_arg-&gt;type == SEARCH_OR);
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineCov">        139 :     for (arg = wanted_args; arg != NULL; arg = arg-&gt;next) {</span>
+<span class="lineNum">     380 </span><span class="lineCov">        124 :         if (!mail_search_args_have_equal(parent_arg-&gt;value.subargs, arg))</span>
+<span class="lineNum">     381 </span><span class="lineCov">         92 :             return FALSE;</span>
+<span class="lineNum">     382 </span>            :     }
+<span class="lineNum">     383 </span><span class="lineCov">         15 :     return TRUE;</span>
+<span class="lineNum">     384 </span>            : }
+<a name="385"><span class="lineNum">     385 </span>            : </a>
+<span class="lineNum">     386 </span>            : static unsigned int
+<span class="lineNum">     387 </span><span class="lineCov">        212 : mail_search_args_count(const struct mail_search_arg *args)</span>
+<span class="lineNum">     388 </span>            : {
+<span class="lineNum">     389 </span>            :     unsigned int count;
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineCov">        582 :     for (count = 0; args != NULL; count++)</span>
+<span class="lineNum">     392 </span><span class="lineCov">        370 :         args = args-&gt;next;</span>
+<span class="lineNum">     393 </span><span class="lineCov">        212 :     return count;</span>
+<span class="lineNum">     394 </span>            : }
+<a name="395"><span class="lineNum">     395 </span>            : </a>
+<span class="lineNum">     396 </span>            : static bool
+<span class="lineNum">     397 </span><span class="lineCov">        446 : mail_search_args_simplify_drop_redundant_args(struct mail_search_args *all_args,</span>
+<span class="lineNum">     398 </span>            :                           struct mail_search_arg **argsp,
+<span class="lineNum">     399 </span>            :                           bool and_arg)
+<span class="lineNum">     400 </span>            : {
+<span class="lineNum">     401 </span><span class="lineCov">        446 :     struct mail_search_arg *arg, **argp, one_arg, *lowest_arg = NULL;</span>
+<span class="lineNum">     402 </span>            :     enum mail_search_arg_type child_subargs_type;
+<span class="lineNum">     403 </span><span class="lineCov">        446 :     unsigned int count, lowest_count = UINT_MAX;</span>
+<span class="lineNum">     404 </span><span class="lineCov">        446 :     bool ret = FALSE;</span>
+<span class="lineNum">     405 </span>            : 
+<span class="lineNum">     406 </span><span class="lineCov">        446 :     if (*argsp == NULL)</span>
+<span class="lineNum">     407 </span><span class="lineCov">          1 :         return FALSE;</span>
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span><span class="lineCov">        445 :     child_subargs_type = and_arg ? SEARCH_OR : SEARCH_SUB;</span>
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span>            :     /* find the arg which has the lowest number of child args */
+<span class="lineNum">     412 </span><span class="lineCov">        657 :     for (arg = *argsp; arg != NULL; arg = arg-&gt;next) {</span>
+<span class="lineNum">     413 </span><span class="lineCov">        533 :         if (arg-&gt;type != child_subargs_type) {</span>
+<span class="lineNum">     414 </span><span class="lineCov">        321 :             one_arg = *arg;</span>
+<span class="lineNum">     415 </span><span class="lineCov">        321 :             one_arg.next = NULL;</span>
+<span class="lineNum">     416 </span><span class="lineCov">        321 :             lowest_arg = &amp;one_arg;</span>
+<span class="lineNum">     417 </span><span class="lineCov">        321 :             break;</span>
+<span class="lineNum">     418 </span>            :         }
+<span class="lineNum">     419 </span><span class="lineCov">        212 :         count = mail_search_args_count(arg-&gt;value.subargs);</span>
+<span class="lineNum">     420 </span><span class="lineCov">        212 :         if (count &lt; lowest_count) {</span>
+<span class="lineNum">     421 </span><span class="lineCov">        165 :             lowest_arg = arg-&gt;value.subargs;</span>
+<span class="lineNum">     422 </span><span class="lineCov">        165 :             lowest_count = count;</span>
+<span class="lineNum">     423 </span>            :         }
+<span class="lineNum">     424 </span>            :     }
+<span class="lineNum">     425 </span><span class="lineCov">        445 :     i_assert(lowest_arg != NULL);</span>
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span>            :     /* if there are any args that include lowest_arg, drop the arg since
+<span class="lineNum">     428 </span>            :        it's redundant. (non-SUB duplicates are dropped elsewhere.) */
+<span class="lineNum">     429 </span><span class="lineCov">       1642 :     for (argp = argsp; *argp != NULL; ) {</span>
+<span class="lineNum">     430 </span><span class="lineCov">        983 :         if (*argp != lowest_arg &amp;&amp; (*argp)-&gt;type == child_subargs_type &amp;&amp;</span>
+<span class="lineNum">     431 </span><span class="lineCov">        338 :             (*argp)-&gt;value.subargs != lowest_arg &amp;&amp;</span>
+<span class="lineNum">     432 </span><span class="lineCov">        107 :             mail_search_args_have_all_equal(*argp, lowest_arg)) {</span>
+<span class="lineNum">     433 </span><span class="lineCov">         15 :             if (all_args-&gt;init_refcount &gt; 0)</span>
+<span class="lineNum">     434 </span><span class="lineCov">         15 :                 mail_search_arg_one_deinit(*argp);</span>
+<span class="lineNum">     435 </span><span class="lineCov">         15 :             *argp = (*argp)-&gt;next;</span>
+<span class="lineNum">     436 </span><span class="lineCov">         15 :             ret = TRUE;</span>
+<span class="lineNum">     437 </span>            :         } else {
+<span class="lineNum">     438 </span><span class="lineCov">        737 :             argp = &amp;(*argp)-&gt;next;</span>
+<span class="lineNum">     439 </span>            :         }
+<span class="lineNum">     440 </span>            :     }
+<span class="lineNum">     441 </span><span class="lineCov">        445 :     return ret;</span>
+<span class="lineNum">     442 </span>            : }
+<a name="443"><span class="lineNum">     443 </span>            : </a>
+<span class="lineNum">     444 </span>            : static bool
+<span class="lineNum">     445 </span><span class="lineCov">        446 : mail_search_args_simplify_extract_common(struct mail_search_args *all_args,</span>
+<span class="lineNum">     446 </span>            :                      struct mail_search_arg **argsp,
+<span class="lineNum">     447 </span>            :                      pool_t pool, bool and_arg)
+<span class="lineNum">     448 </span>            : {
+<span class="lineNum">     449 </span>            :     /* Simple SUB example:
+<span class="lineNum">     450 </span>            :        (a AND b) OR (a AND c) -&gt; a AND (b OR c)
+<span class="lineNum">     451 </span>            : 
+<span class="lineNum">     452 </span>            :        More complicated example:
+<span class="lineNum">     453 </span>            :        (c1 AND c2 AND u1 AND u2) OR (c1 AND c2 AND u3 AND u4) -&gt;
+<span class="lineNum">     454 </span>            :        c1 AND c2 AND ((u1 AND u2) OR (u3 AND u4))
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span>            :        Similarly for ORs:
+<span class="lineNum">     457 </span>            :        (a OR b) AND (a OR c) -&gt; a OR (b AND c)
+<span class="lineNum">     458 </span>            : 
+<span class="lineNum">     459 </span>            :        (c1 OR c2 OR u1 OR u2) AND (c1 OR c2 OR u3 OR u4) -&gt;
+<span class="lineNum">     460 </span>            :        c1 OR c2 OR ((u1 OR u2) AND (u3 OR u4))
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span>            :     */
+<span class="lineNum">     463 </span>            :     struct mail_search_arg *arg, *sub_arg, *sub_next;
+<span class="lineNum">     464 </span><span class="lineCov">        446 :     struct mail_search_arg *new_arg, *child_arg, *common_args = NULL;</span>
+<span class="lineNum">     465 </span>            :     enum mail_search_arg_type child_subargs_type;
+<span class="lineNum">     466 </span>            : 
+<span class="lineNum">     467 </span><span class="lineCov">        446 :     if (*argsp == NULL || (*argsp)-&gt;next == NULL) {</span>
+<span class="lineNum">     468 </span>            :         /* single arg, nothing to extract */
+<span class="lineNum">     469 </span><span class="lineCov">        194 :         return FALSE;</span>
+<span class="lineNum">     470 </span>            :     }
+<span class="lineNum">     471 </span>            : 
+<span class="lineNum">     472 </span><span class="lineCov">        252 :     child_subargs_type = and_arg ? SEARCH_OR : SEARCH_SUB;</span>
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span>            :     /* find the first arg with child_subargs_type */
+<span class="lineNum">     475 </span><span class="lineCov">        620 :     for (arg = *argsp; arg != NULL; arg = arg-&gt;next) {</span>
+<span class="lineNum">     476 </span><span class="lineCov">        455 :         if (arg-&gt;type == child_subargs_type)</span>
+<span class="lineNum">     477 </span><span class="lineCov">         87 :             break;</span>
+<span class="lineNum">     478 </span>            :     }
+<span class="lineNum">     479 </span><span class="lineCov">        252 :     if (arg == NULL)</span>
+<span class="lineNum">     480 </span><span class="lineCov">        165 :         return FALSE;</span>
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineCov">        246 :     for (sub_arg = arg-&gt;value.subargs; sub_arg != NULL; sub_arg = sub_next) {</span>
+<span class="lineNum">     483 </span><span class="lineCov">        159 :         sub_next = sub_arg-&gt;next;</span>
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span>            :         /* check if sub_arg is found from all the args */
+<span class="lineNum">     486 </span><span class="lineCov">        325 :         for (arg = *argsp; arg != NULL; arg = arg-&gt;next) {</span>
+<span class="lineNum">     487 </span><span class="lineCov">        306 :             if (mail_search_arg_one_equals(arg, sub_arg)) {</span>
+<span class="lineNum">     488 </span>            :                 /* the whole arg matches */
+<span class="lineNum">     489 </span><span class="lineCov">        525 :             } else if (arg-&gt;type == child_subargs_type &amp;&amp;</span>
+<span class="lineNum">     490 </span><span class="lineCov">        219 :                    mail_search_args_have_equal(arg-&gt;value.subargs, sub_arg)) {</span>
+<span class="lineNum">     491 </span>            :                 /* exists as subarg */
+<span class="lineNum">     492 </span>            :             } else {
+<span class="lineNum">     493 </span>            :                 break;
+<span class="lineNum">     494 </span>            :             }
+<span class="lineNum">     495 </span>            :         }
+<span class="lineNum">     496 </span><span class="lineCov">        159 :         if (arg != NULL)</span>
+<span class="lineNum">     497 </span><span class="lineCov">        140 :             continue;</span>
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span>            :         /* extract the arg and put it to common_args */
+<span class="lineNum">     500 </span><span class="lineCov">         19 :         mail_search_args_remove_equal(all_args, argsp, sub_arg, TRUE);</span>
+<span class="lineNum">     501 </span><span class="lineCov">         19 :         sub_arg-&gt;next = common_args;</span>
+<span class="lineNum">     502 </span><span class="lineCov">         19 :         common_args = sub_arg;</span>
+<span class="lineNum">     503 </span>            :     }
+<span class="lineNum">     504 </span><span class="lineCov">         87 :     if (common_args == NULL)</span>
+<span class="lineNum">     505 </span><span class="lineCov">         72 :         return FALSE;</span>
+<span class="lineNum">     506 </span>            : 
+<span class="lineNum">     507 </span>            :     /* replace all the original args with a single new SUB/OR arg */
+<span class="lineNum">     508 </span><span class="lineCov">         15 :     new_arg = p_new(pool, struct mail_search_arg, 1);</span>
+<span class="lineNum">     509 </span><span class="lineCov">         15 :     new_arg-&gt;type = child_subargs_type;</span>
+<span class="lineNum">     510 </span><span class="lineCov">         15 :     if (*argsp == NULL) {</span>
+<span class="lineNum">     511 </span>            :         /* there are only common args */
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :         new_arg-&gt;value.subargs = common_args;</span>
+<span class="lineNum">     513 </span>            :     } else {
+<span class="lineNum">     514 </span>            :         /* replace OR arg with AND(OR(non_common_args), common_args)
+<span class="lineNum">     515 </span>            :            or
+<span class="lineNum">     516 </span>            :            replace AND arg with OR(AND(non_common_args), common_args) */
+<span class="lineNum">     517 </span><span class="lineCov">         15 :         child_arg = p_new(pool, struct mail_search_arg, 1);</span>
+<span class="lineNum">     518 </span><span class="lineCov">         15 :         child_arg-&gt;type = and_arg ? SEARCH_SUB : SEARCH_OR;</span>
+<span class="lineNum">     519 </span><span class="lineCov">         15 :         child_arg-&gt;value.subargs = *argsp;</span>
+<span class="lineNum">     520 </span><span class="lineCov">         15 :         child_arg-&gt;next = common_args;</span>
+<span class="lineNum">     521 </span><span class="lineCov">         15 :         new_arg-&gt;value.subargs = child_arg;</span>
+<span class="lineNum">     522 </span>            :     }
+<span class="lineNum">     523 </span><span class="lineCov">         15 :     *argsp = new_arg;</span>
+<span class="lineNum">     524 </span><span class="lineCov">         15 :     return TRUE;</span>
+<span class="lineNum">     525 </span>            : }
+<a name="526"><span class="lineNum">     526 </span>            : </a>
+<span class="lineNum">     527 </span>            : static bool
+<span class="lineNum">     528 </span><span class="lineCov">        566 : mail_search_args_simplify_sub(struct mail_search_args *all_args, pool_t pool,</span>
+<span class="lineNum">     529 </span>            :                   struct mail_search_arg **argsp, bool parent_and)
+<span class="lineNum">     530 </span>            : {
+<span class="lineNum">     531 </span>            :     struct mail_search_simplify_ctx ctx;
+<span class="lineNum">     532 </span><span class="lineCov">        566 :     struct mail_search_arg *sub, **all_argsp = argsp;</span>
+<span class="lineNum">     533 </span>            :     bool merged;
+<span class="lineNum">     534 </span>            : 
+<span class="lineNum">     535 </span><span class="lineCov">        566 :     i_zero(&amp;ctx);</span>
+<span class="lineNum">     536 </span><span class="lineCov">        566 :     ctx.initialized = all_args-&gt;init_refcount &gt; 0;</span>
+<span class="lineNum">     537 </span><span class="lineCov">        566 :     ctx.parent_and = parent_and;</span>
+<span class="lineNum">     538 </span><span class="lineCov">        566 :     ctx.pool = pool_alloconly_create(&quot;mail search args simplify&quot;, 1024);</span>
+<span class="lineNum">     539 </span><span class="lineCov">        566 :     hash_table_create(&amp;ctx.prev_args, ctx.pool, 0,</span>
+<span class="lineNum">     540 </span>            :               mail_search_simplify_prev_arg_hash,
+<span class="lineNum">     541 </span>            :               mail_search_simplify_prev_arg_cmp);
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineCov">       2209 :     while (*argsp != NULL) {</span>
+<span class="lineNum">     544 </span><span class="lineCov">       1077 :         struct mail_search_arg *args = *argsp;</span>
+<span class="lineNum">     545 </span>            : 
+<span class="lineNum">     546 </span><span class="lineCov">       1201 :         if (args-&gt;match_not &amp;&amp; (args-&gt;type == SEARCH_SUB ||</span>
+<span class="lineNum">     547 </span><span class="lineCov">        124 :                     args-&gt;type == SEARCH_OR)) {</span>
+<span class="lineNum">     548 </span>            :             /* neg(p and q and ..) == neg(p) or neg(q) or ..
+<span class="lineNum">     549 </span>            :                neg(p or q or ..) == neg(p) and neg(q) and .. */
+<span class="lineNum">     550 </span><span class="lineCov">         22 :             args-&gt;type = args-&gt;type == SEARCH_SUB ?</span>
+<span class="lineNum">     551 </span><span class="lineCov">         11 :                 SEARCH_OR : SEARCH_SUB;</span>
+<span class="lineNum">     552 </span><span class="lineCov">         11 :             args-&gt;match_not = FALSE;</span>
+<span class="lineNum">     553 </span><span class="lineCov">         11 :             sub = args-&gt;value.subargs;</span>
+<span class="lineNum">     554 </span>            :             do {
+<span class="lineNum">     555 </span><span class="lineCov">         16 :                 sub-&gt;match_not = !sub-&gt;match_not;</span>
+<span class="lineNum">     556 </span><span class="lineCov">         16 :                 sub = sub-&gt;next;</span>
+<span class="lineNum">     557 </span><span class="lineCov">         16 :             } while (sub != NULL);</span>
+<span class="lineNum">     558 </span>            :         }
+<span class="lineNum">     559 </span>            : 
+<span class="lineNum">     560 </span><span class="lineCov">       2104 :         if ((args-&gt;type == SEARCH_SUB &amp;&amp; parent_and) ||</span>
+<span class="lineNum">     561 </span><span class="lineCov">       2283 :             (args-&gt;type == SEARCH_OR &amp;&amp; !parent_and) ||</span>
+<span class="lineNum">     562 </span><span class="lineCov">       2281 :             ((args-&gt;type == SEARCH_SUB || args-&gt;type == SEARCH_OR) &amp;&amp;</span>
+<span class="lineNum">     563 </span><span class="lineCov">        300 :              args-&gt;value.subargs-&gt;next == NULL)) {</span>
+<span class="lineNum">     564 </span>            :             /* p and (q and ..) == p and q and ..
+<span class="lineNum">     565 </span>            :                p or (q or ..) == p or q or ..
+<span class="lineNum">     566 </span>            :                (p) = p */
+<span class="lineNum">     567 </span><span class="lineCov">        144 :             sub = args-&gt;value.subargs;</span>
+<span class="lineNum">     568 </span><span class="lineCov">        144 :             for (; sub-&gt;next != NULL; sub = sub-&gt;next) ;</span>
+<span class="lineNum">     569 </span><span class="lineCov">        144 :             sub-&gt;next = args-&gt;next;</span>
+<span class="lineNum">     570 </span><span class="lineCov">        144 :             *args = *args-&gt;value.subargs;</span>
+<span class="lineNum">     571 </span><span class="lineCov">        144 :             ctx.removals = TRUE;</span>
+<span class="lineNum">     572 </span><span class="lineCov">        144 :             continue;</span>
+<span class="lineNum">     573 </span>            :         }
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineCov">       1819 :         if (args-&gt;type == SEARCH_SUB ||</span>
+<span class="lineNum">     576 </span><span class="lineCov">       1612 :             args-&gt;type == SEARCH_OR ||</span>
+<span class="lineNum">     577 </span><span class="lineCov">        726 :             args-&gt;type == SEARCH_INTHREAD) {</span>
+<span class="lineNum">     578 </span><span class="lineCov">        207 :             i_assert(!args-&gt;match_not);</span>
+<span class="lineNum">     579 </span>            : 
+<span class="lineNum">     580 </span><span class="lineCov">        207 :             if (args-&gt;type != SEARCH_INTHREAD) {</span>
+<span class="lineNum">     581 </span><span class="lineCov">        207 :                 bool and_arg = args-&gt;type == SEARCH_SUB;</span>
+<span class="lineNum">     582 </span>            : 
+<span class="lineNum">     583 </span><span class="lineCov">        207 :                 if (mail_search_args_simplify_drop_redundant_args(all_args, &amp;args-&gt;value.subargs, and_arg))</span>
+<span class="lineNum">     584 </span><span class="lineCov">          7 :                     ctx.removals = TRUE;</span>
+<span class="lineNum">     585 </span><span class="lineCov">        207 :                 if (mail_search_args_simplify_extract_common(all_args, &amp;args-&gt;value.subargs, pool, and_arg))</span>
+<span class="lineNum">     586 </span><span class="lineCov">          8 :                     ctx.removals = TRUE;</span>
+<span class="lineNum">     587 </span>            :             }
+<span class="lineNum">     588 </span><span class="lineCov">        207 :             if (mail_search_args_simplify_sub(all_args, pool, &amp;args-&gt;value.subargs,</span>
+<span class="lineNum">     589 </span><span class="lineCov">        207 :                               args-&gt;type != SEARCH_OR))</span>
+<span class="lineNum">     590 </span><span class="lineCov">         76 :                 ctx.removals = TRUE;</span>
+<span class="lineNum">     591 </span>            :         }
+<span class="lineNum">     592 </span><span class="lineCov">       1822 :         if (args-&gt;type == SEARCH_SEQSET ||</span>
+<span class="lineNum">     593 </span><span class="lineCov">        889 :             args-&gt;type == SEARCH_UIDSET)</span>
+<span class="lineNum">     594 </span><span class="lineCov">         71 :             mail_search_args_simplify_set(args);</span>
+<span class="lineNum">     595 </span>            : 
+<span class="lineNum">     596 </span>            :         /* try to merge arguments */
+<span class="lineNum">     597 </span><span class="lineCov">        933 :         merged = FALSE;</span>
+<span class="lineNum">     598 </span><span class="lineCov">        933 :         switch (args-&gt;type) {</span>
+<span class="lineNum">     599 </span>            :         case SEARCH_ALL: {
+<span class="lineNum">     600 </span><span class="lineCov">         58 :             if (*all_argsp == args &amp;&amp; args-&gt;next == NULL) {</span>
+<span class="lineNum">     601 </span>            :                 /* this arg has no siblings - no merging */
+<span class="lineNum">     602 </span><span class="lineCov">         45 :                 break;</span>
+<span class="lineNum">     603 </span>            :             }
+<span class="lineNum">     604 </span><span class="lineCov">         19 :             if ((parent_and &amp;&amp; !args-&gt;match_not) ||</span>
+<span class="lineNum">     605 </span><span class="lineCov">         11 :                 (!parent_and &amp;&amp; args-&gt;match_not)) {</span>
+<span class="lineNum">     606 </span>            :                 /* .. AND ALL ..
+<span class="lineNum">     607 </span>            :                    .. OR NOT ALL ..
+<span class="lineNum">     608 </span>            :                    This arg is irrelevant -&gt; drop */
+<span class="lineNum">     609 </span><span class="lineCov">          8 :                 merged = TRUE;</span>
+<span class="lineNum">     610 </span><span class="lineCov">          8 :                 break;</span>
+<span class="lineNum">     611 </span>            :             }
+<span class="lineNum">     612 </span>            :             /* .. AND NOT ALL ..
+<span class="lineNum">     613 </span>            :                .. OR ALL ..
+<span class="lineNum">     614 </span>            :                The other args are irrelevant -&gt; drop them */
+<span class="lineNum">     615 </span><span class="lineCov">          5 :             *all_argsp = args;</span>
+<span class="lineNum">     616 </span><span class="lineCov">          5 :             args-&gt;next = NULL;</span>
+<span class="lineNum">     617 </span><span class="lineCov">          5 :             ctx.removals = TRUE;</span>
+<span class="lineNum">     618 </span><span class="lineCov">          5 :             break;</span>
+<span class="lineNum">     619 </span>            :         }
+<span class="lineNum">     620 </span>            :         case SEARCH_FLAGS:
+<span class="lineNum">     621 </span><span class="lineCov">         87 :             merged = mail_search_args_merge_flags(&amp;ctx, args);</span>
+<span class="lineNum">     622 </span><span class="lineCov">         87 :             break;</span>
+<span class="lineNum">     623 </span>            :         case SEARCH_KEYWORDS:
+<span class="lineNum">     624 </span><span class="lineCov">         24 :             merged = mail_search_args_merge_keywords(&amp;ctx, args);</span>
+<span class="lineNum">     625 </span><span class="lineCov">         24 :             break;</span>
+<span class="lineNum">     626 </span>            :         case SEARCH_SEQSET:
+<span class="lineNum">     627 </span>            :         case SEARCH_UIDSET:
+<span class="lineNum">     628 </span><span class="lineCov">         63 :             merged = mail_search_args_merge_set(&amp;ctx, args);</span>
+<span class="lineNum">     629 </span><span class="lineCov">         63 :             break;</span>
+<span class="lineNum">     630 </span>            :         case SEARCH_BEFORE:
+<span class="lineNum">     631 </span>            :         case SEARCH_ON:
+<span class="lineNum">     632 </span>            :         case SEARCH_SINCE:
+<span class="lineNum">     633 </span><span class="lineCov">         61 :             merged = mail_search_args_merge_time(&amp;ctx, args);</span>
+<span class="lineNum">     634 </span><span class="lineCov">         61 :             break;</span>
+<span class="lineNum">     635 </span>            :         case SEARCH_SMALLER:
+<span class="lineNum">     636 </span>            :         case SEARCH_LARGER:
+<span class="lineNum">     637 </span><span class="lineCov">         39 :             merged = mail_search_args_merge_size(&amp;ctx, args);</span>
+<span class="lineNum">     638 </span><span class="lineCov">         39 :             break;</span>
+<span class="lineNum">     639 </span>            :         case SEARCH_BODY:
+<span class="lineNum">     640 </span>            :         case SEARCH_TEXT:
+<span class="lineNum">     641 </span><span class="lineCov">        366 :             if (args-&gt;value.str[0] == '\0') {</span>
+<span class="lineNum">     642 </span>            :                 /* BODY &quot;&quot; and TEXT &quot;&quot; matches everything */
+<span class="lineNum">     643 </span><span class="lineCov">          2 :                 args-&gt;type = SEARCH_ALL;</span>
+<span class="lineNum">     644 </span><span class="lineCov">          2 :                 ctx.removals = TRUE;</span>
+<span class="lineNum">     645 </span><span class="lineCov">          2 :                 break;</span>
+<span class="lineNum">     646 </span>            :             }
+<span class="lineNum">     647 </span>            :             /* fall through */
+<span class="lineNum">     648 </span>            :         case SEARCH_HEADER:
+<span class="lineNum">     649 </span>            :         case SEARCH_HEADER_ADDRESS:
+<span class="lineNum">     650 </span>            :         case SEARCH_HEADER_COMPRESS_LWSP:
+<span class="lineNum">     651 </span><span class="lineCov">        392 :             merged = mail_search_args_merge_text(&amp;ctx, args);</span>
+<span class="lineNum">     652 </span><span class="lineCov">        392 :             break;</span>
+<span class="lineNum">     653 </span>            :         default:
+<span class="lineNum">     654 </span><span class="lineCov">        207 :             break;</span>
+<span class="lineNum">     655 </span>            :         }
+<span class="lineNum">     656 </span><span class="lineCov">        933 :         if (merged) {</span>
+<span class="lineNum">     657 </span><span class="lineCov">         91 :             *argsp = args-&gt;next;</span>
+<span class="lineNum">     658 </span><span class="lineCov">         91 :             ctx.removals = TRUE;</span>
+<span class="lineNum">     659 </span><span class="lineCov">         91 :             continue;</span>
+<span class="lineNum">     660 </span>            :         }
+<span class="lineNum">     661 </span>            : 
+<span class="lineNum">     662 </span><span class="lineCov">        842 :         argsp = &amp;args-&gt;next;</span>
+<span class="lineNum">     663 </span>            :     }
+<span class="lineNum">     664 </span><span class="lineCov">        566 :     hash_table_destroy(&amp;ctx.prev_args);</span>
+<span class="lineNum">     665 </span><span class="lineCov">        566 :     pool_unref(&amp;ctx.pool);</span>
+<span class="lineNum">     666 </span><span class="lineCov">        566 :     return ctx.removals;</span>
+<span class="lineNum">     667 </span>            : }
+<a name="668"><span class="lineNum">     668 </span>            : </a>
+<span class="lineNum">     669 </span>            : static bool
+<span class="lineNum">     670 </span><span class="lineCov">        341 : mail_search_args_simplify_merge_flags(struct mail_search_arg **argsp,</span>
+<span class="lineNum">     671 </span>            :                       bool parent_and)
+<span class="lineNum">     672 </span>            : {
+<span class="lineNum">     673 </span><span class="lineCov">        341 :     struct mail_search_arg *prev_flags = NULL;</span>
+<span class="lineNum">     674 </span><span class="lineCov">        341 :     bool removals = FALSE;</span>
+<span class="lineNum">     675 </span>            : 
+<span class="lineNum">     676 </span><span class="lineCov">       1197 :     while (*argsp != NULL) {</span>
+<span class="lineNum">     677 </span><span class="lineCov">        515 :         struct mail_search_arg *args = *argsp;</span>
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span><span class="lineCov">        999 :         if (args-&gt;type == SEARCH_SUB ||</span>
+<span class="lineNum">     680 </span><span class="lineCov">        897 :             args-&gt;type == SEARCH_OR ||</span>
+<span class="lineNum">     681 </span><span class="lineCov">        413 :             args-&gt;type == SEARCH_INTHREAD) {</span>
+<span class="lineNum">     682 </span><span class="lineCov">        204 :             if (mail_search_args_simplify_merge_flags(&amp;args-&gt;value.subargs,</span>
+<span class="lineNum">     683 </span><span class="lineCov">        102 :                                   args-&gt;type != SEARCH_OR))</span>
+<span class="lineNum">     684 </span><span class="lineCov">         10 :                 removals = TRUE;</span>
+<span class="lineNum">     685 </span><span class="lineCov">        413 :         } else if (args-&gt;type != SEARCH_FLAGS) {</span>
+<span class="lineNum">     686 </span>            :             /* ignore non-flags */
+<span class="lineNum">     687 </span><span class="lineCov">        152 :         } else if (!((!args-&gt;match_not &amp;&amp; parent_and) ||</span>
+<span class="lineNum">     688 </span><span class="lineCov">         96 :                (args-&gt;match_not &amp;&amp; !parent_and))) {</span>
+<span class="lineNum">     689 </span>            :             /* can't merge these flags args */
+<span class="lineNum">     690 </span><span class="lineCov">         37 :         } else if (prev_flags == NULL) {</span>
+<span class="lineNum">     691 </span>            :             /* first flags arg */
+<span class="lineNum">     692 </span><span class="lineCov">         20 :             prev_flags = args;</span>
+<span class="lineNum">     693 </span>            :         } else {
+<span class="lineNum">     694 </span>            :             /* merge to previous arg */
+<span class="lineNum">     695 </span><span class="lineCov">         17 :             prev_flags-&gt;value.flags |= args-&gt;value.flags;</span>
+<span class="lineNum">     696 </span><span class="lineCov">         17 :             *argsp = args-&gt;next;</span>
+<span class="lineNum">     697 </span><span class="lineCov">         17 :             removals = TRUE;</span>
+<span class="lineNum">     698 </span><span class="lineCov">         17 :             continue;</span>
+<span class="lineNum">     699 </span>            :         }
+<span class="lineNum">     700 </span><span class="lineCov">        498 :         argsp = &amp;args-&gt;next;</span>
+<span class="lineNum">     701 </span>            :     }
+<span class="lineNum">     702 </span><span class="lineCov">        341 :     return removals;</span>
+<span class="lineNum">     703 </span>            : }
+<a name="704"><span class="lineNum">     704 </span>            : </a>
+<span class="lineNum">     705 </span>            : static bool
+<span class="lineNum">     706 </span><span class="lineCov">        299 : mail_search_args_unnest_inthreads(struct mail_search_args *args,</span>
+<span class="lineNum">     707 </span>            :                   struct mail_search_arg **argp,
+<span class="lineNum">     708 </span>            :                   bool parent_inthreads, bool parent_and)
+<span class="lineNum">     709 </span>            : {
+<span class="lineNum">     710 </span>            :     struct mail_search_arg *arg, *thread_arg, *or_arg;
+<span class="lineNum">     711 </span><span class="lineCov">        299 :     bool child_inthreads = FALSE, non_inthreads = FALSE;</span>
+<span class="lineNum">     712 </span>            : 
+<span class="lineNum">     713 </span><span class="lineCov">        756 :     for (arg = *argp; arg != NULL; arg = arg-&gt;next) {</span>
+<span class="lineNum">     714 </span><span class="lineCov">        457 :         switch (arg-&gt;type) {</span>
+<span class="lineNum">     715 </span>            :         case SEARCH_SUB:
+<span class="lineNum">     716 </span>            :         case SEARCH_OR:
+<span class="lineNum">     717 </span><span class="lineCov">        132 :             if (!mail_search_args_unnest_inthreads(args,</span>
+<span class="lineNum">     718 </span>            :                     &amp;arg-&gt;value.subargs, parent_inthreads,
+<span class="lineNum">     719 </span><span class="lineCov">        132 :                     arg-&gt;type != SEARCH_OR)) {</span>
+<span class="lineNum">     720 </span><span class="lineCov">        132 :                 arg-&gt;result = 1;</span>
+<span class="lineNum">     721 </span><span class="lineCov">        132 :                 child_inthreads = TRUE;</span>
+<span class="lineNum">     722 </span>            :             } else {
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :                 arg-&gt;result = 0;</span>
+<span class="lineNum">     724 </span><span class="lineNoCov">          0 :                 non_inthreads = TRUE;</span>
+<span class="lineNum">     725 </span>            :             }
+<span class="lineNum">     726 </span><span class="lineCov">        132 :             break;</span>
+<span class="lineNum">     727 </span>            :         case SEARCH_INTHREAD:
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :             if (mail_search_args_unnest_inthreads(args,</span>
+<span class="lineNum">     729 </span>            :                     &amp;arg-&gt;value.subargs, TRUE, TRUE)) {
+<span class="lineNum">     730 </span>            :                 /* children converted to SEARCH_INTHREADs */
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :                 arg-&gt;type = SEARCH_SUB;</span>
+<span class="lineNum">     732 </span>            :             }
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :             args-&gt;have_inthreads = TRUE;</span>
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :             arg-&gt;result = 1;</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :             child_inthreads = TRUE;</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     737 </span>            :         default:
+<span class="lineNum">     738 </span><span class="lineCov">        325 :             arg-&gt;result = 0;</span>
+<span class="lineNum">     739 </span><span class="lineCov">        325 :             non_inthreads = TRUE;</span>
+<span class="lineNum">     740 </span><span class="lineCov">        325 :             break;</span>
+<span class="lineNum">     741 </span>            :         }
+<span class="lineNum">     742 </span>            :     }
+<span class="lineNum">     743 </span>            : 
+<span class="lineNum">     744 </span><span class="lineCov">        299 :     if (!parent_inthreads || !child_inthreads || !non_inthreads)</span>
+<span class="lineNum">     745 </span><span class="lineCov">        299 :         return FALSE;</span>
+<span class="lineNum">     746 </span>            : 
+<span class="lineNum">     747 </span>            :     /* put all non-INTHREADs under a single INTHREAD */
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     thread_arg = p_new(args-&gt;pool, struct mail_search_arg, 1);</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :     thread_arg-&gt;type = SEARCH_INTHREAD;</span>
+<span class="lineNum">     750 </span>            : 
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :     while (*argp != NULL) {</span>
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :         arg = *argp;</span>
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :         argp = &amp;(*argp)-&gt;next;</span>
+<span class="lineNum">     754 </span>            : 
+<span class="lineNum">     755 </span><span class="lineNoCov">          0 :         if (arg-&gt;result == 0) {</span>
+<span class="lineNum">     756 </span>            :             /* not an INTHREAD or a SUB/OR with only INTHREADs */
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :             arg-&gt;next = thread_arg-&gt;value.subargs;</span>
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :             thread_arg-&gt;value.subargs = arg;</span>
+<span class="lineNum">     759 </span>            :         }
+<span class="lineNum">     760 </span>            :     }
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :     if (!parent_and) {</span>
+<span class="lineNum">     762 </span>            :         /* We want to OR the args */
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :         or_arg = p_new(args-&gt;pool, struct mail_search_arg, 1);</span>
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :         or_arg-&gt;type = SEARCH_OR;</span>
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :         or_arg-&gt;value.subargs = thread_arg-&gt;value.subargs;</span>
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :         thread_arg-&gt;value.subargs = or_arg;</span>
+<span class="lineNum">     767 </span>            :     }
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="769"><span class="lineNum">     769 </span>            : }</a>
+<span class="lineNum">     770 </span>            : 
+<span class="lineNum">     771 </span><span class="lineCov">        167 : void mail_search_args_simplify(struct mail_search_args *args)</span>
+<span class="lineNum">     772 </span>            : {
+<span class="lineNum">     773 </span>            :     bool removals;
+<span class="lineNum">     774 </span>            : 
+<span class="lineNum">     775 </span><span class="lineCov">        167 :     args-&gt;simplified = TRUE;</span>
+<span class="lineNum">     776 </span>            : 
+<span class="lineNum">     777 </span><span class="lineCov">        167 :     removals = mail_search_args_simplify_sub(args, args-&gt;pool, &amp;args-&gt;args, TRUE);</span>
+<span class="lineNum">     778 </span><span class="lineCov">        167 :     if (mail_search_args_unnest_inthreads(args, &amp;args-&gt;args,</span>
+<span class="lineNum">     779 </span>            :                           FALSE, TRUE)) {
+<span class="lineNum">     780 </span>            :         /* we may have added some extra SUBs that could be dropped */
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :         if (mail_search_args_simplify_sub(args, args-&gt;pool, &amp;args-&gt;args, TRUE))</span>
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :             removals = TRUE;</span>
+<span class="lineNum">     783 </span>            :     }
+<span class="lineNum">     784 </span>            :     do {
+<span class="lineNum">     785 </span><span class="lineCov">        239 :         if (mail_search_args_simplify_drop_redundant_args(args, &amp;args-&gt;args, TRUE))</span>
+<span class="lineNum">     786 </span><span class="lineCov">          6 :             removals = TRUE;</span>
+<span class="lineNum">     787 </span><span class="lineCov">        239 :         if (mail_search_args_simplify_extract_common(args, &amp;args-&gt;args, args-&gt;pool, TRUE))</span>
+<span class="lineNum">     788 </span><span class="lineCov">          7 :             removals = TRUE;</span>
+<span class="lineNum">     789 </span><span class="lineCov">        239 :         if (removals)</span>
+<span class="lineNum">     790 </span><span class="lineCov">        192 :             removals = mail_search_args_simplify_sub(args, args-&gt;pool, &amp;args-&gt;args, TRUE);</span>
+<span class="lineNum">     791 </span>            :         /* do the flag merging into a single arg only at the end.
+<span class="lineNum">     792 </span>            :            up until then they're treated as any other search args,
+<span class="lineNum">     793 </span>            :            which simplifies their handling. after the flags merging is
+<span class="lineNum">     794 </span>            :            done, further simplifications are still possible. */
+<span class="lineNum">     795 </span><span class="lineCov">        239 :         if (mail_search_args_simplify_merge_flags(&amp;args-&gt;args, TRUE))</span>
+<span class="lineNum">     796 </span><span class="lineCov">         12 :             removals = TRUE;</span>
+<span class="lineNum">     797 </span><span class="lineCov">        239 :     } while (removals);</span>
+<span class="lineNum">     798 </span><span class="lineCov">        167 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

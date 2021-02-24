@@ -1,0 +1,789 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-sql/sql-api.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-sql</a> - sql-api.c<span style="font-size: 80%;"> (source / <a href="sql-api.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">125</td>
+            <td class="headerCovTableEntry">345</td>
+            <td class="headerCovTableEntryLo">36.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntry">66</td>
+            <td class="headerCovTableEntryLo">39.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2004-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;sql-api-private.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &lt;time.h&gt;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : struct default_sql_prepared_statement {
+<span class="lineNum">      12 </span>            :     struct sql_prepared_statement prep_stmt;
+<span class="lineNum">      13 </span>            :     char *query_template;
+<span class="lineNum">      14 </span>            : };
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : struct sql_db_module_register sql_db_module_register = { 0 };
+<a name="17"><span class="lineNum">      17 </span>            : ARRAY_TYPE(sql_drivers) sql_drivers;</a>
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span><span class="lineCov">          1 : void sql_drivers_init(void)</span>
+<span class="lineNum">      20 </span>            : {
+<span class="lineNum">      21 </span><span class="lineCov">          1 :     i_array_init(&amp;sql_drivers, 8);</span>
+<a name="22"><span class="lineNum">      22 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span><span class="lineCov">          1 : void sql_drivers_deinit(void)</span>
+<span class="lineNum">      25 </span>            : {
+<span class="lineNum">      26 </span><span class="lineCov">          1 :     array_free(&amp;sql_drivers);</span>
+<a name="27"><span class="lineNum">      27 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span><span class="lineCov">          4 : static const struct sql_db *sql_driver_lookup(const char *name)</span>
+<span class="lineNum">      30 </span>            : {
+<span class="lineNum">      31 </span>            :     const struct sql_db *const *drivers;
+<span class="lineNum">      32 </span>            :     unsigned int i, count;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span><span class="lineCov">          4 :     drivers = array_get(&amp;sql_drivers, &amp;count);</span>
+<span class="lineNum">      35 </span><span class="lineCov">          7 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">      36 </span><span class="lineCov">          4 :         if (strcmp(drivers[i]-&gt;name, name) == 0)</span>
+<span class="lineNum">      37 </span><span class="lineCov">          1 :             return drivers[i];</span>
+<span class="lineNum">      38 </span>            :     }
+<span class="lineNum">      39 </span><span class="lineCov">          3 :     return NULL;</span>
+<a name="40"><span class="lineNum">      40 </span>            : }</a>
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span><span class="lineCov">          3 : void sql_driver_register(const struct sql_db *driver)</span>
+<span class="lineNum">      43 </span>            : {
+<span class="lineNum">      44 </span><span class="lineCov">          3 :     if (sql_driver_lookup(driver-&gt;name) != NULL) {</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :         i_fatal(&quot;sql_driver_register(%s): Already registered&quot;,</span>
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :             driver-&gt;name);</span>
+<span class="lineNum">      47 </span>            :     }
+<span class="lineNum">      48 </span><span class="lineCov">          3 :     array_append(&amp;sql_drivers, &amp;driver, 1);</span>
+<a name="49"><span class="lineNum">      49 </span><span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span><span class="lineCov">          3 : void sql_driver_unregister(const struct sql_db *driver)</span>
+<span class="lineNum">      52 </span>            : {
+<span class="lineNum">      53 </span>            :     const struct sql_db *const *drivers;
+<span class="lineNum">      54 </span>            :     unsigned int i, count;
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineCov">          3 :     drivers = array_get(&amp;sql_drivers, &amp;count);</span>
+<span class="lineNum">      57 </span><span class="lineCov">          3 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">      58 </span><span class="lineCov">          3 :         if (drivers[i] == driver) {</span>
+<span class="lineNum">      59 </span><span class="lineCov">          3 :             array_delete(&amp;sql_drivers, i, 1);</span>
+<span class="lineNum">      60 </span><span class="lineCov">          3 :             break;</span>
+<span class="lineNum">      61 </span>            :         }
+<span class="lineNum">      62 </span>            :     }
+<a name="63"><span class="lineNum">      63 </span><span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineCov">          1 : struct sql_db *sql_init(const char *db_driver, const char *connect_string)</span>
+<span class="lineNum">      66 </span>            : {
+<span class="lineNum">      67 </span>            :     const struct sql_db *driver;
+<span class="lineNum">      68 </span>            :     struct sql_db *db;
+<span class="lineNum">      69 </span>            : 
+<span class="lineNum">      70 </span><span class="lineCov">          1 :     i_assert(connect_string != NULL);</span>
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineCov">          1 :     driver = sql_driver_lookup(db_driver);</span>
+<span class="lineNum">      73 </span><span class="lineCov">          1 :     if (driver == NULL)</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         i_fatal(&quot;Unknown database driver '%s'&quot;, db_driver);</span>
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineCov">          1 :     if ((driver-&gt;flags &amp; SQL_DB_FLAG_POOLED) == 0)</span>
+<span class="lineNum">      77 </span><span class="lineCov">          1 :         db = driver-&gt;v.init(connect_string);</span>
+<span class="lineNum">      78 </span>            :     else
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         db = driver_sqlpool_init(connect_string, driver);</span>
+<span class="lineNum">      80 </span><span class="lineCov">          1 :     i_array_init(&amp;db-&gt;module_contexts, 5);</span>
+<span class="lineNum">      81 </span><span class="lineCov">          1 :     return db;</span>
+<a name="82"><span class="lineNum">      82 </span>            : }</a>
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineCov">          5 : void sql_deinit(struct sql_db **_db)</span>
+<span class="lineNum">      85 </span>            : {
+<span class="lineNum">      86 </span><span class="lineCov">          5 :     struct sql_db *db = *_db;</span>
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineCov">          5 :     *_db = NULL;</span>
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span><span class="lineCov">          5 :     timeout_remove(&amp;db-&gt;to_reconnect);</span>
+<span class="lineNum">      91 </span><span class="lineCov">          5 :     db-&gt;v.deinit(db);</span>
+<a name="92"><span class="lineNum">      92 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineCov">          5 : enum sql_db_flags sql_get_flags(struct sql_db *db)</span>
+<span class="lineNum">      95 </span>            : {
+<span class="lineNum">      96 </span><span class="lineCov">          5 :     return db-&gt;flags;</span>
+<a name="97"><span class="lineNum">      97 </span>            : }</a>
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 : int sql_connect(struct sql_db *db)</span>
+<span class="lineNum">     100 </span>            : {
+<span class="lineNum">     101 </span>            :     time_t now;
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     switch (db-&gt;state) {</span>
+<span class="lineNum">     104 </span>            :     case SQL_DB_STATE_DISCONNECTED:
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     106 </span>            :     case SQL_DB_STATE_CONNECTING:
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     108 </span>            :     default:
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     110 </span>            :     }
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span>            :     /* don't try reconnecting more than once a second */
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     now = time(NULL);</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     if (db-&gt;last_connect_try + (time_t)db-&gt;connect_delay &gt; now)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     db-&gt;last_connect_try = now;</span>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     return db-&gt;v.connect(db);</span>
+<a name="119"><span class="lineNum">     119 </span>            : }</a>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 : void sql_disconnect(struct sql_db *db)</span>
+<span class="lineNum">     122 </span>            : {
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;db-&gt;to_reconnect);</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     db-&gt;v.disconnect(db);</span>
+<a name="125"><span class="lineNum">     125 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineCov">         15 : const char *sql_escape_string(struct sql_db *db, const char *string)</span>
+<span class="lineNum">     128 </span>            : {
+<span class="lineNum">     129 </span><span class="lineCov">         15 :     return db-&gt;v.escape_string(db, string);</span>
+<a name="130"><span class="lineNum">     130 </span>            : }</a>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 : const char *sql_escape_blob(struct sql_db *db,</span>
+<span class="lineNum">     133 </span>            :                 const unsigned char *data, size_t size)
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     return db-&gt;v.escape_blob(db, data, size);</span>
+<a name="136"><span class="lineNum">     136 </span>            : }</a>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 : void sql_exec(struct sql_db *db, const char *query)</span>
+<span class="lineNum">     139 </span>            : {
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     db-&gt;v.exec(db, query);</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 : }</span>
+<a name="142"><span class="lineNum">     142 </span>            : </a>
+<span class="lineNum">     143 </span>            : #undef sql_query
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 : void sql_query(struct sql_db *db, const char *query,</span>
+<span class="lineNum">     145 </span>            :            sql_query_callback_t *callback, void *context)
+<span class="lineNum">     146 </span>            : {
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     db-&gt;v.query(db, query, callback, context);</span>
+<a name="148"><span class="lineNum">     148 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineCov">          3 : struct sql_result *sql_query_s(struct sql_db *db, const char *query)</span>
+<span class="lineNum">     151 </span>            : {
+<span class="lineNum">     152 </span><span class="lineCov">          3 :     return db-&gt;v.query_s(db, query);</span>
+<span class="lineNum">     153 </span>            : }
+<a name="154"><span class="lineNum">     154 </span>            : </a>
+<span class="lineNum">     155 </span>            : static struct sql_prepared_statement *
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : default_sql_prepared_statement_init(struct sql_db *db,</span>
+<span class="lineNum">     157 </span>            :                     const char *query_template)
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span>            :     struct default_sql_prepared_statement *prep_stmt;
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     prep_stmt = i_new(struct default_sql_prepared_statement, 1);</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     prep_stmt-&gt;prep_stmt.db = db;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     prep_stmt-&gt;query_template = i_strdup(query_template);</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     return &amp;prep_stmt-&gt;prep_stmt;</span>
+<span class="lineNum">     165 </span>            : }
+<a name="166"><span class="lineNum">     166 </span>            : </a>
+<span class="lineNum">     167 </span>            : static void
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 : default_sql_prepared_statement_deinit(struct sql_prepared_statement *_prep_stmt)</span>
+<span class="lineNum">     169 </span>            : {
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     struct default_sql_prepared_statement *prep_stmt =</span>
+<span class="lineNum">     171 </span>            :         (struct default_sql_prepared_statement *)_prep_stmt;
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     i_free(prep_stmt-&gt;query_template);</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     i_free(prep_stmt);</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 : }</span>
+<a name="176"><span class="lineNum">     176 </span>            : </a>
+<span class="lineNum">     177 </span>            : static struct sql_statement *
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 : default_sql_statement_init_prepared(struct sql_prepared_statement *_stmt)</span>
+<span class="lineNum">     179 </span>            : {
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :     struct default_sql_prepared_statement *stmt =</span>
+<span class="lineNum">     181 </span>            :         (struct default_sql_prepared_statement *)_stmt;
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     return sql_statement_init(_stmt-&gt;db, stmt-&gt;query_template);</span>
+<a name="183"><span class="lineNum">     183 </span>            : }</a>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">         10 : const char *sql_statement_get_query(struct sql_statement *stmt)</span>
+<span class="lineNum">     186 </span>            : {
+<span class="lineNum">     187 </span><span class="lineCov">         10 :     string_t *query = t_str_new(128);</span>
+<span class="lineNum">     188 </span>            :     const char *const *args;
+<span class="lineNum">     189 </span><span class="lineCov">         10 :     unsigned int i, args_count, arg_pos = 0;</span>
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineCov">         10 :     args = array_get(&amp;stmt-&gt;args, &amp;args_count);</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineCov">        667 :     for (i = 0; stmt-&gt;query_template[i] != '\0'; i++) {</span>
+<span class="lineNum">     194 </span><span class="lineCov">        657 :         if (stmt-&gt;query_template[i] == '?') {</span>
+<span class="lineNum">     195 </span><span class="lineCov">         40 :             if (arg_pos &gt;= args_count ||</span>
+<span class="lineNum">     196 </span><span class="lineCov">         20 :                 args[arg_pos] == NULL) {</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :                 i_panic(&quot;lib-sql: Missing bind for arg #%u in statement: %s&quot;,</span>
+<span class="lineNum">     198 </span>            :                     arg_pos, stmt-&gt;query_template);
+<span class="lineNum">     199 </span>            :             }
+<span class="lineNum">     200 </span><span class="lineCov">         20 :             str_append(query, args[arg_pos++]);</span>
+<span class="lineNum">     201 </span>            :         } else {
+<span class="lineNum">     202 </span><span class="lineCov">        637 :             str_append_c(query, stmt-&gt;query_template[i]);</span>
+<span class="lineNum">     203 </span>            :         }
+<span class="lineNum">     204 </span>            :     }
+<span class="lineNum">     205 </span><span class="lineCov">         10 :     if (arg_pos != args_count) {</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         i_panic(&quot;lib-sql: Too many bind args (%u) for statement: %s&quot;,</span>
+<span class="lineNum">     207 </span>            :             args_count, stmt-&gt;query_template);
+<span class="lineNum">     208 </span>            :     }
+<span class="lineNum">     209 </span><span class="lineCov">         10 :     return str_c(query);</span>
+<span class="lineNum">     210 </span>            : }
+<a name="211"><span class="lineNum">     211 </span>            : </a>
+<span class="lineNum">     212 </span>            : static void
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 : default_sql_statement_query(struct sql_statement *stmt,</span>
+<span class="lineNum">     214 </span>            :                 sql_query_callback_t *callback, void *context)
+<span class="lineNum">     215 </span>            : {
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     sql_query(stmt-&gt;db, sql_statement_get_query(stmt),</span>
+<span class="lineNum">     217 </span>            :           callback, context);
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     pool_unref(&amp;stmt-&gt;pool);</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 : }</span>
+<a name="220"><span class="lineNum">     220 </span>            : </a>
+<span class="lineNum">     221 </span>            : static struct sql_result *
+<span class="lineNum">     222 </span><span class="lineCov">          3 : default_sql_statement_query_s(struct sql_statement *stmt)</span>
+<span class="lineNum">     223 </span>            : {
+<span class="lineNum">     224 </span><span class="lineCov">          3 :     struct sql_result *result =</span>
+<span class="lineNum">     225 </span><span class="lineCov">          3 :         sql_query_s(stmt-&gt;db, sql_statement_get_query(stmt));</span>
+<span class="lineNum">     226 </span><span class="lineCov">          3 :     pool_unref(&amp;stmt-&gt;pool);</span>
+<span class="lineNum">     227 </span><span class="lineCov">          3 :     return result;</span>
+<a name="228"><span class="lineNum">     228 </span>            : }</a>
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineCov">          7 : static void default_sql_update_stmt(struct sql_transaction_context *ctx,</span>
+<span class="lineNum">     231 </span>            :                     struct sql_statement *stmt,
+<span class="lineNum">     232 </span>            :                     unsigned int *affected_rows)
+<span class="lineNum">     233 </span>            : {
+<span class="lineNum">     234 </span><span class="lineCov">          7 :     ctx-&gt;db-&gt;v.update(ctx, sql_statement_get_query(stmt),</span>
+<span class="lineNum">     235 </span>            :               affected_rows);
+<span class="lineNum">     236 </span><span class="lineCov">          7 :     pool_unref(&amp;stmt-&gt;pool);</span>
+<span class="lineNum">     237 </span><span class="lineCov">          7 : }</span>
+<a name="238"><span class="lineNum">     238 </span>            : </a>
+<span class="lineNum">     239 </span>            : struct sql_prepared_statement *
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 : sql_prepared_statement_init(struct sql_db *db, const char *query_template)</span>
+<span class="lineNum">     241 </span>            : {
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     if (db-&gt;v.prepared_statement_init != NULL)</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :         return db-&gt;v.prepared_statement_init(db, query_template);</span>
+<span class="lineNum">     244 </span>            :     else
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         return default_sql_prepared_statement_init(db, query_template);</span>
+<a name="246"><span class="lineNum">     246 </span>            : }</a>
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 : void sql_prepared_statement_deinit(struct sql_prepared_statement **_prep_stmt)</span>
+<span class="lineNum">     249 </span>            : {
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     struct sql_prepared_statement *prep_stmt = *_prep_stmt;</span>
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :     *_prep_stmt = NULL;</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :     if (prep_stmt-&gt;db-&gt;v.prepared_statement_deinit != NULL)</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         prep_stmt-&gt;db-&gt;v.prepared_statement_deinit(prep_stmt);</span>
+<span class="lineNum">     255 </span>            :     else
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         default_sql_prepared_statement_deinit(prep_stmt);</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 : }</span>
+<a name="258"><span class="lineNum">     258 </span>            : </a>
+<span class="lineNum">     259 </span>            : static void
+<span class="lineNum">     260 </span><span class="lineCov">         10 : sql_statement_init_fields(struct sql_statement *stmt, struct sql_db *db)</span>
+<span class="lineNum">     261 </span>            : {
+<span class="lineNum">     262 </span><span class="lineCov">         10 :     stmt-&gt;db = db;</span>
+<span class="lineNum">     263 </span><span class="lineCov">         10 :     p_array_init(&amp;stmt-&gt;args, stmt-&gt;pool, 8);</span>
+<span class="lineNum">     264 </span><span class="lineCov">         10 : }</span>
+<a name="265"><span class="lineNum">     265 </span>            : </a>
+<span class="lineNum">     266 </span>            : struct sql_statement *
+<span class="lineNum">     267 </span><span class="lineCov">         10 : sql_statement_init(struct sql_db *db, const char *query_template)</span>
+<span class="lineNum">     268 </span>            : {
+<span class="lineNum">     269 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span><span class="lineCov">         10 :     if (db-&gt;v.statement_init != NULL)</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         stmt = db-&gt;v.statement_init(db, query_template);</span>
+<span class="lineNum">     273 </span>            :     else {
+<span class="lineNum">     274 </span><span class="lineCov">         10 :         pool_t pool = pool_alloconly_create(&quot;sql statement&quot;, 1024);</span>
+<span class="lineNum">     275 </span><span class="lineCov">         10 :         stmt = p_new(pool, struct sql_statement, 1);</span>
+<span class="lineNum">     276 </span><span class="lineCov">         10 :         stmt-&gt;pool = pool;</span>
+<span class="lineNum">     277 </span>            :     }
+<span class="lineNum">     278 </span><span class="lineCov">         10 :     stmt-&gt;query_template = p_strdup(stmt-&gt;pool, query_template);</span>
+<span class="lineNum">     279 </span><span class="lineCov">         10 :     sql_statement_init_fields(stmt, db);</span>
+<span class="lineNum">     280 </span><span class="lineCov">         10 :     return stmt;</span>
+<span class="lineNum">     281 </span>            : }
+<a name="282"><span class="lineNum">     282 </span>            : </a>
+<span class="lineNum">     283 </span>            : struct sql_statement *
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 : sql_statement_init_prepared(struct sql_prepared_statement *prep_stmt)</span>
+<span class="lineNum">     285 </span>            : {
+<span class="lineNum">     286 </span>            :     struct sql_statement *stmt;
+<span class="lineNum">     287 </span>            : 
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     if (prep_stmt-&gt;db-&gt;v.statement_init_prepared == NULL)</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         return default_sql_statement_init_prepared(prep_stmt);</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     stmt = prep_stmt-&gt;db-&gt;v.statement_init_prepared(prep_stmt);</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     sql_statement_init_fields(stmt, prep_stmt-&gt;db);</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     return stmt;</span>
+<a name="294"><span class="lineNum">     294 </span>            : }</a>
+<span class="lineNum">     295 </span>            : 
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 : void sql_statement_abort(struct sql_statement **_stmt)</span>
+<span class="lineNum">     297 </span>            : {
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     struct sql_statement *stmt = *_stmt;</span>
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     *_stmt = NULL;</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     if (stmt-&gt;db-&gt;v.statement_abort != NULL)</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :         stmt-&gt;db-&gt;v.statement_abort(stmt);</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     pool_unref(&amp;stmt-&gt;pool);</span>
+<a name="304"><span class="lineNum">     304 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 : void sql_statement_set_timestamp(struct sql_statement *stmt,</span>
+<span class="lineNum">     307 </span>            :                  const struct timespec *ts)
+<span class="lineNum">     308 </span>            : {
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     if (stmt-&gt;db-&gt;v.statement_set_timestamp != NULL)</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         stmt-&gt;db-&gt;v.statement_set_timestamp(stmt, ts);</span>
+<a name="311"><span class="lineNum">     311 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     312 </span>            : 
+<span class="lineNum">     313 </span><span class="lineCov">         11 : void sql_statement_bind_str(struct sql_statement *stmt,</span>
+<span class="lineNum">     314 </span>            :                 unsigned int column_idx, const char *value)
+<span class="lineNum">     315 </span>            : {
+<span class="lineNum">     316 </span><span class="lineCov">         11 :     const char *escaped_value =</span>
+<span class="lineNum">     317 </span><span class="lineCov">         11 :         p_strdup_printf(stmt-&gt;pool, &quot;'%s'&quot;,</span>
+<span class="lineNum">     318 </span>            :                 sql_escape_string(stmt-&gt;db, value));
+<span class="lineNum">     319 </span><span class="lineCov">         11 :     array_idx_set(&amp;stmt-&gt;args, column_idx, &amp;escaped_value);</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineCov">         11 :     if (stmt-&gt;db-&gt;v.statement_bind_str != NULL)</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         stmt-&gt;db-&gt;v.statement_bind_str(stmt, column_idx, value);</span>
+<a name="323"><span class="lineNum">     323 </span><span class="lineCov">         11 : }</span></a>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 : void sql_statement_bind_binary(struct sql_statement *stmt,</span>
+<span class="lineNum">     326 </span>            :                    unsigned int column_idx, const void *value,
+<span class="lineNum">     327 </span>            :                    size_t value_size)
+<span class="lineNum">     328 </span>            : {
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     const char *value_str =</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         p_strdup_printf(stmt-&gt;pool, &quot;%s&quot;,</span>
+<span class="lineNum">     331 </span>            :                 sql_escape_blob(stmt-&gt;db, value, value_size));
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     array_idx_set(&amp;stmt-&gt;args, column_idx, &amp;value_str);</span>
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     if (stmt-&gt;db-&gt;v.statement_bind_binary != NULL) {</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         stmt-&gt;db-&gt;v.statement_bind_binary(stmt, column_idx,</span>
+<span class="lineNum">     336 </span>            :                           value, value_size);
+<span class="lineNum">     337 </span>            :     }
+<a name="338"><span class="lineNum">     338 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     339 </span>            : 
+<span class="lineNum">     340 </span><span class="lineCov">          9 : void sql_statement_bind_int64(struct sql_statement *stmt,</span>
+<span class="lineNum">     341 </span>            :                   unsigned int column_idx, int64_t value)
+<span class="lineNum">     342 </span>            : {
+<span class="lineNum">     343 </span><span class="lineCov">          9 :     const char *value_str = p_strdup_printf(stmt-&gt;pool, &quot;%&quot;PRId64, value);</span>
+<span class="lineNum">     344 </span><span class="lineCov">          9 :     array_idx_set(&amp;stmt-&gt;args, column_idx, &amp;value_str);</span>
+<span class="lineNum">     345 </span>            : 
+<span class="lineNum">     346 </span><span class="lineCov">          9 :     if (stmt-&gt;db-&gt;v.statement_bind_int64 != NULL)</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         stmt-&gt;db-&gt;v.statement_bind_int64(stmt, column_idx, value);</span>
+<span class="lineNum">     348 </span><span class="lineCov">          9 : }</span>
+<a name="349"><span class="lineNum">     349 </span>            : </a>
+<span class="lineNum">     350 </span>            : #undef sql_statement_query
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 : void sql_statement_query(struct sql_statement **_stmt,</span>
+<span class="lineNum">     352 </span>            :              sql_query_callback_t *callback, void *context)
+<span class="lineNum">     353 </span>            : {
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     struct sql_statement *stmt = *_stmt;</span>
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     *_stmt = NULL;</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     if (stmt-&gt;db-&gt;v.statement_query != NULL)</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :         stmt-&gt;db-&gt;v.statement_query(stmt, callback, context);</span>
+<span class="lineNum">     359 </span>            :     else
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :         default_sql_statement_query(stmt, callback, context);</span>
+<a name="361"><span class="lineNum">     361 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineCov">          3 : struct sql_result *sql_statement_query_s(struct sql_statement **_stmt)</span>
+<span class="lineNum">     364 </span>            : {
+<span class="lineNum">     365 </span><span class="lineCov">          3 :     struct sql_statement *stmt = *_stmt;</span>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineCov">          3 :     *_stmt = NULL;</span>
+<span class="lineNum">     368 </span><span class="lineCov">          3 :     if (stmt-&gt;db-&gt;v.statement_query_s != NULL)</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         return stmt-&gt;db-&gt;v.statement_query_s(stmt);</span>
+<span class="lineNum">     370 </span>            :     else
+<span class="lineNum">     371 </span><span class="lineCov">          3 :         return default_sql_statement_query_s(stmt);</span>
+<a name="372"><span class="lineNum">     372 </span>            : }</a>
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 : void sql_result_ref(struct sql_result *result)</span>
+<span class="lineNum">     375 </span>            : {
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     result-&gt;refcount++;</span>
+<a name="377"><span class="lineNum">     377 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineCov">          3 : void sql_result_unref(struct sql_result *result)</span>
+<span class="lineNum">     380 </span>            : {
+<span class="lineNum">     381 </span><span class="lineCov">          3 :     i_assert(result-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     382 </span><span class="lineCov">          3 :     if (--result-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     383 </span><span class="lineCov">          3 :         return;</span>
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineCov">          3 :     i_free(result-&gt;map);</span>
+<span class="lineNum">     386 </span><span class="lineCov">          3 :     result-&gt;v.free(result);</span>
+<span class="lineNum">     387 </span>            : }
+<a name="388"><span class="lineNum">     388 </span>            : </a>
+<span class="lineNum">     389 </span>            : static const struct sql_field_def *
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 : sql_field_def_find(const struct sql_field_def *fields, const char *name)</span>
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span>            :     unsigned int i;
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     for (i = 0; fields[i].name != NULL; i++) {</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :         if (strcasecmp(fields[i].name, name) == 0)</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :             return &amp;fields[i];</span>
+<span class="lineNum">     397 </span>            :     }
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<span class="lineNum">     399 </span>            : }
+<a name="400"><span class="lineNum">     400 </span>            : </a>
+<span class="lineNum">     401 </span>            : static void
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 : sql_result_build_map(struct sql_result *result,</span>
+<span class="lineNum">     403 </span>            :              const struct sql_field_def *fields, size_t dest_size)
+<span class="lineNum">     404 </span>            : {
+<span class="lineNum">     405 </span>            :     const struct sql_field_def *def;
+<span class="lineNum">     406 </span>            :     const char *name;
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     unsigned int i, count, field_size = 0;</span>
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     count = sql_result_get_fields_count(result);</span>
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     result-&gt;map_size = count;</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     result-&gt;map = i_new(struct sql_field_map, result-&gt;map_size);</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :         name = sql_result_get_field_name(result, i);</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :         def = sql_field_def_find(fields, name);</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         if (def != NULL) {</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :             result-&gt;map[i].type = def-&gt;type;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :             result-&gt;map[i].offset = def-&gt;offset;</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :             switch (def-&gt;type) {</span>
+<span class="lineNum">     420 </span>            :             case SQL_TYPE_STR:
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :                 field_size = sizeof(const char *);</span>
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     423 </span>            :             case SQL_TYPE_UINT:
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :                 field_size = sizeof(unsigned int);</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     426 </span>            :             case SQL_TYPE_ULLONG:
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :                 field_size = sizeof(unsigned long long);</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     429 </span>            :             case SQL_TYPE_BOOL:
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :                 field_size = sizeof(bool);</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     432 </span>            :             }
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :             i_assert(def-&gt;offset + field_size &lt;= dest_size);</span>
+<span class="lineNum">     434 </span>            :         } else {
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :             result-&gt;map[i].offset = (size_t)-1;</span>
+<span class="lineNum">     436 </span>            :         }
+<span class="lineNum">     437 </span>            :     }
+<a name="438"><span class="lineNum">     438 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 : void sql_result_setup_fetch(struct sql_result *result,</span>
+<span class="lineNum">     441 </span>            :                 const struct sql_field_def *fields,
+<span class="lineNum">     442 </span>            :                 void *dest, size_t dest_size)
+<span class="lineNum">     443 </span>            : {
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :     if (result-&gt;map == NULL)</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :         sql_result_build_map(result, fields, dest_size);</span>
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     result-&gt;fetch_dest = dest;</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :     result-&gt;fetch_dest_size = dest_size;</span>
+<a name="448"><span class="lineNum">     448 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 : static void sql_result_fetch(struct sql_result *result)</span>
+<span class="lineNum">     451 </span>            : {
+<span class="lineNum">     452 </span>            :     unsigned int i, count;
+<span class="lineNum">     453 </span>            :     const char *value;
+<span class="lineNum">     454 </span>            :     void *ptr;
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :     memset(result-&gt;fetch_dest, 0, result-&gt;fetch_dest_size);</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :     count = result-&gt;map_size;</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         if (result-&gt;map[i].offset == (size_t)-1)</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :         value = sql_result_get_field_value(result, i);</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :         ptr = STRUCT_MEMBER_P(result-&gt;fetch_dest,</span>
+<span class="lineNum">     464 </span>            :                       result-&gt;map[i].offset);
+<span class="lineNum">     465 </span>            : 
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :         switch (result-&gt;map[i].type) {</span>
+<span class="lineNum">     467 </span>            :         case SQL_TYPE_STR: {
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :             *((const char **)ptr) = value;</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     470 </span>            :         }
+<span class="lineNum">     471 </span>            :         case SQL_TYPE_UINT: {
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :             if (value != NULL &amp;&amp;</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :                 str_to_uint(value, (unsigned int *)ptr) &lt; 0)</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :                 i_error(&quot;sql: Value not uint: %s&quot;, value);</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     476 </span>            :         }
+<span class="lineNum">     477 </span>            :         case SQL_TYPE_ULLONG: {
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :             if (value != NULL &amp;&amp;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :                 str_to_ullong(value, (unsigned long long *)ptr) &lt; 0)</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :                 i_error(&quot;sql: Value not ullong: %s&quot;, value);</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     482 </span>            :         }
+<span class="lineNum">     483 </span>            :         case SQL_TYPE_BOOL: {
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :             if (value != NULL &amp;&amp; (*value == 't' || *value == '1'))</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :                 *((bool *)ptr) = TRUE;</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     487 </span>            :         }
+<span class="lineNum">     488 </span>            :         }
+<span class="lineNum">     489 </span>            :     }
+<a name="490"><span class="lineNum">     490 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span><span class="lineCov">         13 : int sql_result_next_row(struct sql_result *result)</span>
+<span class="lineNum">     493 </span>            : {
+<span class="lineNum">     494 </span>            :     int ret;
+<span class="lineNum">     495 </span>            : 
+<span class="lineNum">     496 </span><span class="lineCov">         13 :     if ((ret = result-&gt;v.next_row(result)) &lt;= 0)</span>
+<span class="lineNum">     497 </span><span class="lineCov">          2 :         return ret;</span>
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span><span class="lineCov">         11 :     if (result-&gt;fetch_dest != NULL)</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         sql_result_fetch(result);</span>
+<span class="lineNum">     501 </span><span class="lineCov">         11 :     return 1;</span>
+<span class="lineNum">     502 </span>            : }
+<a name="503"><span class="lineNum">     503 </span>            : </a>
+<span class="lineNum">     504 </span>            : #undef sql_result_more
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 : void sql_result_more(struct sql_result **result,</span>
+<span class="lineNum">     506 </span>            :              sql_query_callback_t *callback, void *context)
+<span class="lineNum">     507 </span>            : {
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     i_assert((*result)-&gt;v.more != NULL);</span>
+<span class="lineNum">     509 </span>            : 
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     (*result)-&gt;v.more(result, TRUE, callback, context);</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 : }</span>
+<a name="512"><span class="lineNum">     512 </span>            : </a>
+<span class="lineNum">     513 </span>            : static void
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 : sql_result_more_sync_callback(struct sql_result *result, void *context)</span>
+<span class="lineNum">     515 </span>            : {
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :     struct sql_result **dest_result = context;</span>
+<span class="lineNum">     517 </span>            : 
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :     *dest_result = result;</span>
+<a name="519"><span class="lineNum">     519 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 : void sql_result_more_s(struct sql_result **result)</span>
+<span class="lineNum">     522 </span>            : {
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :     i_assert((*result)-&gt;v.more != NULL);</span>
+<span class="lineNum">     524 </span>            : 
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     (*result)-&gt;v.more(result, FALSE, sql_result_more_sync_callback, result);</span>
+<span class="lineNum">     526 </span>            :     /* the callback must have been called */
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :     i_assert(*result != NULL);</span>
+<a name="528"><span class="lineNum">     528 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     529 </span>            : 
+<span class="lineNum">     530 </span><span class="lineCov">         10 : unsigned int sql_result_get_fields_count(struct sql_result *result)</span>
+<span class="lineNum">     531 </span>            : {
+<span class="lineNum">     532 </span><span class="lineCov">         10 :     return result-&gt;v.get_fields_count(result);</span>
+<a name="533"><span class="lineNum">     533 </span>            : }</a>
+<span class="lineNum">     534 </span>            : 
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 : const char *sql_result_get_field_name(struct sql_result *result,</span>
+<span class="lineNum">     536 </span>            :                       unsigned int idx)
+<span class="lineNum">     537 </span>            : {
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :     return result-&gt;v.get_field_name(result, idx);</span>
+<a name="539"><span class="lineNum">     539 </span>            : }</a>
+<span class="lineNum">     540 </span>            : 
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 : int sql_result_find_field(struct sql_result *result, const char *field_name)</span>
+<span class="lineNum">     542 </span>            : {
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     return result-&gt;v.find_field(result, field_name);</span>
+<a name="544"><span class="lineNum">     544 </span>            : }</a>
+<span class="lineNum">     545 </span>            : 
+<span class="lineNum">     546 </span><span class="lineCov">         21 : const char *sql_result_get_field_value(struct sql_result *result,</span>
+<span class="lineNum">     547 </span>            :                        unsigned int idx)
+<span class="lineNum">     548 </span>            : {
+<span class="lineNum">     549 </span><span class="lineCov">         21 :     return result-&gt;v.get_field_value(result, idx);</span>
+<span class="lineNum">     550 </span>            : }
+<a name="551"><span class="lineNum">     551 </span>            : </a>
+<span class="lineNum">     552 </span>            : const unsigned char *
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 : sql_result_get_field_value_binary(struct sql_result *result,</span>
+<span class="lineNum">     554 </span>            :                   unsigned int idx, size_t *size_r)
+<span class="lineNum">     555 </span>            : {
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :     return result-&gt;v.get_field_value_binary(result, idx, size_r);</span>
+<a name="557"><span class="lineNum">     557 </span>            : }</a>
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 : const char *sql_result_find_field_value(struct sql_result *result,</span>
+<span class="lineNum">     560 </span>            :                     const char *field_name)
+<span class="lineNum">     561 </span>            : {
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     return result-&gt;v.find_field_value(result, field_name);</span>
+<a name="563"><span class="lineNum">     563 </span>            : }</a>
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 : const char *const *sql_result_get_values(struct sql_result *result)</span>
+<span class="lineNum">     566 </span>            : {
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :     return result-&gt;v.get_values(result);</span>
+<a name="568"><span class="lineNum">     568 </span>            : }</a>
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 : const char *sql_result_get_error(struct sql_result *result)</span>
+<span class="lineNum">     571 </span>            : {
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :     return result-&gt;v.get_error(result);</span>
+<a name="573"><span class="lineNum">     573 </span>            : }</a>
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 : enum sql_result_error_type sql_result_get_error_type(struct sql_result *result)</span>
+<span class="lineNum">     576 </span>            : {
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     return result-&gt;error_type;</span>
+<span class="lineNum">     578 </span>            : }
+<a name="579"><span class="lineNum">     579 </span>            : </a>
+<span class="lineNum">     580 </span>            : static void
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 : sql_result_not_connected_free(struct sql_result *result ATTR_UNUSED)</span>
+<span class="lineNum">     582 </span>            : {
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 : }</span>
+<a name="584"><span class="lineNum">     584 </span>            : </a>
+<span class="lineNum">     585 </span>            : static int
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 : sql_result_not_connected_next_row(struct sql_result *result ATTR_UNUSED)</span>
+<span class="lineNum">     587 </span>            : {
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     589 </span>            : }
+<a name="590"><span class="lineNum">     590 </span>            : </a>
+<span class="lineNum">     591 </span>            : static const char *
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 : sql_result_not_connected_get_error(struct sql_result *result ATTR_UNUSED)</span>
+<span class="lineNum">     593 </span>            : {
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :     return SQL_ERRSTR_NOT_CONNECTED;</span>
+<a name="595"><span class="lineNum">     595 </span>            : }</a>
+<span class="lineNum">     596 </span>            : 
+<span class="lineNum">     597 </span><span class="lineCov">          6 : struct sql_transaction_context *sql_transaction_begin(struct sql_db *db)</span>
+<span class="lineNum">     598 </span>            : {
+<span class="lineNum">     599 </span><span class="lineCov">          6 :     return db-&gt;v.transaction_begin(db);</span>
+<span class="lineNum">     600 </span>            : }
+<a name="601"><span class="lineNum">     601 </span>            : </a>
+<span class="lineNum">     602 </span>            : #undef sql_transaction_commit
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 : void sql_transaction_commit(struct sql_transaction_context **_ctx,</span>
+<span class="lineNum">     604 </span>            :                 sql_commit_callback_t *callback, void *context)
+<span class="lineNum">     605 </span>            : {
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :     struct sql_transaction_context *ctx = *_ctx;</span>
+<span class="lineNum">     607 </span>            : 
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :     *_ctx = NULL;</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :     ctx-&gt;db-&gt;v.transaction_commit(ctx, callback, context);</span>
+<a name="610"><span class="lineNum">     610 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     611 </span>            : 
+<span class="lineNum">     612 </span><span class="lineCov">          6 : int sql_transaction_commit_s(struct sql_transaction_context **_ctx,</span>
+<span class="lineNum">     613 </span>            :                  const char **error_r)
+<span class="lineNum">     614 </span>            : {
+<span class="lineNum">     615 </span><span class="lineCov">          6 :     struct sql_transaction_context *ctx = *_ctx;</span>
+<span class="lineNum">     616 </span>            : 
+<span class="lineNum">     617 </span><span class="lineCov">          6 :     *_ctx = NULL;</span>
+<span class="lineNum">     618 </span><span class="lineCov">          6 :     return ctx-&gt;db-&gt;v.transaction_commit_s(ctx, error_r);</span>
+<a name="619"><span class="lineNum">     619 </span>            : }</a>
+<span class="lineNum">     620 </span>            : 
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 : void sql_transaction_rollback(struct sql_transaction_context **_ctx)</span>
+<span class="lineNum">     622 </span>            : {
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :     struct sql_transaction_context *ctx = *_ctx;</span>
+<span class="lineNum">     624 </span>            : 
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :     *_ctx = NULL;</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :     ctx-&gt;db-&gt;v.transaction_rollback(ctx);</span>
+<a name="627"><span class="lineNum">     627 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     628 </span>            : 
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 : void sql_update(struct sql_transaction_context *ctx, const char *query)</span>
+<span class="lineNum">     630 </span>            : {
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :     ctx-&gt;db-&gt;v.update(ctx, query, NULL);</span>
+<a name="632"><span class="lineNum">     632 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     633 </span>            : 
+<span class="lineNum">     634 </span><span class="lineCov">          5 : void sql_update_stmt(struct sql_transaction_context *ctx,</span>
+<span class="lineNum">     635 </span>            :              struct sql_statement **_stmt)
+<span class="lineNum">     636 </span>            : {
+<span class="lineNum">     637 </span><span class="lineCov">          5 :     struct sql_statement *stmt = *_stmt;</span>
+<span class="lineNum">     638 </span>            : 
+<span class="lineNum">     639 </span><span class="lineCov">          5 :     *_stmt = NULL;</span>
+<span class="lineNum">     640 </span><span class="lineCov">          5 :     if (ctx-&gt;db-&gt;v.update_stmt != NULL)</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         ctx-&gt;db-&gt;v.update_stmt(ctx, stmt, NULL);</span>
+<span class="lineNum">     642 </span>            :     else
+<span class="lineNum">     643 </span><span class="lineCov">          5 :         default_sql_update_stmt(ctx, stmt, NULL);</span>
+<a name="644"><span class="lineNum">     644 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     645 </span>            : 
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 : void sql_update_get_rows(struct sql_transaction_context *ctx, const char *query,</span>
+<span class="lineNum">     647 </span>            :              unsigned int *affected_rows)
+<span class="lineNum">     648 </span>            : {
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :     ctx-&gt;db-&gt;v.update(ctx, query, affected_rows);</span>
+<a name="650"><span class="lineNum">     650 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     651 </span>            : 
+<span class="lineNum">     652 </span><span class="lineCov">          2 : void sql_update_stmt_get_rows(struct sql_transaction_context *ctx,</span>
+<span class="lineNum">     653 </span>            :                   struct sql_statement **_stmt,
+<span class="lineNum">     654 </span>            :                   unsigned int *affected_rows)
+<span class="lineNum">     655 </span>            : {
+<span class="lineNum">     656 </span><span class="lineCov">          2 :     struct sql_statement *stmt = *_stmt;</span>
+<span class="lineNum">     657 </span>            : 
+<span class="lineNum">     658 </span><span class="lineCov">          2 :     *_stmt = NULL;</span>
+<span class="lineNum">     659 </span><span class="lineCov">          2 :     if (ctx-&gt;db-&gt;v.update_stmt != NULL)</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :         ctx-&gt;db-&gt;v.update_stmt(ctx, stmt, affected_rows);</span>
+<span class="lineNum">     661 </span>            :     else
+<span class="lineNum">     662 </span><span class="lineCov">          2 :         default_sql_update_stmt(ctx, stmt, affected_rows);</span>
+<a name="663"><span class="lineNum">     663 </span><span class="lineCov">          2 : }</span></a>
+<span class="lineNum">     664 </span>            : 
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 : void sql_db_set_state(struct sql_db *db, enum sql_db_state state)</span>
+<span class="lineNum">     666 </span>            : {
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     enum sql_db_state old_state = db-&gt;state;</span>
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     if (db-&gt;state == state)</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     671 </span>            : 
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :     db-&gt;state = state;</span>
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :     if (db-&gt;state_change_callback != NULL) {</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :         db-&gt;state_change_callback(db, old_state,</span>
+<span class="lineNum">     675 </span>            :                       db-&gt;state_change_context);
+<span class="lineNum">     676 </span>            :     }
+<a name="677"><span class="lineNum">     677 </span>            : }</a>
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 : void sql_transaction_add_query(struct sql_transaction_context *ctx, pool_t pool,</span>
+<span class="lineNum">     680 </span>            :                    const char *query, unsigned int *affected_rows)
+<span class="lineNum">     681 </span>            : {
+<span class="lineNum">     682 </span>            :     struct sql_transaction_query *tquery;
+<span class="lineNum">     683 </span>            : 
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :     tquery = p_new(pool, struct sql_transaction_query, 1);</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :     tquery-&gt;trans = ctx;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :     tquery-&gt;query = p_strdup(pool, query);</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :     tquery-&gt;affected_rows = affected_rows;</span>
+<span class="lineNum">     688 </span>            : 
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :     if (ctx-&gt;head == NULL)</span>
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :         ctx-&gt;head = tquery;</span>
+<span class="lineNum">     691 </span>            :     else
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :         ctx-&gt;tail-&gt;next = tquery;</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :     ctx-&gt;tail = tquery;</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     695 </span>            : 
+<span class="lineNum">     696 </span>            : struct sql_result sql_not_connected_result = {
+<span class="lineNum">     697 </span>            :     .v = {
+<span class="lineNum">     698 </span>            :         sql_result_not_connected_free,
+<span class="lineNum">     699 </span>            :         sql_result_not_connected_next_row,
+<span class="lineNum">     700 </span>            :         NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+<span class="lineNum">     701 </span>            :         sql_result_not_connected_get_error,
+<span class="lineNum">     702 </span>            :         NULL,
+<span class="lineNum">     703 </span>            :     },
+<span class="lineNum">     704 </span>            :     .failed_try_retry = TRUE
+<span class="lineNum">     705 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

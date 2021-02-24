@@ -1,0 +1,1078 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-index/mail-index-view-sync.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-index</a> - mail-index-view-sync.c<span style="font-size: 80%;"> (source / <a href="mail-index-view-sync.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">493</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">25</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;mail-index-view-private.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mail-index-sync-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mail-index-modseq.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;mail-transaction-log.h&quot;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : struct mail_index_view_sync_ctx {
+<span class="lineNum">      13 </span>            :     struct mail_index_view *view;
+<span class="lineNum">      14 </span>            :     enum mail_index_view_sync_flags flags;
+<span class="lineNum">      15 </span>            :     struct mail_index_sync_map_ctx sync_map_ctx;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            :     /* After syncing view, map is replaced with sync_new_map. */
+<span class="lineNum">      18 </span>            :     struct mail_index_map *sync_new_map;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :     ARRAY_TYPE(seq_range) expunges;
+<span class="lineNum">      21 </span>            :     unsigned int finish_min_msg_count;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            :     const struct mail_transaction_header *hdr;
+<span class="lineNum">      24 </span>            :     const void *data;
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            :     /* temporary variables while handling lost transaction logs: */
+<span class="lineNum">      27 </span>            :     ARRAY_TYPE(keyword_indexes) lost_old_kw, lost_new_kw;
+<span class="lineNum">      28 </span>            :     buffer_t *lost_kw_buf;
+<span class="lineNum">      29 </span>            :     uint32_t lost_new_ext_idx;
+<span class="lineNum">      30 </span>            :     /* result of lost transaction logs: */
+<span class="lineNum">      31 </span>            :     ARRAY_TYPE(seq_range) lost_flags;
+<span class="lineNum">      32 </span>            :     unsigned int lost_flag_idx;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :     size_t data_offset;
+<span class="lineNum">      35 </span>            :     bool failed:1;
+<span class="lineNum">      36 </span>            :     bool sync_map_update:1;
+<span class="lineNum">      37 </span>            :     bool skipped_expunges:1;
+<span class="lineNum">      38 </span>            :     bool last_read:1;
+<span class="lineNum">      39 </span>            :     bool log_was_lost:1;
+<span class="lineNum">      40 </span>            :     bool hidden:1;
+<span class="lineNum">      41 </span>            : };
+<a name="42"><span class="lineNum">      42 </span>            : </a>
+<span class="lineNum">      43 </span>            : static int
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 : view_sync_set_log_view_range(struct mail_index_view *view, bool sync_expunges,</span>
+<span class="lineNum">      45 </span>            :                  bool *reset_r, bool *partial_sync_r)
+<span class="lineNum">      46 </span>            : {
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     const struct mail_index_header *hdr = &amp;view-&gt;index-&gt;map-&gt;hdr;</span>
+<span class="lineNum">      48 </span>            :     uint32_t start_seq, end_seq;
+<span class="lineNum">      49 </span>            :     uoff_t start_offset, end_offset;
+<span class="lineNum">      50 </span>            :     const char *reason;
+<span class="lineNum">      51 </span>            :     int ret;
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :     *partial_sync_r = FALSE;</span>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     start_seq = view-&gt;log_file_expunge_seq;</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :     start_offset = view-&gt;log_file_expunge_offset;</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     end_seq = hdr-&gt;log_file_seq;</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     end_offset = hdr-&gt;log_file_head_offset;</span>
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     if (end_seq &lt; view-&gt;log_file_head_seq ||</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :         (end_seq == view-&gt;log_file_head_seq &amp;&amp;</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :          end_offset &lt; view-&gt;log_file_head_offset)) {</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         mail_index_set_error(view-&gt;index,</span>
+<span class="lineNum">      64 </span>            :             &quot;%s log position went backwards &quot;
+<span class="lineNum">      65 </span>            :             &quot;(%u,%&quot;PRIuUOFF_T&quot; &lt; %u,%&quot;PRIuUOFF_T&quot;)&quot;,
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :             view-&gt;index-&gt;filepath, end_seq, end_offset,</span>
+<span class="lineNum">      67 </span>            :             view-&gt;log_file_head_seq, view-&gt;log_file_head_offset);
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      69 </span>            :     }
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span>            :     for (;;) {
+<span class="lineNum">      72 </span>            :         /* the view begins from the first non-synced transaction */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         ret = mail_transaction_log_view_set(view-&gt;log_view,</span>
+<span class="lineNum">      74 </span>            :                             start_seq, start_offset,
+<span class="lineNum">      75 </span>            :                             end_seq, end_offset,
+<span class="lineNum">      76 </span>            :                             reset_r, &amp;reason);
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :             mail_index_set_error(view-&gt;index,</span>
+<span class="lineNum">      79 </span>            :                 &quot;Failed to map view for %s: %s&quot;,
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :                 view-&gt;index-&gt;filepath, reason);</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">      82 </span>            :         }
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :         if (!*reset_r || sync_expunges)</span>
+<span class="lineNum">      85 </span>            :             break;
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span>            :         /* log was reset, but we don't want to sync expunges.
+<span class="lineNum">      88 </span>            :            we can't do this, so sync only up to the reset. */
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         mail_transaction_log_view_get_prev_pos(view-&gt;log_view,</span>
+<span class="lineNum">      90 </span>            :                                &amp;end_seq, &amp;end_offset);
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :         end_seq--; end_offset = (uoff_t)-1;</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :         if (end_seq &lt; start_seq) {</span>
+<span class="lineNum">      93 </span>            :             /* we have only this reset log */
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :             mail_transaction_log_view_clear(view-&gt;log_view,</span>
+<span class="lineNum">      95 </span>            :                 view-&gt;log_file_expunge_seq);
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">      97 </span>            :         }
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         *partial_sync_r = TRUE;</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     101 </span>            : }
+<a name="102"><span class="lineNum">     102 </span>            : </a>
+<span class="lineNum">     103 </span>            : static unsigned int
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 : view_sync_expunges2seqs(struct mail_index_view_sync_ctx *ctx)</span>
+<span class="lineNum">     105 </span>            : {
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     107 </span>            :     struct seq_range *src, *src_end, *dest;
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     unsigned int count, expunge_count = 0;</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     uint32_t prev_seq = 0;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span>            :     /* convert UIDs to sequences */
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     src = dest = array_get_modifiable(&amp;ctx-&gt;expunges, &amp;count);</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     src_end = src + count;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     for (; src != src_end; src++) {</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         if (!mail_index_lookup_seq_range(view, src-&gt;seq1, src-&gt;seq2,</span>
+<span class="lineNum">     116 </span>            :                          &amp;dest-&gt;seq1, &amp;dest-&gt;seq2))
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :             count--;</span>
+<span class="lineNum">     118 </span>            :         else {
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :             i_assert(dest-&gt;seq1 &gt; prev_seq);</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :             prev_seq = dest-&gt;seq2;</span>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :             expunge_count += dest-&gt;seq2 - dest-&gt;seq1 + 1;</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :             dest++;</span>
+<span class="lineNum">     124 </span>            :         }
+<span class="lineNum">     125 </span>            :     }
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     array_delete(&amp;ctx-&gt;expunges, count,</span>
+<span class="lineNum">     127 </span>            :              array_count(&amp;ctx-&gt;expunges) - count);
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     return expunge_count;</span>
+<span class="lineNum">     129 </span>            : }
+<a name="130"><span class="lineNum">     130 </span>            : </a>
+<span class="lineNum">     131 </span>            : static void
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 : view_sync_add_expunge_range(ARRAY_TYPE(seq_range) *dest,</span>
+<span class="lineNum">     133 </span>            :                 const struct seq_range *src, size_t src_size)
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span>            :     unsigned int i, src_count;
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     i_assert(src_size % sizeof(*src) == 0);</span>
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     src_count = src_size / sizeof(*src);</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; src_count; i++)</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         seq_range_array_add_range(dest, src[i].seq1, src[i].seq2);</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 : }</span>
+<a name="143"><span class="lineNum">     143 </span>            : </a>
+<span class="lineNum">     144 </span>            : static void
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 : view_sync_add_expunge_guids(ARRAY_TYPE(seq_range) *dest,</span>
+<span class="lineNum">     146 </span>            :                 const struct mail_transaction_expunge_guid *src,
+<span class="lineNum">     147 </span>            :                 size_t src_size)
+<span class="lineNum">     148 </span>            : {
+<span class="lineNum">     149 </span>            :     unsigned int i, src_count;
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     i_assert(src_size % sizeof(*src) == 0);</span>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     src_count = src_size / sizeof(*src);</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; src_count; i++)</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         seq_range_array_add(dest, src[i].uid);</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : }</span>
+<a name="157"><span class="lineNum">     157 </span>            : </a>
+<span class="lineNum">     158 </span>            : static int
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 : view_sync_get_expunges(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     160 </span>            :                unsigned int *expunge_count_r)
+<span class="lineNum">     161 </span>            : {
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     163 </span>            :     const struct mail_transaction_header *hdr;
+<span class="lineNum">     164 </span>            :     const void *data;
+<span class="lineNum">     165 </span>            :     int ret;
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span>            :     /* get a list of expunge transactions. there may be some that we have
+<span class="lineNum">     168 </span>            :        already synced, but it doesn't matter because they'll get dropped
+<span class="lineNum">     169 </span>            :        out when converting to sequences. the uid ranges' validity has
+<span class="lineNum">     170 </span>            :        already been verified, so we can use them directly. */
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_mark(view-&gt;log_view);</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     while ((ret = mail_transaction_log_view_next(view-&gt;log_view,</span>
+<span class="lineNum">     173 </span>            :                              &amp;hdr, &amp;data)) &gt; 0) {
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         if ((hdr-&gt;type &amp; MAIL_TRANSACTION_EXTERNAL) == 0) {</span>
+<span class="lineNum">     175 </span>            :             /* skip expunge requests */
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     177 </span>            :         }
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         if ((hdr-&gt;type &amp; MAIL_TRANSACTION_EXPUNGE_GUID) != 0) {</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :             view_sync_add_expunge_guids(&amp;ctx-&gt;expunges,</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :                             data, hdr-&gt;size);</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :         } else if ((hdr-&gt;type &amp; MAIL_TRANSACTION_EXPUNGE) != 0) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :             view_sync_add_expunge_range(&amp;ctx-&gt;expunges,</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :                             data, hdr-&gt;size);</span>
+<span class="lineNum">     184 </span>            :         }
+<span class="lineNum">     185 </span>            :     }
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_rewind(view-&gt;log_view);</span>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     *expunge_count_r = view_sync_expunges2seqs(ctx);</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="190"><span class="lineNum">     190 </span>            : }</a>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 : static bool have_existing_expunges(struct mail_index_view *view,</span>
+<span class="lineNum">     193 </span>            :                    const struct seq_range *range, size_t size)
+<span class="lineNum">     194 </span>            : {
+<span class="lineNum">     195 </span>            :     const struct seq_range *range_end;
+<span class="lineNum">     196 </span>            :     uint32_t seq1, seq2;
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     range_end = CONST_PTR_OFFSET(range, size);</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     for (; range != range_end; range++) {</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         if (mail_index_lookup_seq_range(view, range-&gt;seq1, range-&gt;seq2,</span>
+<span class="lineNum">     201 </span>            :                         &amp;seq1, &amp;seq2))
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     205 </span>            : }
+<a name="206"><span class="lineNum">     206 </span>            : </a>
+<span class="lineNum">     207 </span>            : static bool
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 : have_existing_guid_expunge(struct mail_index_view *view,</span>
+<span class="lineNum">     209 </span>            :                const struct mail_transaction_expunge_guid *expunges,
+<span class="lineNum">     210 </span>            :                size_t size)
+<span class="lineNum">     211 </span>            : {
+<span class="lineNum">     212 </span>            :     const struct mail_transaction_expunge_guid *expunges_end;
+<span class="lineNum">     213 </span>            :     uint32_t seq;
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     expunges_end = CONST_PTR_OFFSET(expunges, size);</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     for (; expunges != expunges_end; expunges++) {</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         if (mail_index_lookup_seq(view, expunges-&gt;uid, &amp;seq))</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="221"><span class="lineNum">     221 </span>            : }</a>
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 : static bool view_sync_have_expunges(struct mail_index_view *view)</span>
+<span class="lineNum">     224 </span>            : {
+<span class="lineNum">     225 </span>            :     const struct mail_transaction_header *hdr;
+<span class="lineNum">     226 </span>            :     const void *data;
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     bool have_expunges = FALSE;</span>
+<span class="lineNum">     228 </span>            :     int ret;
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_mark(view-&gt;log_view);</span>
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     while ((ret = mail_transaction_log_view_next(view-&gt;log_view,</span>
+<span class="lineNum">     233 </span>            :                              &amp;hdr, &amp;data)) &gt; 0) {
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :         if ((hdr-&gt;type &amp; MAIL_TRANSACTION_EXTERNAL) == 0) {</span>
+<span class="lineNum">     235 </span>            :             /* skip expunge requests */
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     237 </span>            :         }
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         if ((hdr-&gt;type &amp; MAIL_TRANSACTION_EXPUNGE_GUID) != 0) {</span>
+<span class="lineNum">     239 </span>            :             /* we have an expunge. see if it still exists. */
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :             if (have_existing_guid_expunge(view, data, hdr-&gt;size)) {</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :                 have_expunges = TRUE;</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     243 </span>            :             }
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         } else if ((hdr-&gt;type &amp; MAIL_TRANSACTION_EXPUNGE) != 0) {</span>
+<span class="lineNum">     245 </span>            :             /* we have an expunge. see if it still exists. */
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :             if (have_existing_expunges(view, data, hdr-&gt;size)) {</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :                 have_expunges = TRUE;</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     249 </span>            :             }
+<span class="lineNum">     250 </span>            :         }
+<span class="lineNum">     251 </span>            :     }
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_rewind(view-&gt;log_view);</span>
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span>            :     /* handle failures as having expunges (which is safer).
+<span class="lineNum">     256 </span>            :        we'll probably fail later. */
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     return ret &lt; 0 || have_expunges;</span>
+<a name="258"><span class="lineNum">     258 </span>            : }</a>
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 : static int uint_cmp(const void *p1, const void *p2)</span>
+<span class="lineNum">     261 </span>            : {
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     const unsigned int *u1 = p1, *u2 = p2;</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     if (*u1 &lt; *u2)</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     if (*u1 &gt; *u2)</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="269"><span class="lineNum">     269 </span>            : }</a>
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 : static bool view_sync_lost_keywords_equal(struct mail_index_view_sync_ctx *ctx)</span>
+<span class="lineNum">     272 </span>            : {
+<span class="lineNum">     273 </span>            :     unsigned int *old_idx, *new_idx;
+<span class="lineNum">     274 </span>            :     unsigned int old_count, new_count;
+<span class="lineNum">     275 </span>            : 
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     old_idx = array_get_modifiable(&amp;ctx-&gt;lost_old_kw, &amp;old_count);</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     new_idx = array_get_modifiable(&amp;ctx-&gt;lost_new_kw, &amp;new_count);</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     if (old_count != new_count)</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     qsort(old_idx, old_count, sizeof(*old_idx), uint_cmp);</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     qsort(new_idx, new_count, sizeof(*new_idx), uint_cmp);</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :     return memcmp(old_idx, new_idx, old_count * sizeof(*old_idx)) == 0;</span>
+<a name="284"><span class="lineNum">     284 </span>            : }</a>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 : static int view_sync_update_keywords(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     287 </span>            :                      uint32_t uid)
+<span class="lineNum">     288 </span>            : {
+<span class="lineNum">     289 </span>            :     struct mail_transaction_header thdr;
+<span class="lineNum">     290 </span>            :     struct mail_transaction_keyword_update kw_up;
+<span class="lineNum">     291 </span>            :     const unsigned int *kw_idx;
+<span class="lineNum">     292 </span>            :     const char *const *kw_names;
+<span class="lineNum">     293 </span>            :     unsigned int i, count;
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     kw_idx = array_get(&amp;ctx-&gt;lost_new_kw, &amp;count);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     if (count == 0)</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     kw_names = array_idx(&amp;ctx-&gt;view-&gt;index-&gt;keywords, 0);</span>
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     i_zero(&amp;thdr);</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     thdr.type = MAIL_TRANSACTION_KEYWORD_UPDATE | MAIL_TRANSACTION_EXTERNAL;</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     i_zero(&amp;kw_up);</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     kw_up.modify_type = MODIFY_ADD;</span>
+<span class="lineNum">     304 </span>            :     /* add new flags one by one */
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         kw_up.name_size = strlen(kw_names[kw_idx[i]]);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :         buffer_set_used_size(ctx-&gt;lost_kw_buf, 0);</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         buffer_append(ctx-&gt;lost_kw_buf, &amp;kw_up, sizeof(kw_up));</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         buffer_append(ctx-&gt;lost_kw_buf, kw_names[kw_idx[i]],</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :                   kw_up.name_size);</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         if (ctx-&gt;lost_kw_buf-&gt;used % 4 != 0) {</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :             buffer_append_zero(ctx-&gt;lost_kw_buf,</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :                        4 - ctx-&gt;lost_kw_buf-&gt;used % 4);</span>
+<span class="lineNum">     314 </span>            :         }
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         buffer_append(ctx-&gt;lost_kw_buf, &amp;uid, sizeof(uid));</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         buffer_append(ctx-&gt;lost_kw_buf, &amp;uid, sizeof(uid));</span>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         thdr.size = ctx-&gt;lost_kw_buf-&gt;used;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         if (mail_index_sync_record(&amp;ctx-&gt;sync_map_ctx, &amp;thdr,</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :                        ctx-&gt;lost_kw_buf-&gt;data) &lt; 0)</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     322 </span>            :     }
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="324"><span class="lineNum">     324 </span>            : }</a>
+<span class="lineNum">     325 </span>            : 
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 : static int view_sync_apply_lost_changes(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     327 </span>            :                     uint32_t old_seq, uint32_t new_seq)
+<span class="lineNum">     328 </span>            : {
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     struct mail_index_map *old_map = ctx-&gt;view-&gt;map;</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     struct mail_index_map *new_map = ctx-&gt;view-&gt;index-&gt;map;</span>
+<span class="lineNum">     331 </span>            :     const struct mail_index_record *old_rec, *new_rec;
+<span class="lineNum">     332 </span>            :     struct mail_transaction_header thdr;
+<span class="lineNum">     333 </span>            :     const struct mail_index_ext *ext;
+<span class="lineNum">     334 </span>            :     const uint64_t *modseqp;
+<span class="lineNum">     335 </span>            :     uint64_t new_modseq;
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     bool changed = FALSE;</span>
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :     old_rec = MAIL_INDEX_REC_AT_SEQ(old_map, old_seq);</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     new_rec = MAIL_INDEX_REC_AT_SEQ(new_map, new_seq);</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     i_zero(&amp;thdr);</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     if (old_rec-&gt;flags != new_rec-&gt;flags) {</span>
+<span class="lineNum">     343 </span>            :         struct mail_transaction_flag_update flag_update;
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span>            :         /* check this before syncing the record, since it updates
+<span class="lineNum">     346 </span>            :            old_rec. */
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         if ((old_rec-&gt;flags &amp; MAIL_INDEX_FLAGS_MASK) !=</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :             (new_rec-&gt;flags &amp; MAIL_INDEX_FLAGS_MASK))</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :             changed = TRUE;</span>
+<span class="lineNum">     350 </span>            : 
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :         thdr.type = MAIL_TRANSACTION_FLAG_UPDATE |</span>
+<span class="lineNum">     352 </span>            :             MAIL_TRANSACTION_EXTERNAL;
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         thdr.size = sizeof(flag_update);</span>
+<span class="lineNum">     354 </span>            : 
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         i_zero(&amp;flag_update);</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         flag_update.uid1 = flag_update.uid2 = new_rec-&gt;uid;</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :         flag_update.add_flags = new_rec-&gt;flags;</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :         flag_update.remove_flags = ~new_rec-&gt;flags &amp; 0xff;</span>
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :         if (mail_index_sync_record(&amp;ctx-&gt;sync_map_ctx, &amp;thdr,</span>
+<span class="lineNum">     360 </span>            :                        &amp;flag_update) &lt; 0)
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     362 </span>            :     }
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     mail_index_map_lookup_keywords(old_map, old_seq, &amp;ctx-&gt;lost_old_kw);</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     mail_index_map_lookup_keywords(new_map, new_seq, &amp;ctx-&gt;lost_new_kw);</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     if (!view_sync_lost_keywords_equal(ctx)) {</span>
+<span class="lineNum">     367 </span>            :         struct mail_transaction_keyword_reset kw_reset;
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         thdr.type = MAIL_TRANSACTION_KEYWORD_RESET |</span>
+<span class="lineNum">     370 </span>            :             MAIL_TRANSACTION_EXTERNAL;
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         thdr.size = sizeof(kw_reset);</span>
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span>            :         /* remove all old flags by resetting them */
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :         i_zero(&amp;kw_reset);</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :         kw_reset.uid1 = kw_reset.uid2 = new_rec-&gt;uid;</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :         if (mail_index_sync_record(&amp;ctx-&gt;sync_map_ctx, &amp;thdr,</span>
+<span class="lineNum">     377 </span>            :                        &amp;kw_reset) &lt; 0)
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         if (view_sync_update_keywords(ctx, new_rec-&gt;uid) &lt; 0)</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :         changed = TRUE;</span>
+<span class="lineNum">     383 </span>            :     }
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :     if (changed) {</span>
+<span class="lineNum">     386 </span>            :         /* flags or keywords changed */
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :     } else if (ctx-&gt;view-&gt;highest_modseq != 0 &amp;&amp;</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :            ctx-&gt;lost_new_ext_idx != (uint32_t)-1) {</span>
+<span class="lineNum">     389 </span>            :         /* if modseq has changed include this message in changed flags
+<span class="lineNum">     390 </span>            :            list, even if we didn't see any changes above. */
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         ext = array_idx(&amp;new_map-&gt;extensions, ctx-&gt;lost_new_ext_idx);</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :         modseqp = CONST_PTR_OFFSET(new_rec, ext-&gt;record_offset);</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :         new_modseq = *modseqp;</span>
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :         if (new_modseq &gt; ctx-&gt;view-&gt;highest_modseq)</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :             changed = TRUE;</span>
+<span class="lineNum">     397 </span>            :     }
+<span class="lineNum">     398 </span>            : 
+<span class="lineNum">     399 </span>            :     /* without modseqs lost_flags isn't updated perfectly correctly, because
+<span class="lineNum">     400 </span>            :        by the time we're comparing old flags it may have changed from what
+<span class="lineNum">     401 </span>            :        we last sent to the client (because the map is shared). This could
+<span class="lineNum">     402 </span>            :        be avoided by always keeping a private copy of the map in the view,
+<span class="lineNum">     403 </span>            :        but that's a waste of memory for as rare of a problem as this. */
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :     if (changed)</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :         seq_range_array_add(&amp;ctx-&gt;lost_flags, new_rec-&gt;uid);</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     407 </span>            : }
+<a name="408"><span class="lineNum">     408 </span>            : </a>
+<span class="lineNum">     409 </span>            : static int
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 : view_sync_get_log_lost_changes(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     411 </span>            :                    unsigned int *expunge_count_r)
+<span class="lineNum">     412 </span>            : {
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     struct mail_index_map *old_map = view-&gt;map;</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     struct mail_index_map *new_map = view-&gt;index-&gt;map;</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     const unsigned int old_count = old_map-&gt;hdr.messages_count;</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :     const unsigned int new_count = new_map-&gt;hdr.messages_count;</span>
+<span class="lineNum">     418 </span>            :     const struct mail_index_record *old_rec, *new_rec;
+<span class="lineNum">     419 </span>            :     struct mail_transaction_header thdr;
+<span class="lineNum">     420 </span>            :     uint32_t seqi, seqj;
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span>            :     /* we don't update the map in the same order as it's typically done.
+<span class="lineNum">     423 </span>            :        map-&gt;rec_map may already have some messages appended that we don't
+<span class="lineNum">     424 </span>            :        want. get an atomic map to make sure these get removed. */
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     (void)mail_index_sync_get_atomic_map(&amp;ctx-&gt;sync_map_ctx);</span>
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     if (!mail_index_map_get_ext_idx(new_map, view-&gt;index-&gt;modseq_ext_id,</span>
+<span class="lineNum">     428 </span>            :                     &amp;ctx-&gt;lost_new_ext_idx))
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :         ctx-&gt;lost_new_ext_idx = (uint32_t)-1;</span>
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :     i_array_init(&amp;ctx-&gt;lost_flags, 64);</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     t_array_init(&amp;ctx-&gt;lost_old_kw, 32);</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     t_array_init(&amp;ctx-&gt;lost_new_kw, 32);</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     ctx-&gt;lost_kw_buf = t_buffer_create(128);</span>
+<span class="lineNum">     435 </span>            : 
+<span class="lineNum">     436 </span>            :     /* handle expunges and sync flags */
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :     seqi = seqj = 1;</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     while (seqi &lt;= old_count &amp;&amp; seqj &lt;= new_count) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         old_rec = MAIL_INDEX_REC_AT_SEQ(old_map, seqi);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :         new_rec = MAIL_INDEX_REC_AT_SEQ(new_map, seqj);</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         if (old_rec-&gt;uid == new_rec-&gt;uid) {</span>
+<span class="lineNum">     442 </span>            :             /* message found - check if flags have changed */
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :             if (view_sync_apply_lost_changes(ctx, seqi, seqj) &lt; 0)</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :             seqi++; seqj++;</span>
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :         } else if (old_rec-&gt;uid &lt; new_rec-&gt;uid) {</span>
+<span class="lineNum">     447 </span>            :             /* message expunged */
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :             seq_range_array_add(&amp;ctx-&gt;expunges, old_rec-&gt;uid);</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :             seqi++;</span>
+<span class="lineNum">     450 </span>            :         } else {
+<span class="lineNum">     451 </span>            :             /* new message appeared out of nowhere */
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :             mail_index_set_error(view-&gt;index,</span>
+<span class="lineNum">     453 </span>            :                 &quot;%s view is inconsistent: &quot;
+<span class="lineNum">     454 </span>            :                 &quot;uid=%u inserted in the middle of mailbox&quot;,
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :                 view-&gt;index-&gt;filepath, new_rec-&gt;uid);</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     457 </span>            :         }
+<span class="lineNum">     458 </span>            :     }
+<span class="lineNum">     459 </span>            :     /* if there are old messages left, they're all expunged */
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :     for (; seqi &lt;= old_count; seqi++) {</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :         old_rec = MAIL_INDEX_REC_AT_SEQ(old_map, seqi);</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :         seq_range_array_add(&amp;ctx-&gt;expunges, old_rec-&gt;uid);</span>
+<span class="lineNum">     463 </span>            :     }
+<span class="lineNum">     464 </span>            :     /* if there are new messages left, they're all new messages */
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     thdr.type = MAIL_TRANSACTION_APPEND | MAIL_TRANSACTION_EXTERNAL;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     thdr.size = sizeof(*new_rec);</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :     for (; seqj &lt;= new_count; seqj++) {</span>
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         new_rec = MAIL_INDEX_REC_AT_SEQ(new_map, seqj);</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         if (mail_index_sync_record(&amp;ctx-&gt;sync_map_ctx,</span>
+<span class="lineNum">     470 </span>            :                        &amp;thdr, new_rec) &lt; 0)
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :         mail_index_map_lookup_keywords(new_map, seqj,</span>
+<span class="lineNum">     473 </span>            :                            &amp;ctx-&gt;lost_new_kw);
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         if (view_sync_update_keywords(ctx, new_rec-&gt;uid) &lt; 0)</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     476 </span>            :     }
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :     *expunge_count_r = view_sync_expunges2seqs(ctx);</span>
+<span class="lineNum">     478 </span>            : 
+<span class="lineNum">     479 </span>            :     /* we have no idea how far we've synced - make sure these aren't used */
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     old_map-&gt;hdr.log_file_seq = 0;</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :     old_map-&gt;hdr.log_file_head_offset = 0;</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     old_map-&gt;hdr.log_file_tail_offset = 0;</span>
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     if ((ctx-&gt;flags &amp; MAIL_INDEX_VIEW_SYNC_FLAG_NOEXPUNGES) != 0) {</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         array_clear(&amp;ctx-&gt;expunges);</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         ctx-&gt;skipped_expunges = *expunge_count_r &gt; 0;</span>
+<span class="lineNum">     487 </span>            :     } else {
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :         view-&gt;log_file_head_seq = new_map-&gt;hdr.log_file_seq;</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :         view-&gt;log_file_head_offset = new_map-&gt;hdr.log_file_head_offset;</span>
+<span class="lineNum">     490 </span>            :     }
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="492"><span class="lineNum">     492 </span>            : }</a>
+<span class="lineNum">     493 </span>            : 
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 : static int mail_index_view_sync_init_fix(struct mail_index_view_sync_ctx *ctx)</span>
+<span class="lineNum">     495 </span>            : {
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     497 </span>            :     uint32_t seq;
+<span class="lineNum">     498 </span>            :     uoff_t offset;
+<span class="lineNum">     499 </span>            :     const char *reason;
+<span class="lineNum">     500 </span>            :     bool reset;
+<span class="lineNum">     501 </span>            :     int ret;
+<span class="lineNum">     502 </span>            : 
+<span class="lineNum">     503 </span>            :     /* replace the view's map */
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :     view-&gt;index-&gt;map-&gt;refcount++;</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :     mail_index_unmap(&amp;view-&gt;map);</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :     view-&gt;map = view-&gt;index-&gt;map;</span>
+<span class="lineNum">     507 </span>            : 
+<span class="lineNum">     508 </span>            :     /* update log positions */
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     view-&gt;log_file_head_seq = seq = view-&gt;map-&gt;hdr.log_file_seq;</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     view-&gt;log_file_head_offset = offset =</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :         view-&gt;map-&gt;hdr.log_file_head_offset;</span>
+<span class="lineNum">     512 </span>            : 
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     ret = mail_transaction_log_view_set(view-&gt;log_view, seq, offset,</span>
+<span class="lineNum">     514 </span>            :                         seq, offset, &amp;reset, &amp;reason);
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         mail_index_set_error(view-&gt;index, &quot;Failed to fix view for %s: %s&quot;,</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :                      view-&gt;index-&gt;filepath, reason);</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     519 </span>            :     }
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :     view-&gt;inconsistent = FALSE;</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     522 </span>            : }
+<a name="523"><span class="lineNum">     523 </span>            : </a>
+<span class="lineNum">     524 </span>            : struct mail_index_view_sync_ctx *
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 : mail_index_view_sync_begin(struct mail_index_view *view,</span>
+<span class="lineNum">     526 </span>            :                enum mail_index_view_sync_flags flags)
+<span class="lineNum">     527 </span>            : {
+<span class="lineNum">     528 </span>            :     struct mail_index_view_sync_ctx *ctx;
+<span class="lineNum">     529 </span>            :     struct mail_index_map *tmp_map;
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :     unsigned int expunge_count = 0;</span>
+<span class="lineNum">     531 </span>            :     bool reset, partial_sync, sync_expunges, have_expunges;
+<span class="lineNum">     532 </span>            :     int ret;
+<span class="lineNum">     533 </span>            : 
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :     i_assert(!view-&gt;syncing);</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     i_assert(view-&gt;transactions == 0);</span>
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :     view-&gt;syncing = TRUE;</span>
+<span class="lineNum">     538 </span>            : 
+<span class="lineNum">     539 </span>            :     /* Syncing the view invalidates all previous looked up records.
+<span class="lineNum">     540 </span>            :        Unreference the mappings this view keeps because of them. */
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :     mail_index_view_unref_maps(view);</span>
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     ctx = i_new(struct mail_index_view_sync_ctx, 1);</span>
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :     ctx-&gt;view = view;</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :     ctx-&gt;flags = flags;</span>
+<span class="lineNum">     546 </span>            : 
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :     sync_expunges = (flags &amp; MAIL_INDEX_VIEW_SYNC_FLAG_NOEXPUNGES) == 0;</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :     if (sync_expunges)</span>
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :         i_array_init(&amp;ctx-&gt;expunges, 64);</span>
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :     if ((flags &amp; MAIL_INDEX_VIEW_SYNC_FLAG_FIX_INCONSISTENT) != 0) {</span>
+<span class="lineNum">     551 </span>            :         /* just get this view synced - don't return anything */
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :         i_assert(sync_expunges);</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :         if (mail_index_view_sync_init_fix(ctx) &lt; 0)</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :         return ctx;</span>
+<span class="lineNum">     556 </span>            :     }
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :     if (mail_index_view_is_inconsistent(view)) {</span>
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :         mail_index_set_error(view-&gt;index, &quot;%s view is inconsistent&quot;,</span>
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :                      view-&gt;index-&gt;filepath);</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :         return ctx;</span>
+<span class="lineNum">     562 </span>            :     }
+<span class="lineNum">     563 </span>            : 
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :     ret = view_sync_set_log_view_range(view, sync_expunges, &amp;reset, &amp;partial_sync);</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :         return ctx;</span>
+<span class="lineNum">     568 </span>            :     }
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :         ctx-&gt;log_was_lost = TRUE;</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :         if (!sync_expunges)</span>
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :             i_array_init(&amp;ctx-&gt;expunges, 64);</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         mail_index_sync_map_init(&amp;ctx-&gt;sync_map_ctx, view,</span>
+<span class="lineNum">     575 </span>            :                      MAIL_INDEX_SYNC_HANDLER_VIEW);
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         ret = view_sync_get_log_lost_changes(ctx, &amp;expunge_count);</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         mail_index_modseq_sync_end(&amp;ctx-&gt;sync_map_ctx.modseq_ctx);</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :         mail_index_sync_map_deinit(&amp;ctx-&gt;sync_map_ctx);</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :             mail_index_set_error(view-&gt;index,</span>
+<span class="lineNum">     581 </span>            :                 &quot;%s view syncing failed to apply changes&quot;,
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :                 view-&gt;index-&gt;filepath);</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :             view-&gt;inconsistent = TRUE;</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :             ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :             return ctx;</span>
+<span class="lineNum">     586 </span>            :         }
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         have_expunges = expunge_count &gt; 0;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     } else if (sync_expunges) {</span>
+<span class="lineNum">     589 </span>            :         /* get list of all expunges first */
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         if (view_sync_get_expunges(ctx, &amp;expunge_count) &lt; 0) {</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :             ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :             return ctx;</span>
+<span class="lineNum">     593 </span>            :         }
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         have_expunges = expunge_count &gt; 0;</span>
+<span class="lineNum">     595 </span>            :     } else {
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         have_expunges = view_sync_have_expunges(view);</span>
+<span class="lineNum">     597 </span>            :     }
+<span class="lineNum">     598 </span>            : 
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :     ctx-&gt;finish_min_msg_count = reset ? 0 :</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :         view-&gt;map-&gt;hdr.messages_count - expunge_count;</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     if (reset) {</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         view-&gt;inconsistent = TRUE;</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         mail_index_set_error(view-&gt;index,</span>
+<span class="lineNum">     604 </span>            :                      &quot;%s reset, view is now inconsistent&quot;,
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :                      view-&gt;index-&gt;filepath);</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :         ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :         return ctx;</span>
+<span class="lineNum">     608 </span>            :     }
+<span class="lineNum">     609 </span>            : 
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :     if (!have_expunges &amp;&amp; !partial_sync) {</span>
+<span class="lineNum">     611 </span>            :         /* no expunges, we can just replace the map */
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :         if (view-&gt;index-&gt;map-&gt;hdr.messages_count &lt;</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :             ctx-&gt;finish_min_msg_count) {</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :             mail_index_set_error(view-&gt;index,</span>
+<span class="lineNum">     615 </span>            :                 &quot;Index %s lost messages without expunging &quot;
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :                 &quot;(%u -&gt; %u)&quot;, view-&gt;index-&gt;filepath,</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :                 view-&gt;map-&gt;hdr.messages_count,</span>
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 :                 view-&gt;index-&gt;map-&gt;hdr.messages_count);</span>
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :             ctx-&gt;finish_min_msg_count = 0;</span>
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :             view-&gt;inconsistent = TRUE;</span>
+<span class="lineNum">     621 </span>            :         }
+<span class="lineNum">     622 </span>            : 
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :         view-&gt;index-&gt;map-&gt;refcount++;</span>
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :         mail_index_unmap(&amp;view-&gt;map);</span>
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :         view-&gt;map = view-&gt;index-&gt;map;</span>
+<span class="lineNum">     626 </span>            :     } else {
+<span class="lineNum">     627 </span>            :         /* a) expunges seen. b) doing a partial sync because we saw
+<span class="lineNum">     628 </span>            :            a reset.
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span>            :            Create a private map which we update. If we're syncing
+<span class="lineNum">     631 </span>            :            expunges the map will finally be replaced with the head map
+<span class="lineNum">     632 </span>            :            to remove the expunged messages. */
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :         ctx-&gt;sync_map_update = TRUE;</span>
+<span class="lineNum">     634 </span>            : 
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :         if (view-&gt;map-&gt;refcount &gt; 1) {</span>
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :             tmp_map = mail_index_map_clone(view-&gt;map);</span>
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :             mail_index_unmap(&amp;view-&gt;map);</span>
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :             view-&gt;map = tmp_map;</span>
+<span class="lineNum">     639 </span>            :         }
+<span class="lineNum">     640 </span>            : 
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         if (sync_expunges) {</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :             ctx-&gt;sync_new_map = view-&gt;index-&gt;map;</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :             ctx-&gt;sync_new_map-&gt;refcount++;</span>
+<span class="lineNum">     644 </span>            :         }
+<span class="lineNum">     645 </span>            :     }
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :     mail_index_sync_map_init(&amp;ctx-&gt;sync_map_ctx, view,</span>
+<span class="lineNum">     647 </span>            :                  MAIL_INDEX_SYNC_HANDLER_VIEW);
+<span class="lineNum">     648 </span>            : 
+<span class="lineNum">     649 </span>            : #ifdef DEBUG
+<span class="lineNum">     650 </span>            :     mail_index_map_check(view-&gt;map);
+<span class="lineNum">     651 </span>            : #endif
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :     return ctx;</span>
+<span class="lineNum">     653 </span>            : }
+<a name="654"><span class="lineNum">     654 </span>            : </a>
+<span class="lineNum">     655 </span>            : static bool
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 : view_sync_is_hidden(struct mail_index_view *view, uint32_t seq, uoff_t offset)</span>
+<span class="lineNum">     657 </span>            : {
+<span class="lineNum">     658 </span>            :     const struct mail_index_view_log_sync_area *sync;
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;view-&gt;syncs_hidden))</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     662 </span>            : 
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     array_foreach(&amp;view-&gt;syncs_hidden, sync) {</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :         if (sync-&gt;log_file_offset &lt;= offset &amp;&amp;</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :             offset - sync-&gt;log_file_offset &lt; sync-&gt;length &amp;&amp;</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :             sync-&gt;log_file_seq == seq)</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     668 </span>            :     }
+<span class="lineNum">     669 </span>            : 
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     671 </span>            : }
+<a name="672"><span class="lineNum">     672 </span>            : </a>
+<span class="lineNum">     673 </span>            : static bool
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 : mail_index_view_sync_want(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     675 </span>            :               const struct mail_transaction_header *hdr)
+<span class="lineNum">     676 </span>            : {
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :         struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     678 </span>            :     uint32_t seq;
+<span class="lineNum">     679 </span>            :     uoff_t offset, next_offset;
+<span class="lineNum">     680 </span>            : 
+<span class="lineNum">     681 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_get_prev_pos(view-&gt;log_view, &amp;seq, &amp;offset);</span>
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :     next_offset = offset + sizeof(*hdr) + hdr-&gt;size;</span>
+<span class="lineNum">     683 </span>            : 
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :     if ((hdr-&gt;type &amp; (MAIL_TRANSACTION_EXPUNGE |</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :               MAIL_TRANSACTION_EXPUNGE_GUID)) != 0 &amp;&amp;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :         (hdr-&gt;type &amp; MAIL_TRANSACTION_EXTERNAL) != 0) {</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :         if ((ctx-&gt;flags &amp; MAIL_INDEX_VIEW_SYNC_FLAG_NOEXPUNGES) != 0) {</span>
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :             i_assert(!LOG_IS_BEFORE(seq, offset,</span>
+<span class="lineNum">     689 </span>            :                         view-&gt;log_file_expunge_seq,
+<span class="lineNum">     690 </span>            :                         view-&gt;log_file_expunge_offset));
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :             if (!ctx-&gt;skipped_expunges) {</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :                 view-&gt;log_file_expunge_seq = seq;</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :                 view-&gt;log_file_expunge_offset = offset;</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :                 ctx-&gt;skipped_expunges = TRUE;</span>
+<span class="lineNum">     695 </span>            :             }
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     697 </span>            :         }
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :         if (LOG_IS_BEFORE(seq, offset, view-&gt;log_file_expunge_seq,</span>
+<span class="lineNum">     699 </span>            :                   view-&gt;log_file_expunge_offset)) {
+<span class="lineNum">     700 </span>            :             /* already synced */
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     702 </span>            :         }
+<span class="lineNum">     703 </span>            :     }
+<span class="lineNum">     704 </span>            : 
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     if (LOG_IS_BEFORE(seq, offset, view-&gt;log_file_head_seq,</span>
+<span class="lineNum">     706 </span>            :               view-&gt;log_file_head_offset)) {
+<span class="lineNum">     707 </span>            :         /* already synced */
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     709 </span>            :     }
+<span class="lineNum">     710 </span>            : 
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :     view-&gt;log_file_head_seq = seq;</span>
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :     view-&gt;log_file_head_offset = next_offset;</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     714 </span>            : }
+<a name="715"><span class="lineNum">     715 </span>            : </a>
+<span class="lineNum">     716 </span>            : static int
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 : mail_index_view_sync_get_next_transaction(struct mail_index_view_sync_ctx *ctx)</span>
+<span class="lineNum">     718 </span>            : {
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :         struct mail_transaction_log_view *log_view = ctx-&gt;view-&gt;log_view;</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     721 </span>            :     const struct mail_transaction_header *hdr;
+<span class="lineNum">     722 </span>            :     uint32_t seq;
+<span class="lineNum">     723 </span>            :     uoff_t offset;
+<span class="lineNum">     724 </span>            :     int ret;
+<span class="lineNum">     725 </span>            :     bool synced_to_map;
+<span class="lineNum">     726 </span>            : 
+<span class="lineNum">     727 </span>            :     do {
+<span class="lineNum">     728 </span>            :         /* Get the next transaction from log. */
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :         ret = mail_transaction_log_view_next(log_view, &amp;ctx-&gt;hdr,</span>
+<span class="lineNum">     730 </span>            :                              &amp;ctx-&gt;data);
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :             if (ret &lt; 0)</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     734 </span>            : 
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :             ctx-&gt;hdr = NULL;</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :             ctx-&gt;last_read = TRUE;</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     738 </span>            :         }
+<span class="lineNum">     739 </span>            : 
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :         hdr = ctx-&gt;hdr;</span>
+<span class="lineNum">     741 </span>            :         /* skip records we've already synced */
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :     } while (!mail_index_view_sync_want(ctx, hdr));</span>
+<span class="lineNum">     743 </span>            : 
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_get_prev_pos(log_view, &amp;seq, &amp;offset);</span>
+<span class="lineNum">     745 </span>            : 
+<span class="lineNum">     746 </span>            :     /* If we started from a map that we didn't create ourself,
+<span class="lineNum">     747 </span>            :        some of the transactions may already be synced. at the end
+<span class="lineNum">     748 </span>            :        of this view sync we'll update file_seq=0 so that this check
+<span class="lineNum">     749 </span>            :        always becomes FALSE for subsequent syncs. */
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :     synced_to_map = view-&gt;map-&gt;hdr.log_file_seq != 0 &amp;&amp;</span>
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :         LOG_IS_BEFORE(seq, offset, view-&gt;map-&gt;hdr.log_file_seq,</span>
+<span class="lineNum">     752 </span>            :                   view-&gt;map-&gt;hdr.log_file_head_offset);
+<span class="lineNum">     753 </span>            : 
+<span class="lineNum">     754 </span>            :     /* Apply transaction to view's mapping if needed (meaning we
+<span class="lineNum">     755 </span>            :        didn't just re-map the view to head mapping). */
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :     if (ctx-&gt;sync_map_update &amp;&amp; !synced_to_map) {</span>
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :         if ((hdr-&gt;type &amp; (MAIL_TRANSACTION_EXPUNGE |</span>
+<span class="lineNum">     758 </span>            :                   MAIL_TRANSACTION_EXPUNGE_GUID)) == 0) {
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :             ret = mail_index_sync_record(&amp;ctx-&gt;sync_map_ctx,</span>
+<span class="lineNum">     760 </span>            :                              hdr, ctx-&gt;data);
+<span class="lineNum">     761 </span>            :         }
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     764 </span>            :     }
+<span class="lineNum">     765 </span>            : 
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :     ctx-&gt;hidden = view_sync_is_hidden(view, seq, offset);</span>
+<span class="lineNum">     767 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     768 </span>            : }
+<a name="769"><span class="lineNum">     769 </span>            : </a>
+<span class="lineNum">     770 </span>            : static bool
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 : mail_index_view_sync_get_rec(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     772 </span>            :                  struct mail_index_view_sync_rec *rec)
+<span class="lineNum">     773 </span>            : {
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :     const struct mail_transaction_header *hdr = ctx-&gt;hdr;</span>
+<span class="lineNum">     775 </span><span class="lineNoCov">          0 :     const void *data = ctx-&gt;data;</span>
+<span class="lineNum">     776 </span>            : 
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :     switch (hdr-&gt;type &amp; MAIL_TRANSACTION_TYPE_MASK) {</span>
+<span class="lineNum">     778 </span>            :     case MAIL_TRANSACTION_FLAG_UPDATE: {
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :         const struct mail_transaction_flag_update *update =</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :             CONST_PTR_OFFSET(data, ctx-&gt;data_offset);</span>
+<span class="lineNum">     781 </span>            : 
+<span class="lineNum">     782 </span>            :         /* data contains mail_transaction_flag_update[] */
+<span class="lineNum">     783 </span>            :         for (;;) {
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :             ctx-&gt;data_offset += sizeof(*update);</span>
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :             if (!MAIL_TRANSACTION_FLAG_UPDATE_IS_INTERNAL(update))</span>
+<span class="lineNum">     786 </span>            :                 break;
+<span class="lineNum">     787 </span>            : 
+<span class="lineNum">     788 </span>            :             /* skip internal flag changes */
+<span class="lineNum">     789 </span><span class="lineNoCov">          0 :             if (ctx-&gt;data_offset == ctx-&gt;hdr-&gt;size)</span>
+<span class="lineNum">     790 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     791 </span>            : 
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :             update = CONST_PTR_OFFSET(data, ctx-&gt;data_offset);</span>
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     794 </span>            : 
+<span class="lineNum">     795 </span><span class="lineNoCov">          0 :         if (update-&gt;add_flags != 0 || update-&gt;remove_flags != 0)</span>
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :             rec-&gt;type = MAIL_INDEX_VIEW_SYNC_TYPE_FLAGS;</span>
+<span class="lineNum">     797 </span>            :         else
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :             rec-&gt;type = MAIL_INDEX_VIEW_SYNC_TYPE_MODSEQ;</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :         rec-&gt;uid1 = update-&gt;uid1;</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :         rec-&gt;uid2 = update-&gt;uid2;</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     802 </span>            :     }
+<span class="lineNum">     803 </span>            :     case MAIL_TRANSACTION_KEYWORD_UPDATE: {
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :         const struct mail_transaction_keyword_update *update = data;</span>
+<span class="lineNum">     805 </span>            :         const uint32_t *uids;
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span>            :         /* data contains mail_transaction_keyword_update header,
+<span class="lineNum">     808 </span>            :            the keyword name and an array of { uint32_t uid1, uid2; } */
+<span class="lineNum">     809 </span>            : 
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :         if (ctx-&gt;data_offset == 0) {</span>
+<span class="lineNum">     811 </span>            :             /* skip over the header and name */
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :             ctx-&gt;data_offset = sizeof(*update) + update-&gt;name_size;</span>
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :             if ((ctx-&gt;data_offset % 4) != 0)</span>
+<span class="lineNum">     814 </span><span class="lineNoCov">          0 :                 ctx-&gt;data_offset += 4 - (ctx-&gt;data_offset % 4);</span>
+<span class="lineNum">     815 </span>            :         }
+<span class="lineNum">     816 </span>            : 
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :         uids = CONST_PTR_OFFSET(data, ctx-&gt;data_offset);</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :         rec-&gt;type = MAIL_INDEX_VIEW_SYNC_TYPE_FLAGS;</span>
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :         rec-&gt;uid1 = uids[0];</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :         rec-&gt;uid2 = uids[1];</span>
+<span class="lineNum">     821 </span>            : 
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :         ctx-&gt;data_offset += sizeof(uint32_t) * 2;</span>
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     824 </span>            :     }
+<span class="lineNum">     825 </span>            :     case MAIL_TRANSACTION_KEYWORD_RESET: {
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :         const struct mail_transaction_keyword_reset *reset =</span>
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :             CONST_PTR_OFFSET(data, ctx-&gt;data_offset);</span>
+<span class="lineNum">     828 </span>            : 
+<span class="lineNum">     829 </span>            :         /* data contains mail_transaction_keyword_reset[] */
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :         rec-&gt;type = MAIL_INDEX_VIEW_SYNC_TYPE_FLAGS;</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :         rec-&gt;uid1 = reset-&gt;uid1;</span>
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :         rec-&gt;uid2 = reset-&gt;uid2;</span>
+<span class="lineNum">     833 </span><span class="lineNoCov">          0 :         ctx-&gt;data_offset += sizeof(*reset);</span>
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     835 </span>            :     }
+<span class="lineNum">     836 </span>            :     default:
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :         ctx-&gt;hdr = NULL;</span>
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     839 </span>            :     }
+<span class="lineNum">     840 </span>            : 
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :     rec-&gt;hidden = ctx-&gt;hidden;</span>
+<span class="lineNum">     842 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     843 </span>            : }
+<a name="844"><span class="lineNum">     844 </span>            : </a>
+<span class="lineNum">     845 </span>            : static bool
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 : mail_index_view_sync_next_lost(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     847 </span>            :                    struct mail_index_view_sync_rec *sync_rec)
+<span class="lineNum">     848 </span>            : {
+<span class="lineNum">     849 </span>            :     const struct seq_range *range;
+<span class="lineNum">     850 </span>            :     unsigned int count;
+<span class="lineNum">     851 </span>            : 
+<span class="lineNum">     852 </span><span class="lineNoCov">          0 :     range = array_get(&amp;ctx-&gt;lost_flags, &amp;count);</span>
+<span class="lineNum">     853 </span><span class="lineNoCov">          0 :     if (ctx-&gt;lost_flag_idx == count) {</span>
+<span class="lineNum">     854 </span><span class="lineNoCov">          0 :         ctx-&gt;last_read = TRUE;</span>
+<span class="lineNum">     855 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     856 </span>            :     }
+<span class="lineNum">     857 </span>            : 
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :     sync_rec-&gt;type = MAIL_INDEX_VIEW_SYNC_TYPE_FLAGS;</span>
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :     sync_rec-&gt;uid1 = range[ctx-&gt;lost_flag_idx].seq1;</span>
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 :     sync_rec-&gt;uid2 = range[ctx-&gt;lost_flag_idx].seq2;</span>
+<span class="lineNum">     861 </span><span class="lineNoCov">          0 :     sync_rec-&gt;hidden = FALSE;</span>
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 :     ctx-&gt;lost_flag_idx++;</span>
+<span class="lineNum">     863 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="864"><span class="lineNum">     864 </span>            : }</a>
+<span class="lineNum">     865 </span>            : 
+<span class="lineNum">     866 </span><span class="lineNoCov">          0 : bool mail_index_view_sync_next(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     867 </span>            :                    struct mail_index_view_sync_rec *sync_rec)
+<span class="lineNum">     868 </span>            : {
+<span class="lineNum">     869 </span>            :     int ret;
+<span class="lineNum">     870 </span>            : 
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :     if (ctx-&gt;log_was_lost)</span>
+<span class="lineNum">     872 </span><span class="lineNoCov">          0 :         return mail_index_view_sync_next_lost(ctx, sync_rec);</span>
+<span class="lineNum">     873 </span>            : 
+<span class="lineNum">     874 </span>            :     do {
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :         if (ctx-&gt;hdr == NULL || ctx-&gt;data_offset == ctx-&gt;hdr-&gt;size) {</span>
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 :             ret = mail_index_view_sync_get_next_transaction(ctx);</span>
+<span class="lineNum">     877 </span><span class="lineNoCov">          0 :             if (ret &lt;= 0) {</span>
+<span class="lineNum">     878 </span><span class="lineNoCov">          0 :                 if (ret &lt; 0)</span>
+<span class="lineNum">     879 </span><span class="lineNoCov">          0 :                     ctx-&gt;failed = TRUE;</span>
+<span class="lineNum">     880 </span><span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     881 </span>            :             }
+<span class="lineNum">     882 </span>            : 
+<span class="lineNum">     883 </span><span class="lineNoCov">          0 :             ctx-&gt;data_offset = 0;</span>
+<span class="lineNum">     884 </span>            :         }
+<span class="lineNum">     885 </span><span class="lineNoCov">          0 :     } while (!mail_index_view_sync_get_rec(ctx, sync_rec));</span>
+<span class="lineNum">     886 </span>            : 
+<span class="lineNum">     887 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="888"><span class="lineNum">     888 </span>            : }</a>
+<span class="lineNum">     889 </span>            : 
+<span class="lineNum">     890 </span><span class="lineNoCov">          0 : void mail_index_view_sync_get_expunges(struct mail_index_view_sync_ctx *ctx,</span>
+<span class="lineNum">     891 </span>            :                        const ARRAY_TYPE(seq_range) **expunges_r)
+<span class="lineNum">     892 </span>            : {
+<span class="lineNum">     893 </span><span class="lineNoCov">          0 :     *expunges_r = &amp;ctx-&gt;expunges;</span>
+<span class="lineNum">     894 </span><span class="lineNoCov">          0 : }</span>
+<a name="895"><span class="lineNum">     895 </span>            : </a>
+<span class="lineNum">     896 </span>            : static void
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 : mail_index_view_sync_clean_log_syncs(struct mail_index_view *view)</span>
+<span class="lineNum">     898 </span>            : {
+<span class="lineNum">     899 </span>            :     const struct mail_index_view_log_sync_area *syncs;
+<span class="lineNum">     900 </span>            :     unsigned int i, count;
+<span class="lineNum">     901 </span>            : 
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;view-&gt;syncs_hidden))</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     904 </span>            : 
+<span class="lineNum">     905 </span>            :     /* Clean up to view's tail */
+<span class="lineNum">     906 </span><span class="lineNoCov">          0 :     syncs = array_get(&amp;view-&gt;syncs_hidden, &amp;count);</span>
+<span class="lineNum">     907 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     908 </span><span class="lineNoCov">          0 :         if ((syncs[i].log_file_offset +</span>
+<span class="lineNum">     909 </span><span class="lineNoCov">          0 :              syncs[i].length &gt; view-&gt;log_file_expunge_offset &amp;&amp;</span>
+<span class="lineNum">     910 </span><span class="lineNoCov">          0 :                      syncs[i].log_file_seq == view-&gt;log_file_expunge_seq) ||</span>
+<span class="lineNum">     911 </span><span class="lineNoCov">          0 :             syncs[i].log_file_seq &gt; view-&gt;log_file_expunge_seq)</span>
+<span class="lineNum">     912 </span>            :             break;
+<span class="lineNum">     913 </span>            :     }
+<span class="lineNum">     914 </span><span class="lineNoCov">          0 :     if (i &gt; 0)</span>
+<span class="lineNum">     915 </span><span class="lineNoCov">          0 :         array_delete(&amp;view-&gt;syncs_hidden, 0, i);</span>
+<a name="916"><span class="lineNum">     916 </span>            : }</a>
+<span class="lineNum">     917 </span>            : 
+<span class="lineNum">     918 </span><span class="lineNoCov">          0 : int mail_index_view_sync_commit(struct mail_index_view_sync_ctx **_ctx,</span>
+<span class="lineNum">     919 </span>            :                 bool *delayed_expunges_r)
+<span class="lineNum">     920 </span>            : {
+<span class="lineNum">     921 </span><span class="lineNoCov">          0 :         struct mail_index_view_sync_ctx *ctx = *_ctx;</span>
+<span class="lineNum">     922 </span><span class="lineNoCov">          0 :         struct mail_index_view *view = ctx-&gt;view;</span>
+<span class="lineNum">     923 </span><span class="lineNoCov">          0 :     int ret = ctx-&gt;failed ? -1 : 0;</span>
+<span class="lineNum">     924 </span>            : 
+<span class="lineNum">     925 </span><span class="lineNoCov">          0 :     i_assert(view-&gt;syncing);</span>
+<span class="lineNum">     926 </span>            : 
+<span class="lineNum">     927 </span><span class="lineNoCov">          0 :     *_ctx = NULL;</span>
+<span class="lineNum">     928 </span><span class="lineNoCov">          0 :     *delayed_expunges_r = ctx-&gt;skipped_expunges;</span>
+<span class="lineNum">     929 </span>            : 
+<span class="lineNum">     930 </span><span class="lineNoCov">          0 :     if ((!ctx-&gt;last_read || view-&gt;inconsistent) &amp;&amp;</span>
+<span class="lineNum">     931 </span><span class="lineNoCov">          0 :         (ctx-&gt;flags &amp; MAIL_INDEX_VIEW_SYNC_FLAG_FIX_INCONSISTENT) == 0) {</span>
+<span class="lineNum">     932 </span>            :         /* we didn't sync everything */
+<span class="lineNum">     933 </span><span class="lineNoCov">          0 :         view-&gt;inconsistent = TRUE;</span>
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     935 </span>            :     }
+<span class="lineNum">     936 </span><span class="lineNoCov">          0 :     if (ctx-&gt;sync_map_ctx.modseq_ctx != NULL)</span>
+<span class="lineNum">     937 </span><span class="lineNoCov">          0 :         mail_index_modseq_sync_end(&amp;ctx-&gt;sync_map_ctx.modseq_ctx);</span>
+<span class="lineNum">     938 </span>            : 
+<span class="lineNum">     939 </span><span class="lineNoCov">          0 :     if (ctx-&gt;sync_new_map != NULL) {</span>
+<span class="lineNum">     940 </span><span class="lineNoCov">          0 :         mail_index_unmap(&amp;view-&gt;map);</span>
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :         view-&gt;map = ctx-&gt;sync_new_map;</span>
+<span class="lineNum">     942 </span><span class="lineNoCov">          0 :     } else if (ctx-&gt;sync_map_update) {</span>
+<span class="lineNum">     943 </span>            :         /* log offsets have no meaning in views. make sure they're not
+<span class="lineNum">     944 </span>            :            tried to be used wrong by setting them to zero. */
+<span class="lineNum">     945 </span><span class="lineNoCov">          0 :         view-&gt;map-&gt;hdr.log_file_seq = 0;</span>
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 :         view-&gt;map-&gt;hdr.log_file_head_offset = 0;</span>
+<span class="lineNum">     947 </span><span class="lineNoCov">          0 :         view-&gt;map-&gt;hdr.log_file_tail_offset = 0;</span>
+<span class="lineNum">     948 </span>            :     }
+<span class="lineNum">     949 </span>            : 
+<span class="lineNum">     950 </span><span class="lineNoCov">          0 :     i_assert(view-&gt;map-&gt;hdr.messages_count &gt;= ctx-&gt;finish_min_msg_count);</span>
+<span class="lineNum">     951 </span>            : 
+<span class="lineNum">     952 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;skipped_expunges) {</span>
+<span class="lineNum">     953 </span><span class="lineNoCov">          0 :         view-&gt;log_file_expunge_seq = view-&gt;log_file_head_seq;</span>
+<span class="lineNum">     954 </span><span class="lineNoCov">          0 :         view-&gt;log_file_expunge_offset = view-&gt;log_file_head_offset;</span>
+<span class="lineNum">     955 </span>            :     }
+<span class="lineNum">     956 </span>            : 
+<span class="lineNum">     957 </span><span class="lineNoCov">          0 :     if (ctx-&gt;sync_map_ctx.view != NULL)</span>
+<span class="lineNum">     958 </span><span class="lineNoCov">          0 :         mail_index_sync_map_deinit(&amp;ctx-&gt;sync_map_ctx);</span>
+<span class="lineNum">     959 </span><span class="lineNoCov">          0 :     mail_index_view_sync_clean_log_syncs(ctx-&gt;view);</span>
+<span class="lineNum">     960 </span>            : 
+<span class="lineNum">     961 </span>            : #ifdef DEBUG
+<span class="lineNum">     962 </span>            :     mail_index_map_check(view-&gt;map);
+<span class="lineNum">     963 </span>            : #endif
+<span class="lineNum">     964 </span>            : 
+<span class="lineNum">     965 </span>            :     /* set log view to empty range so unneeded memory gets freed */
+<span class="lineNum">     966 </span><span class="lineNoCov">          0 :     mail_transaction_log_view_clear(view-&gt;log_view,</span>
+<span class="lineNum">     967 </span>            :                     view-&gt;log_file_expunge_seq);
+<span class="lineNum">     968 </span>            : 
+<span class="lineNum">     969 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;ctx-&gt;expunges))</span>
+<span class="lineNum">     970 </span><span class="lineNoCov">          0 :         array_free(&amp;ctx-&gt;expunges);</span>
+<span class="lineNum">     971 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;ctx-&gt;lost_flags))</span>
+<span class="lineNum">     972 </span><span class="lineNoCov">          0 :         array_free(&amp;ctx-&gt;lost_flags);</span>
+<span class="lineNum">     973 </span>            : 
+<span class="lineNum">     974 </span><span class="lineNoCov">          0 :     view-&gt;highest_modseq = mail_index_map_modseq_get_highest(view-&gt;map);</span>
+<span class="lineNum">     975 </span><span class="lineNoCov">          0 :     view-&gt;syncing = FALSE;</span>
+<span class="lineNum">     976 </span><span class="lineNoCov">          0 :     i_free(ctx);</span>
+<span class="lineNum">     977 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="978"><span class="lineNum">     978 </span>            : }</a>
+<span class="lineNum">     979 </span>            : 
+<span class="lineNum">     980 </span><span class="lineNoCov">          0 : void mail_index_view_add_hidden_transaction(struct mail_index_view *view,</span>
+<span class="lineNum">     981 </span>            :                         uint32_t log_file_seq,
+<span class="lineNum">     982 </span>            :                         uoff_t log_file_offset,
+<span class="lineNum">     983 </span>            :                         unsigned int length)
+<span class="lineNum">     984 </span>            : {
+<span class="lineNum">     985 </span>            :     struct mail_index_view_log_sync_area *area;
+<span class="lineNum">     986 </span>            : 
+<span class="lineNum">     987 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;view-&gt;syncs_hidden))</span>
+<span class="lineNum">     988 </span><span class="lineNoCov">          0 :         i_array_init(&amp;view-&gt;syncs_hidden, 32);</span>
+<span class="lineNum">     989 </span>            : 
+<span class="lineNum">     990 </span><span class="lineNoCov">          0 :     area = array_append_space(&amp;view-&gt;syncs_hidden);</span>
+<span class="lineNum">     991 </span><span class="lineNoCov">          0 :     area-&gt;log_file_seq = log_file_seq;</span>
+<span class="lineNum">     992 </span><span class="lineNoCov">          0 :     area-&gt;log_file_offset = log_file_offset;</span>
+<span class="lineNum">     993 </span><span class="lineNoCov">          0 :     area-&gt;length = length;</span>
+<span class="lineNum">     994 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

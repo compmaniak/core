@@ -1,0 +1,444 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - auth/mech-winbind.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">auth</a> - mech-winbind.c<span style="font-size: 80%;"> (source / <a href="mech-winbind.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">141</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * NTLM and Negotiate authentication mechanisms,
+<span class="lineNum">       3 </span>            :  * using Samba winbind daemon
+<span class="lineNum">       4 </span>            :  *
+<span class="lineNum">       5 </span>            :  * Copyright (c) 2007 Dmitry Butskoy &lt;dmitry@butskoy.name&gt;
+<span class="lineNum">       6 </span>            :  *
+<span class="lineNum">       7 </span>            :  * This software is released under the MIT license.
+<span class="lineNum">       8 </span>            :  */
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #include &quot;auth-common.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;lib-signals.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;mech.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;base64.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;execv-const.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      21 </span>            : #include &lt;sys/wait.h&gt;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : #define DEFAULT_WINBIND_HELPER_PATH &quot;/usr/bin/ntlm_auth&quot;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : enum helper_result {
+<span class="lineNum">      26 </span>            :     HR_OK   = 0,    /* OK or continue */
+<span class="lineNum">      27 </span>            :     HR_FAIL = -1,   /* authentication failed */
+<span class="lineNum">      28 </span>            :     HR_RESTART = -2 /* FAIL + try to restart helper */
+<span class="lineNum">      29 </span>            : };
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : struct winbind_helper {
+<span class="lineNum">      32 </span>            :     const char *param;
+<span class="lineNum">      33 </span>            :     pid_t pid;
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            :     struct istream *in_pipe;
+<span class="lineNum">      36 </span>            :     struct ostream *out_pipe;
+<span class="lineNum">      37 </span>            : };
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : struct winbind_auth_request {
+<span class="lineNum">      40 </span>            :     struct auth_request auth_request;
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            :     struct winbind_helper *winbind;
+<span class="lineNum">      43 </span>            :     bool continued;
+<span class="lineNum">      44 </span>            : };
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span>            : static struct winbind_helper winbind_ntlm_context = {
+<span class="lineNum">      47 </span>            :     &quot;--helper-protocol=squid-2.5-ntlmssp&quot;, -1, NULL, NULL
+<span class="lineNum">      48 </span>            : };
+<span class="lineNum">      49 </span>            : static struct winbind_helper winbind_spnego_context = {
+<span class="lineNum">      50 </span>            :     &quot;--helper-protocol=gss-spnego&quot;, -1, NULL, NULL
+<span class="lineNum">      51 </span>            : };
+<span class="lineNum">      52 </span>            : 
+<a name="53"><span class="lineNum">      53 </span>            : static bool sigchld_handler_set = FALSE;</a>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 : static void winbind_helper_disconnect(struct winbind_helper *winbind)</span>
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     i_stream_destroy(&amp;winbind-&gt;in_pipe);</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     o_stream_destroy(&amp;winbind-&gt;out_pipe);</span>
+<a name="59"><span class="lineNum">      59 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 : static void winbind_wait_pid(struct winbind_helper *winbind)</span>
+<span class="lineNum">      62 </span>            : {
+<span class="lineNum">      63 </span>            :     int status, ret;
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     if (winbind-&gt;pid == -1)</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span>            :     /* FIXME: use child-wait.h API */
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     if ((ret = waitpid(winbind-&gt;pid, &amp;status, WNOHANG)) &lt;= 0) {</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :         if (ret &lt; 0 &amp;&amp; errno != ECHILD &amp;&amp; errno != EINTR)</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :             i_error(&quot;waitpid() failed: %m&quot;);</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      73 </span>            :     }
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     if (WIFSIGNALED(status)) {</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         i_error(&quot;winbind: ntlm_auth died with signal %d&quot;,</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :             WTERMSIG(status));</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     } else if (WIFEXITED(status)) {</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         i_error(&quot;winbind: ntlm_auth exited with exit code %d&quot;,</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :             WEXITSTATUS(status));</span>
+<span class="lineNum">      81 </span>            :     } else {
+<span class="lineNum">      82 </span>            :         /* shouldn't happen */
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         i_error(&quot;winbind: ntlm_auth exited with status %d&quot;,</span>
+<span class="lineNum">      84 </span>            :             status);
+<span class="lineNum">      85 </span>            :     }
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     winbind-&gt;pid = -1;</span>
+<a name="87"><span class="lineNum">      87 </span>            : }</a>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 : static void sigchld_handler(const siginfo_t *si ATTR_UNUSED,</span>
+<span class="lineNum">      90 </span>            :                 void *context ATTR_UNUSED)
+<span class="lineNum">      91 </span>            : {
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     winbind_wait_pid(&amp;winbind_ntlm_context);</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     winbind_wait_pid(&amp;winbind_spnego_context);</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 : }</span>
+<a name="95"><span class="lineNum">      95 </span>            : </a>
+<span class="lineNum">      96 </span>            : static void
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 : winbind_helper_connect(const struct auth_settings *set,</span>
+<span class="lineNum">      98 </span>            :                struct winbind_helper *winbind)
+<span class="lineNum">      99 </span>            : {
+<span class="lineNum">     100 </span>            :     int infd[2], outfd[2];
+<span class="lineNum">     101 </span>            :     pid_t pid;
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     if (winbind-&gt;in_pipe != NULL || winbind-&gt;pid != -1)</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     if (pipe(infd) &lt; 0) {</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         i_error(&quot;pipe() failed: %m&quot;);</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     109 </span>            :     }
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (pipe(outfd) &lt; 0) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;infd[0]); i_close_fd(&amp;infd[1]);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     113 </span>            :     }
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     pid = fork();</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     if (pid &lt; 0) {</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         i_error(&quot;fork() failed: %m&quot;);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;infd[0]); i_close_fd(&amp;infd[1]);</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;outfd[0]); i_close_fd(&amp;outfd[1]);</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     121 </span>            :     }
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     if (pid == 0) {</span>
+<span class="lineNum">     124 </span>            :         /* child */
+<span class="lineNum">     125 </span>            :         const char *args[3];
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;infd[0]);</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;outfd[1]);</span>
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         if (dup2(outfd[0], STDIN_FILENO) &lt; 0 ||</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :             dup2(infd[1], STDOUT_FILENO) &lt; 0)</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :             i_fatal(&quot;dup2() failed: %m&quot;);</span>
+<span class="lineNum">     133 </span>            : 
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         args[0] = set-&gt;winbind_helper_path;</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         args[1] = winbind-&gt;param;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         args[2] = NULL;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         execv_const(args[0], args);</span>
+<span class="lineNum">     138 </span>            :     }
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span>            :     /* parent */
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     i_close_fd(&amp;infd[1]);</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :     i_close_fd(&amp;outfd[0]);</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     winbind-&gt;pid = pid;</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     winbind-&gt;in_pipe =</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         i_stream_create_fd_autoclose(&amp;infd[0], AUTH_CLIENT_MAX_LINE_LENGTH);</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     winbind-&gt;out_pipe =</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :         o_stream_create_fd_autoclose(&amp;outfd[1], (size_t)-1);</span>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     if (!sigchld_handler_set) {</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         sigchld_handler_set = TRUE;</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         lib_signals_set_handler(SIGCHLD, LIBSIG_FLAGS_SAFE,</span>
+<span class="lineNum">     153 </span>            :                     sigchld_handler, NULL);
+<span class="lineNum">     154 </span>            :     }
+<span class="lineNum">     155 </span>            : }
+<a name="156"><span class="lineNum">     156 </span>            : </a>
+<span class="lineNum">     157 </span>            : static enum helper_result
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 : do_auth_continue(struct auth_request *auth_request,</span>
+<span class="lineNum">     159 </span>            :          const unsigned char *data, size_t data_size)
+<span class="lineNum">     160 </span>            : {
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     struct winbind_auth_request *request =</span>
+<span class="lineNum">     162 </span>            :         (struct winbind_auth_request *)auth_request;
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     struct istream *in_pipe = request-&gt;winbind-&gt;in_pipe;</span>
+<span class="lineNum">     164 </span>            :     string_t *str;
+<span class="lineNum">     165 </span>            :     char *answer;
+<span class="lineNum">     166 </span>            :     const char **token;
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :     bool gss_spnego = request-&gt;winbind == &amp;winbind_spnego_context;</span>
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     if (request-&gt;winbind-&gt;in_pipe == NULL)</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         return HR_RESTART;</span>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     str = t_str_new(MAX_BASE64_ENCODED_SIZE(data_size + 1) + 4);</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     str_printfa(str, &quot;%s &quot;, request-&gt;continued ? &quot;KK&quot; : &quot;YR&quot;);</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     base64_encode(data, data_size, str);</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     if (o_stream_send(request-&gt;winbind-&gt;out_pipe,</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :               str_data(str), str_len(str)) &lt; 0 ||</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         o_stream_flush(request-&gt;winbind-&gt;out_pipe) &lt; 0) {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         auth_request_log_error(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     181 </span>            :             &quot;write(out_pipe) failed: %s&quot;,
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :             o_stream_get_error(request-&gt;winbind-&gt;out_pipe));</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :         return HR_RESTART;</span>
+<span class="lineNum">     184 </span>            :     }
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :     request-&gt;continued = FALSE;</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :     while ((answer = i_stream_read_next_line(in_pipe)) == NULL) {</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         if (in_pipe-&gt;stream_errno != 0 || in_pipe-&gt;eof)</span>
+<span class="lineNum">     189 </span>            :             break;
+<span class="lineNum">     190 </span>            :     }
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     if (answer == NULL) {</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         if (in_pipe-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :             auth_request_log_error(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     194 </span>            :                            &quot;read(in_pipe) failed: %m&quot;);
+<span class="lineNum">     195 </span>            :         } else {
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :             auth_request_log_error(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     197 </span>            :                            &quot;read(in_pipe) failed: &quot;
+<span class="lineNum">     198 </span>            :                            &quot;unexpected end of file&quot;);
+<span class="lineNum">     199 </span>            :         }
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         return HR_RESTART;</span>
+<span class="lineNum">     201 </span>            :     }
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     token = t_strsplit_spaces(answer, &quot; &quot;);</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     if (token[0] == NULL ||</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :         (token[1] == NULL &amp;&amp; strcmp(token[0], &quot;BH&quot;) != 0) ||</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         (gss_spnego &amp;&amp; (token[1] == NULL || token[2] == NULL))) {</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         auth_request_log_error(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     208 </span>            :                        &quot;Invalid input from helper: %s&quot;, answer);
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         return HR_RESTART;</span>
+<span class="lineNum">     210 </span>            :     }
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span>            :     /*
+<span class="lineNum">     213 </span>            :      *  NTLM:
+<span class="lineNum">     214 </span>            :      *  The child's reply contains 2 parts:
+<span class="lineNum">     215 </span>            :      *   - The code: TT, AF or NA
+<span class="lineNum">     216 </span>            :      *   - The argument:
+<span class="lineNum">     217 </span>            :      *        For TT it's the blob to send to the client, coded in base64
+<span class="lineNum">     218 </span>            :      *        For AF it's user or DOMAIN\user
+<span class="lineNum">     219 </span>            :      *        For NA it's the NT error code
+<span class="lineNum">     220 </span>            :      *
+<span class="lineNum">     221 </span>            :      *  GSS-SPNEGO:
+<span class="lineNum">     222 </span>            :      *  The child's reply contains 3 parts:
+<span class="lineNum">     223 </span>            :      *   - The code: TT, AF or NA
+<span class="lineNum">     224 </span>            :      *   - The blob to send to the client, coded in base64
+<span class="lineNum">     225 </span>            :      *   - The argument:
+<span class="lineNum">     226 </span>            :      *        For TT it's a dummy '*'
+<span class="lineNum">     227 </span>            :      *        For AF it's DOMAIN\user
+<span class="lineNum">     228 </span>            :      *        For NA it's the NT error code
+<span class="lineNum">     229 </span>            :      */
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     if (strcmp(token[0], &quot;TT&quot;) == 0) {</span>
+<span class="lineNum">     232 </span>            :         buffer_t *buf;
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :         buf = t_base64_decode_str(token[1]);</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         auth_request_handler_reply_continue(auth_request, buf-&gt;data,</span>
+<span class="lineNum">     236 </span>            :                             buf-&gt;used);
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         request-&gt;continued = TRUE;</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         return HR_OK;</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     } else if (strcmp(token[0], &quot;NA&quot;) == 0) {</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         const char *error = gss_spnego ? token[2] : token[1];</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         auth_request_log_info(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     243 </span>            :                       &quot;user not authenticated: %s&quot;, error);
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         return HR_FAIL;</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     } else if (strcmp(token[0], &quot;AF&quot;) == 0) {</span>
+<span class="lineNum">     246 </span>            :         const char *user, *p, *error;
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         user = t_strarray_join(gss_spnego ? token+2 : token+1, &quot; &quot;);</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         i_assert(user != NULL);</span>
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         p = strchr(user, '\\');</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         if (p != NULL) {</span>
+<span class="lineNum">     253 </span>            :             /* change &quot;DOMAIN\user&quot; to uniform style
+<span class="lineNum">     254 </span>            :                &quot;user@DOMAIN&quot; */
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :             user = t_strconcat(p+1, &quot;@&quot;,</span>
+<span class="lineNum">     256 </span>            :                        t_strdup_until(user, p), NULL);
+<span class="lineNum">     257 </span>            :         }
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         if (!auth_request_set_username(auth_request, user, &amp;error)) {</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :             auth_request_log_info(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     261 </span>            :                           &quot;%s&quot;, error);
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :             return HR_FAIL;</span>
+<span class="lineNum">     263 </span>            :         }
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         request-&gt;auth_request.passdb_success = TRUE;</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         if (gss_spnego &amp;&amp; strcmp(token[1], &quot;*&quot;) != 0) {</span>
+<span class="lineNum">     267 </span>            :             buffer_t *buf;
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :             buf = t_base64_decode_str(token[1]);</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :             auth_request_success(&amp;request-&gt;auth_request,</span>
+<span class="lineNum">     271 </span>            :                          buf-&gt;data, buf-&gt;used);
+<span class="lineNum">     272 </span>            :         } else {
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :             auth_request_success(&amp;request-&gt;auth_request, &quot;&quot;, 0);</span>
+<span class="lineNum">     274 </span>            :         }
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         return HR_OK;</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     } else if (strcmp(token[0], &quot;BH&quot;) == 0) {</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         auth_request_log_info(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     278 </span>            :                       &quot;ntlm_auth reports broken helper: %s&quot;,
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :                       token[1] != NULL ? token[1] : &quot;&quot;);</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         return HR_RESTART;</span>
+<span class="lineNum">     281 </span>            :     } else {
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         auth_request_log_error(auth_request, AUTH_SUBSYS_MECH,</span>
+<span class="lineNum">     283 </span>            :                        &quot;Invalid input from helper: %s&quot;, answer);
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         return HR_RESTART;</span>
+<span class="lineNum">     285 </span>            :     }
+<span class="lineNum">     286 </span>            : }
+<a name="287"><span class="lineNum">     287 </span>            : </a>
+<span class="lineNum">     288 </span>            : static void
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 : mech_winbind_auth_initial(struct auth_request *auth_request,</span>
+<span class="lineNum">     290 </span>            :               const unsigned char *data, size_t data_size)
+<span class="lineNum">     291 </span>            : {
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     struct winbind_auth_request *request =</span>
+<span class="lineNum">     293 </span>            :         (struct winbind_auth_request *)auth_request;
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     winbind_helper_connect(auth_request-&gt;set, request-&gt;winbind);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     mech_generic_auth_initial(auth_request, data, data_size);</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 : }</span>
+<a name="298"><span class="lineNum">     298 </span>            : </a>
+<span class="lineNum">     299 </span>            : static void
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 : mech_winbind_auth_continue(struct auth_request *auth_request,</span>
+<span class="lineNum">     301 </span>            :                const unsigned char *data, size_t data_size)
+<span class="lineNum">     302 </span>            : {
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     struct winbind_auth_request *request =</span>
+<span class="lineNum">     304 </span>            :         (struct winbind_auth_request *)auth_request;
+<span class="lineNum">     305 </span>            :     enum helper_result res;
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     res = do_auth_continue(auth_request, data, data_size);</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     if (res != HR_OK) {</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         if (res == HR_RESTART)</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :             winbind_helper_disconnect(request-&gt;winbind);</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         auth_request_fail(auth_request);</span>
+<span class="lineNum">     312 </span>            :     }
+<a name="313"><span class="lineNum">     313 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 : static struct auth_request *do_auth_new(struct winbind_helper *winbind)</span>
+<span class="lineNum">     316 </span>            : {
+<span class="lineNum">     317 </span>            :     struct winbind_auth_request *request;
+<span class="lineNum">     318 </span>            :     pool_t pool;
+<span class="lineNum">     319 </span>            : 
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;winbind_auth_request&quot;, 2048);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     request = p_new(pool, struct winbind_auth_request, 1);</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     request-&gt;auth_request.pool = pool;</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     request-&gt;winbind = winbind;</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     return &amp;request-&gt;auth_request;</span>
+<a name="326"><span class="lineNum">     326 </span>            : }</a>
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 : static struct auth_request *mech_winbind_ntlm_auth_new(void)</span>
+<span class="lineNum">     329 </span>            : {
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     return do_auth_new(&amp;winbind_ntlm_context);</span>
+<a name="331"><span class="lineNum">     331 </span>            : }</a>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 : static struct auth_request *mech_winbind_spnego_auth_new(void)</span>
+<span class="lineNum">     334 </span>            : {
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :     return do_auth_new(&amp;winbind_spnego_context);</span>
+<span class="lineNum">     336 </span>            : }
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span>            : const struct mech_module mech_winbind_ntlm = {
+<span class="lineNum">     339 </span>            :     &quot;NTLM&quot;,
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span>            :     .flags = MECH_SEC_DICTIONARY | MECH_SEC_ACTIVE,
+<span class="lineNum">     342 </span>            :     .passdb_need = MECH_PASSDB_NEED_NOTHING,
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span>            :     mech_winbind_ntlm_auth_new,
+<span class="lineNum">     345 </span>            :     mech_winbind_auth_initial,
+<span class="lineNum">     346 </span>            :     mech_winbind_auth_continue,
+<span class="lineNum">     347 </span>            :     mech_generic_auth_free
+<span class="lineNum">     348 </span>            : };
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span>            : const struct mech_module mech_winbind_spnego = {
+<span class="lineNum">     351 </span>            :     &quot;GSS-SPNEGO&quot;,
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span>            :     .flags = 0,
+<span class="lineNum">     354 </span>            :     .passdb_need = MECH_PASSDB_NEED_NOTHING,
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span>            :     mech_winbind_spnego_auth_new,
+<span class="lineNum">     357 </span>            :     mech_winbind_auth_initial,
+<span class="lineNum">     358 </span>            :     mech_winbind_auth_continue,
+<span class="lineNum">     359 </span>            :     mech_generic_auth_free
+<span class="lineNum">     360 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,446 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/pop3c/pop3c-storage.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/pop3c</a> - pop3c-storage.c<span style="font-size: 80%;"> (source / <a href="pop3c-storage.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">142</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2011-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;mail-copy.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mail-user.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mailbox-list-private.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;pop3c-client.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;pop3c-sync.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;pop3c-storage.h&quot;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #define DNS_CLIENT_SOCKET_NAME &quot;dns-client&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : extern struct mail_storage pop3c_storage;
+<a name="17"><span class="lineNum">      17 </span>            : extern struct mailbox pop3c_mailbox;</a>
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span><span class="lineNoCov">          0 : static struct mail_storage *pop3c_storage_alloc(void)</span>
+<span class="lineNum">      20 </span>            : {
+<span class="lineNum">      21 </span>            :     struct pop3c_storage *storage;
+<span class="lineNum">      22 </span>            :     pool_t pool;
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;pop3c storage&quot;, 512+256);</span>
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 :     storage = p_new(pool, struct pop3c_storage, 1);</span>
+<span class="lineNum">      26 </span><span class="lineNoCov">          0 :     storage-&gt;storage = pop3c_storage;</span>
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 :     storage-&gt;storage.pool = pool;</span>
+<span class="lineNum">      28 </span><span class="lineNoCov">          0 :     return &amp;storage-&gt;storage;</span>
+<span class="lineNum">      29 </span>            : }
+<a name="30"><span class="lineNum">      30 </span>            : </a>
+<span class="lineNum">      31 </span>            : static int
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 : pop3c_storage_create(struct mail_storage *_storage,</span>
+<span class="lineNum">      33 </span>            :              struct mail_namespace *ns,
+<span class="lineNum">      34 </span>            :              const char **error_r)
+<span class="lineNum">      35 </span>            : {
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :     struct pop3c_storage *storage = POP3C_STORAGE(_storage);</span>
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :     storage-&gt;set = mail_namespace_get_driver_settings(ns, _storage);</span>
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 :     if (storage-&gt;set-&gt;pop3c_host[0] == '\0') {</span>
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :         *error_r = &quot;missing pop3c_host&quot;;</span>
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      42 </span>            :     }
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :     if (storage-&gt;set-&gt;pop3c_password[0] == '\0') {</span>
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :         *error_r = &quot;missing pop3c_password&quot;;</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      46 </span>            :     }
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">      49 </span>            : }
+<a name="50"><span class="lineNum">      50 </span>            : </a>
+<span class="lineNum">      51 </span>            : static struct pop3c_client *
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 : pop3c_client_create_from_set(struct mail_storage *storage,</span>
+<span class="lineNum">      53 </span>            :                  const struct pop3c_settings *set)
+<span class="lineNum">      54 </span>            : {
+<span class="lineNum">      55 </span>            :     struct pop3c_client_settings client_set;
+<span class="lineNum">      56 </span>            :     string_t *str;
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     i_zero(&amp;client_set);</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     client_set.host = set-&gt;pop3c_host;</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     client_set.port = set-&gt;pop3c_port;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     client_set.username = set-&gt;pop3c_user;</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     client_set.master_user = set-&gt;pop3c_master_user;</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     client_set.password = set-&gt;pop3c_password;</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     client_set.dns_client_socket_path =</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :         storage-&gt;user-&gt;set-&gt;base_dir[0] == '\0' ? &quot;&quot; :</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         t_strconcat(storage-&gt;user-&gt;set-&gt;base_dir, &quot;/&quot;,</span>
+<span class="lineNum">      67 </span>            :                 DNS_CLIENT_SOCKET_NAME, NULL);
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     str = t_str_new(128);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     mail_user_set_get_temp_prefix(str, storage-&gt;user-&gt;set);</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     client_set.temp_path_prefix = str_c(str);</span>
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     client_set.debug = storage-&gt;user-&gt;mail_debug;</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :     client_set.rawlog_dir =</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         mail_user_home_expand(storage-&gt;user, set-&gt;pop3c_rawlog_dir);</span>
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     client_set.ssl_ca_dir = storage-&gt;set-&gt;ssl_client_ca_dir;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     client_set.ssl_ca_file = storage-&gt;set-&gt;ssl_client_ca_file;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     client_set.ssl_verify = set-&gt;pop3c_ssl_verify;</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     if (strcmp(set-&gt;pop3c_ssl, &quot;pop3s&quot;) == 0)</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         client_set.ssl_mode = POP3C_CLIENT_SSL_MODE_IMMEDIATE;</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     else if (strcmp(set-&gt;pop3c_ssl, &quot;starttls&quot;) == 0)</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         client_set.ssl_mode = POP3C_CLIENT_SSL_MODE_STARTTLS;</span>
+<span class="lineNum">      83 </span>            :     else
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :         client_set.ssl_mode = POP3C_CLIENT_SSL_MODE_NONE;</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :     client_set.ssl_crypto_device = storage-&gt;set-&gt;ssl_crypto_device;</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     return pop3c_client_init(&amp;client_set);</span>
+<span class="lineNum">      87 </span>            : }
+<a name="88"><span class="lineNum">      88 </span>            : </a>
+<span class="lineNum">      89 </span>            : static void
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 : pop3c_storage_get_list_settings(const struct mail_namespace *ns,</span>
+<span class="lineNum">      91 </span>            :                 struct mailbox_list_settings *set)
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     set-&gt;layout = MAILBOX_LIST_NAME_FS;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     if (set-&gt;root_dir != NULL &amp;&amp; *set-&gt;root_dir != '\0' &amp;&amp;</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         set-&gt;index_dir == NULL) {</span>
+<span class="lineNum">      96 </span>            :         /* we don't really care about root_dir, but we
+<span class="lineNum">      97 </span>            :            just need to get index_dir autocreated.
+<span class="lineNum">      98 </span>            :            it happens when index_dir differs from root_dir. */
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         set-&gt;index_dir = set-&gt;root_dir;</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         set-&gt;root_dir = p_strconcat(ns-&gt;user-&gt;pool,</span>
+<span class="lineNum">     101 </span>            :                         set-&gt;root_dir, &quot;/.&quot;, NULL);
+<span class="lineNum">     102 </span>            :     }
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 : }</span>
+<a name="104"><span class="lineNum">     104 </span>            : </a>
+<span class="lineNum">     105 </span>            : static struct mailbox *
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 : pop3c_mailbox_alloc(struct mail_storage *storage, struct mailbox_list *list,</span>
+<span class="lineNum">     107 </span>            :             const char *vname, enum mailbox_flags flags)
+<span class="lineNum">     108 </span>            : {
+<span class="lineNum">     109 </span>            :     struct pop3c_mailbox *mbox;
+<span class="lineNum">     110 </span>            :     pool_t pool;
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;pop3c mailbox&quot;, 1024*3);</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     mbox = p_new(pool, struct pop3c_mailbox, 1);</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     mbox-&gt;box = pop3c_mailbox;</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     mbox-&gt;box.pool = pool;</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     mbox-&gt;box.storage = storage;</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     mbox-&gt;box.list = list;</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     mbox-&gt;box.mail_vfuncs = &amp;pop3c_mail_vfuncs;</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     mbox-&gt;storage = POP3C_STORAGE(storage);</span>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     index_storage_mailbox_alloc(&amp;mbox-&gt;box, vname, flags, MAIL_INDEX_PREFIX);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     return &amp;mbox-&gt;box;</span>
+<span class="lineNum">     123 </span>            : }
+<a name="124"><span class="lineNum">     124 </span>            : </a>
+<span class="lineNum">     125 </span>            : static int
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 : pop3c_mailbox_exists(struct mailbox *box, bool auto_boxes ATTR_UNUSED,</span>
+<span class="lineNum">     127 </span>            :              enum mailbox_existence *existence_r)
+<span class="lineNum">     128 </span>            : {
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     if (box-&gt;inbox_any)</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         *existence_r = MAILBOX_EXISTENCE_SELECT;</span>
+<span class="lineNum">     131 </span>            :     else
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         *existence_r = MAILBOX_EXISTENCE_NONE;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="134"><span class="lineNum">     134 </span>            : }</a>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 : static void pop3c_login_callback(enum pop3c_command_state state,</span>
+<span class="lineNum">     137 </span>            :                  const char *reply, void *context)
+<span class="lineNum">     138 </span>            : {
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     struct pop3c_mailbox *mbox = context;</span>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     switch (state) {</span>
+<span class="lineNum">     142 </span>            :     case POP3C_COMMAND_STATE_OK:
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         mbox-&gt;logged_in = TRUE;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     145 </span>            :     case POP3C_COMMAND_STATE_ERR:
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         if (strncmp(reply, &quot;[IN-USE] &quot;, 9) == 0) {</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :             mail_storage_set_error(mbox-&gt;box.storage,</span>
+<span class="lineNum">     148 </span>            :                            MAIL_ERROR_INUSE, reply + 9);
+<span class="lineNum">     149 </span>            :         } else {
+<span class="lineNum">     150 </span>            :             /* authentication failure probably */
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :             mail_storage_set_error(mbox-&gt;box.storage,</span>
+<span class="lineNum">     152 </span>            :                            MAIL_ERROR_PARAMS, reply);
+<span class="lineNum">     153 </span>            :         }
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     155 </span>            :     case POP3C_COMMAND_STATE_DISCONNECTED:
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;mbox-&gt;box,</span>
+<span class="lineNum">     157 </span>            :             &quot;pop3c: Disconnected from remote server&quot;);
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     159 </span>            :     }
+<a name="160"><span class="lineNum">     160 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 : static int pop3c_mailbox_open(struct mailbox *box)</span>
+<span class="lineNum">     163 </span>            : {
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     struct pop3c_mailbox *mbox = POP3C_MAILBOX(box);</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     if (strcmp(box-&gt;name, &quot;INBOX&quot;) != 0) {</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTFOUND,</span>
+<span class="lineNum">     168 </span>            :                        T_MAIL_ERR_MAILBOX_NOT_FOUND(box-&gt;vname));
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     if (index_storage_mailbox_open(box, FALSE) &lt; 0)</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     mbox-&gt;client = pop3c_client_create_from_set(box-&gt;storage,</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :                             mbox-&gt;storage-&gt;set);</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     pop3c_client_login(mbox-&gt;client, pop3c_login_callback, mbox);</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     pop3c_client_wait_one(mbox-&gt;client);</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     return mbox-&gt;logged_in ? 0 : -1;</span>
+<a name="180"><span class="lineNum">     180 </span>            : }</a>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 : static void pop3c_mailbox_close(struct mailbox *box)</span>
+<span class="lineNum">     183 </span>            : {
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     struct pop3c_mailbox *mbox = POP3C_MAILBOX(box);</span>
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     pool_unref(&amp;mbox-&gt;uidl_pool);</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :     i_free_and_null(mbox-&gt;msg_uids);</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     i_free_and_null(mbox-&gt;msg_sizes);</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     pop3c_client_deinit(&amp;mbox-&gt;client);</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     index_storage_mailbox_close(box);</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 : }</span>
+<a name="192"><span class="lineNum">     192 </span>            : </a>
+<span class="lineNum">     193 </span>            : static int
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 : pop3c_mailbox_create(struct mailbox *box,</span>
+<span class="lineNum">     195 </span>            :              const struct mailbox_update *update ATTR_UNUSED,
+<span class="lineNum">     196 </span>            :              bool directory ATTR_UNUSED)
+<span class="lineNum">     197 </span>            : {
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTPOSSIBLE,</span>
+<span class="lineNum">     199 </span>            :                    &quot;POP3 mailbox creation isn't supported&quot;);
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     201 </span>            : }
+<a name="202"><span class="lineNum">     202 </span>            : </a>
+<span class="lineNum">     203 </span>            : static int
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 : pop3c_mailbox_update(struct mailbox *box,</span>
+<span class="lineNum">     205 </span>            :              const struct mailbox_update *update ATTR_UNUSED)
+<span class="lineNum">     206 </span>            : {
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     if (!guid_128_is_empty(update-&gt;mailbox_guid) ||</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :         update-&gt;uid_validity != 0 || update-&gt;min_next_uid != 0 ||</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         update-&gt;min_first_recent_uid != 0) {</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         mail_storage_set_error(box-&gt;storage, MAIL_ERROR_NOTPOSSIBLE,</span>
+<span class="lineNum">     211 </span>            :                        &quot;POP3 mailbox update isn't supported&quot;);
+<span class="lineNum">     212 </span>            :     }
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     return index_storage_mailbox_update(box, update);</span>
+<a name="214"><span class="lineNum">     214 </span>            : }</a>
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 : static int pop3c_mailbox_get_status(struct mailbox *box,</span>
+<span class="lineNum">     217 </span>            :                     enum mailbox_status_items items,
+<span class="lineNum">     218 </span>            :                     struct mailbox_status *status_r)
+<span class="lineNum">     219 </span>            : {
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     struct pop3c_mailbox *mbox = POP3C_MAILBOX(box);</span>
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     if (index_storage_get_status(box, items, status_r) &lt; 0)</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     if ((pop3c_client_get_capabilities(mbox-&gt;client) &amp;</span>
+<span class="lineNum">     226 </span>            :          POP3C_CAPABILITY_UIDL) == 0)
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         status_r-&gt;have_guids = FALSE;</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="229"><span class="lineNum">     229 </span>            : }</a>
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 : static int pop3c_mailbox_get_metadata(struct mailbox *box,</span>
+<span class="lineNum">     232 </span>            :                       enum mailbox_metadata_items items,
+<span class="lineNum">     233 </span>            :                       struct mailbox_metadata *metadata_r)
+<span class="lineNum">     234 </span>            : {
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     if ((items &amp; MAILBOX_METADATA_GUID) != 0) {</span>
+<span class="lineNum">     236 </span>            :         /* a bit ugly way to do this, but better than nothing for now.
+<span class="lineNum">     237 </span>            :            FIXME: if indexes are enabled, keep this there. */
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         mail_generate_guid_128_hash(box-&gt;name, metadata_r-&gt;guid);</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         items &amp;= ~MAILBOX_METADATA_GUID;</span>
+<span class="lineNum">     240 </span>            :     }
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     if (items != 0) {</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         if (index_mailbox_get_metadata(box, items, metadata_r) &lt; 0)</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     244 </span>            :     }
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="246"><span class="lineNum">     246 </span>            : }</a>
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 : static void pop3c_notify_changes(struct mailbox *box ATTR_UNUSED)</span>
+<span class="lineNum">     249 </span>            : {
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 : }</span>
+<a name="251"><span class="lineNum">     251 </span>            : </a>
+<span class="lineNum">     252 </span>            : static struct mail_save_context *
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 : pop3c_save_alloc(struct mailbox_transaction_context *t)</span>
+<span class="lineNum">     254 </span>            : {
+<span class="lineNum">     255 </span>            :     struct mail_save_context *ctx;
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     ctx = i_new(struct mail_save_context, 1);</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     ctx-&gt;transaction = t;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     return ctx;</span>
+<span class="lineNum">     260 </span>            : }
+<a name="261"><span class="lineNum">     261 </span>            : </a>
+<span class="lineNum">     262 </span>            : static int
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 : pop3c_save_begin(struct mail_save_context *ctx,</span>
+<span class="lineNum">     264 </span>            :          struct istream *input ATTR_UNUSED)
+<span class="lineNum">     265 </span>            : {
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     mail_storage_set_error(ctx-&gt;transaction-&gt;box-&gt;storage,</span>
+<span class="lineNum">     267 </span>            :         MAIL_ERROR_NOTPOSSIBLE, &quot;POP3 doesn't support saving mails&quot;);
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     return -1;</span>
+<a name="269"><span class="lineNum">     269 </span>            : }</a>
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 : static int pop3c_save_continue(struct mail_save_context *ctx ATTR_UNUSED)</span>
+<span class="lineNum">     272 </span>            : {
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     return -1;</span>
+<a name="274"><span class="lineNum">     274 </span>            : }</a>
+<span class="lineNum">     275 </span>            : 
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 : static int pop3c_save_finish(struct mail_save_context *ctx)</span>
+<span class="lineNum">     277 </span>            : {
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     index_save_context_free(ctx);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     280 </span>            : }
+<a name="281"><span class="lineNum">     281 </span>            : </a>
+<span class="lineNum">     282 </span>            : static void
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 : pop3c_save_cancel(struct mail_save_context *ctx)</span>
+<span class="lineNum">     284 </span>            : {
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     index_save_context_free(ctx);</span>
+<a name="286"><span class="lineNum">     286 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     287 </span>            : 
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 : static bool pop3c_storage_is_inconsistent(struct mailbox *box)</span>
+<span class="lineNum">     289 </span>            : {
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :     struct pop3c_mailbox *mbox = POP3C_MAILBOX(box);</span>
+<span class="lineNum">     291 </span>            : 
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     return index_storage_is_inconsistent(box) ||</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         !pop3c_client_is_connected(mbox-&gt;client);</span>
+<span class="lineNum">     294 </span>            : }
+<span class="lineNum">     295 </span>            : 
+<span class="lineNum">     296 </span>            : struct mail_storage pop3c_storage = {
+<span class="lineNum">     297 </span>            :     .name = POP3C_STORAGE_NAME,
+<span class="lineNum">     298 </span>            :     .class_flags = MAIL_STORAGE_CLASS_FLAG_NO_ROOT |
+<span class="lineNum">     299 </span>            :         MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_GUIDS,
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span>            :     .v = {
+<span class="lineNum">     302 </span>            :         pop3c_get_setting_parser_info,
+<span class="lineNum">     303 </span>            :         pop3c_storage_alloc,
+<span class="lineNum">     304 </span>            :         pop3c_storage_create,
+<span class="lineNum">     305 </span>            :         index_storage_destroy,
+<span class="lineNum">     306 </span>            :         NULL,
+<span class="lineNum">     307 </span>            :         pop3c_storage_get_list_settings,
+<span class="lineNum">     308 </span>            :         NULL,
+<span class="lineNum">     309 </span>            :         pop3c_mailbox_alloc,
+<span class="lineNum">     310 </span>            :         NULL,
+<span class="lineNum">     311 </span>            :         NULL,
+<span class="lineNum">     312 </span>            :     }
+<span class="lineNum">     313 </span>            : };
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span>            : struct mailbox pop3c_mailbox = {
+<span class="lineNum">     316 </span>            :     .v = {
+<span class="lineNum">     317 </span>            :         index_storage_is_readonly,
+<span class="lineNum">     318 </span>            :         index_storage_mailbox_enable,
+<span class="lineNum">     319 </span>            :         pop3c_mailbox_exists,
+<span class="lineNum">     320 </span>            :         pop3c_mailbox_open,
+<span class="lineNum">     321 </span>            :         pop3c_mailbox_close,
+<span class="lineNum">     322 </span>            :         index_storage_mailbox_free,
+<span class="lineNum">     323 </span>            :         pop3c_mailbox_create,
+<span class="lineNum">     324 </span>            :         pop3c_mailbox_update,
+<span class="lineNum">     325 </span>            :         index_storage_mailbox_delete,
+<span class="lineNum">     326 </span>            :         index_storage_mailbox_rename,
+<span class="lineNum">     327 </span>            :         pop3c_mailbox_get_status,
+<span class="lineNum">     328 </span>            :         pop3c_mailbox_get_metadata,
+<span class="lineNum">     329 </span>            :         index_storage_set_subscribed,
+<span class="lineNum">     330 </span>            :         index_storage_attribute_set,
+<span class="lineNum">     331 </span>            :         index_storage_attribute_get,
+<span class="lineNum">     332 </span>            :         index_storage_attribute_iter_init,
+<span class="lineNum">     333 </span>            :         index_storage_attribute_iter_next,
+<span class="lineNum">     334 </span>            :         index_storage_attribute_iter_deinit,
+<span class="lineNum">     335 </span>            :         index_storage_list_index_has_changed,
+<span class="lineNum">     336 </span>            :         index_storage_list_index_update_sync,
+<span class="lineNum">     337 </span>            :         pop3c_storage_sync_init,
+<span class="lineNum">     338 </span>            :         index_mailbox_sync_next,
+<span class="lineNum">     339 </span>            :         index_mailbox_sync_deinit,
+<span class="lineNum">     340 </span>            :         NULL,
+<span class="lineNum">     341 </span>            :         pop3c_notify_changes,
+<span class="lineNum">     342 </span>            :         index_transaction_begin,
+<span class="lineNum">     343 </span>            :         index_transaction_commit,
+<span class="lineNum">     344 </span>            :         index_transaction_rollback,
+<span class="lineNum">     345 </span>            :         NULL,
+<span class="lineNum">     346 </span>            :         pop3c_mail_alloc,
+<span class="lineNum">     347 </span>            :         index_storage_search_init,
+<span class="lineNum">     348 </span>            :         index_storage_search_deinit,
+<span class="lineNum">     349 </span>            :         index_storage_search_next_nonblock,
+<span class="lineNum">     350 </span>            :         index_storage_search_next_update_seq,
+<span class="lineNum">     351 </span>            :         pop3c_save_alloc,
+<span class="lineNum">     352 </span>            :         pop3c_save_begin,
+<span class="lineNum">     353 </span>            :         pop3c_save_continue,
+<span class="lineNum">     354 </span>            :         pop3c_save_finish,
+<span class="lineNum">     355 </span>            :         pop3c_save_cancel,
+<span class="lineNum">     356 </span>            :         mail_storage_copy,
+<span class="lineNum">     357 </span>            :         NULL,
+<span class="lineNum">     358 </span>            :         NULL,
+<span class="lineNum">     359 </span>            :         NULL,
+<span class="lineNum">     360 </span>            :         pop3c_storage_is_inconsistent
+<span class="lineNum">     361 </span>            :     }
+<span class="lineNum">     362 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

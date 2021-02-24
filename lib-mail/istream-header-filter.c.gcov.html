@@ -1,0 +1,770 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-mail/istream-header-filter.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-mail</a> - istream-header-filter.c<span style="font-size: 80%;"> (source / <a href="istream-header-filter.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">329</td>
+            <td class="headerCovTableEntry">366</td>
+            <td class="headerCovTableEntryMed">89.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntryHi">94.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;sort.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream-header-filter.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : struct header_filter_istream {
+<span class="lineNum">      12 </span>            :     struct istream_private istream;
+<span class="lineNum">      13 </span>            :     pool_t pool;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            :     struct message_header_parser_ctx *hdr_ctx;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            :     const char **headers;
+<span class="lineNum">      18 </span>            :     unsigned int headers_count;
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :     header_filter_callback *callback;
+<span class="lineNum">      21 </span>            :     void *context;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            :     buffer_t *hdr_buf;
+<span class="lineNum">      24 </span>            :     struct message_size header_size;
+<span class="lineNum">      25 </span>            :     uoff_t skip_count;
+<span class="lineNum">      26 </span>            :     uoff_t last_lf_offset;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            :     unsigned int cur_line, parsed_lines;
+<span class="lineNum">      29 </span>            :     ARRAY(unsigned int) match_change_lines;
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            :     bool header_read:1;
+<span class="lineNum">      32 </span>            :     bool seen_eoh:1;
+<span class="lineNum">      33 </span>            :     bool header_parsed:1;
+<span class="lineNum">      34 </span>            :     bool headers_edited:1;
+<span class="lineNum">      35 </span>            :     bool exclude:1;
+<span class="lineNum">      36 </span>            :     bool crlf:1;
+<span class="lineNum">      37 </span>            :     bool crlf_preserve:1;
+<span class="lineNum">      38 </span>            :     bool hide_body:1;
+<span class="lineNum">      39 </span>            :     bool add_missing_eoh:1;
+<span class="lineNum">      40 </span>            :     bool end_body_with_lf:1;
+<span class="lineNum">      41 </span>            :     bool last_lf_added:1;
+<span class="lineNum">      42 </span>            :     bool last_orig_crlf:1;
+<span class="lineNum">      43 </span>            :     bool last_added_newline:1;
+<span class="lineNum">      44 </span>            :     bool eoh_not_matched:1;
+<span class="lineNum">      45 </span>            :     bool callbacks_called:1;
+<span class="lineNum">      46 </span>            :     bool prev_matched:1;
+<span class="lineNum">      47 </span>            : };
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            : header_filter_callback *null_header_filter_callback = NULL;
+<span class="lineNum">      50 </span>            : 
+<a name="51"><span class="lineNum">      51 </span>            : static ssize_t i_stream_header_filter_read(struct istream_private *stream);</a>
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span><span class="lineCov">         44 : static void i_stream_header_filter_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">      54 </span>            : {
+<span class="lineNum">      55 </span><span class="lineCov">         44 :     struct header_filter_istream *mstream =</span>
+<span class="lineNum">      56 </span>            :         (struct header_filter_istream *)stream;
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span><span class="lineCov">         44 :     if (mstream-&gt;hdr_ctx != NULL)</span>
+<span class="lineNum">      59 </span><span class="lineCov">         22 :         message_parse_header_deinit(&amp;mstream-&gt;hdr_ctx);</span>
+<span class="lineNum">      60 </span><span class="lineCov">         44 :     if (array_is_created(&amp;mstream-&gt;match_change_lines))</span>
+<span class="lineNum">      61 </span><span class="lineCov">          6 :         array_free(&amp;mstream-&gt;match_change_lines);</span>
+<span class="lineNum">      62 </span><span class="lineCov">         44 :     pool_unref(&amp;mstream-&gt;pool);</span>
+<span class="lineNum">      63 </span><span class="lineCov">         44 : }</span>
+<a name="64"><span class="lineNum">      64 </span>            : </a>
+<span class="lineNum">      65 </span>            : static ssize_t
+<span class="lineNum">      66 </span><span class="lineCov">        105 : read_mixed(struct header_filter_istream *mstream, size_t body_highwater_size)</span>
+<span class="lineNum">      67 </span>            : {
+<span class="lineNum">      68 </span>            :     const unsigned char *data;
+<span class="lineNum">      69 </span>            :     size_t pos;
+<span class="lineNum">      70 </span>            :     ssize_t ret;
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineCov">        105 :     if (mstream-&gt;hide_body) {</span>
+<span class="lineNum">      73 </span><span class="lineCov">         14 :         mstream-&gt;istream.istream.eof = TRUE;</span>
+<span class="lineNum">      74 </span><span class="lineCov">         14 :         return -1;</span>
+<span class="lineNum">      75 </span>            :     }
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span><span class="lineCov">         91 :     data = i_stream_get_data(mstream-&gt;istream.parent, &amp;pos);</span>
+<span class="lineNum">      78 </span><span class="lineCov">         91 :     if (pos &lt;= body_highwater_size) {</span>
+<span class="lineNum">      79 </span><span class="lineCov">         79 :         i_assert(pos == body_highwater_size ||</span>
+<span class="lineNum">      80 </span>            :              (mstream-&gt;end_body_with_lf &amp;&amp;
+<span class="lineNum">      81 </span>            :               pos+1 == body_highwater_size));
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">         79 :         ret = i_stream_read_memarea(mstream-&gt;istream.parent);</span>
+<span class="lineNum">      84 </span><span class="lineCov">         79 :         mstream-&gt;istream.istream.stream_errno =</span>
+<span class="lineNum">      85 </span><span class="lineCov">         79 :             mstream-&gt;istream.parent-&gt;stream_errno;</span>
+<span class="lineNum">      86 </span><span class="lineCov">         79 :         mstream-&gt;istream.istream.eof = mstream-&gt;istream.parent-&gt;eof;</span>
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineCov">         79 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">      89 </span><span class="lineCov">         32 :             data = mstream-&gt;hdr_buf-&gt;data;</span>
+<span class="lineNum">      90 </span><span class="lineCov">         32 :             pos = mstream-&gt;hdr_buf-&gt;used;</span>
+<span class="lineNum">      91 </span><span class="lineCov">         32 :             i_assert(pos &gt; 0);</span>
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineCov">         32 :             if (mstream-&gt;end_body_with_lf &amp;&amp; data[pos-1] != '\n' &amp;&amp;</span>
+<span class="lineNum">      94 </span><span class="lineCov">          1 :                 ret == -1 &amp;&amp; mstream-&gt;istream.istream.eof) {</span>
+<span class="lineNum">      95 </span>            :                 /* add missing trailing LF to body */
+<span class="lineNum">      96 </span><span class="lineCov">          1 :                 if (mstream-&gt;crlf)</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :                     buffer_append_c(mstream-&gt;hdr_buf, '\r');</span>
+<span class="lineNum">      98 </span><span class="lineCov">          1 :                 buffer_append_c(mstream-&gt;hdr_buf, '\n');</span>
+<span class="lineNum">      99 </span><span class="lineCov">          1 :                 mstream-&gt;istream.buffer = mstream-&gt;hdr_buf-&gt;data;</span>
+<span class="lineNum">     100 </span><span class="lineCov">          1 :                 mstream-&gt;istream.pos = mstream-&gt;hdr_buf-&gt;used;</span>
+<span class="lineNum">     101 </span><span class="lineCov">          1 :                 return mstream-&gt;hdr_buf-&gt;used - pos;</span>
+<span class="lineNum">     102 </span>            :             }
+<span class="lineNum">     103 </span><span class="lineCov">         31 :             return ret;</span>
+<span class="lineNum">     104 </span>            :         }
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineCov">         47 :         data = i_stream_get_data(mstream-&gt;istream.parent, &amp;pos);</span>
+<span class="lineNum">     107 </span>            :     }
+<span class="lineNum">     108 </span><span class="lineCov">         59 :     buffer_append(mstream-&gt;hdr_buf, data + body_highwater_size,</span>
+<span class="lineNum">     109 </span>            :               pos - body_highwater_size);
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">         59 :     mstream-&gt;istream.buffer = buffer_get_data(mstream-&gt;hdr_buf, &amp;pos);</span>
+<span class="lineNum">     112 </span><span class="lineCov">         59 :     ret = (ssize_t)(pos - mstream-&gt;istream.pos - mstream-&gt;istream.skip);</span>
+<span class="lineNum">     113 </span><span class="lineCov">         59 :     i_assert(ret &gt; 0);</span>
+<span class="lineNum">     114 </span><span class="lineCov">         59 :     mstream-&gt;istream.pos = pos;</span>
+<span class="lineNum">     115 </span><span class="lineCov">         59 :     return ret;</span>
+<a name="116"><span class="lineNum">     116 </span>            : }</a>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineCov">         12 : static int cmp_uint(const unsigned int *i1, const unsigned int *i2)</span>
+<span class="lineNum">     119 </span>            : {
+<span class="lineNum">     120 </span><span class="lineCov">         19 :     return *i1 &lt; *i2 ? -1 :</span>
+<span class="lineNum">     121 </span><span class="lineCov">          7 :         (*i1 &gt; *i2 ? 1 : 0);</span>
+<a name="122"><span class="lineNum">     122 </span>            : }</a>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineCov">         24 : static bool match_line_changed(struct header_filter_istream *mstream)</span>
+<span class="lineNum">     125 </span>            : {
+<span class="lineNum">     126 </span><span class="lineCov">         24 :     if (!array_is_created(&amp;mstream-&gt;match_change_lines))</span>
+<span class="lineNum">     127 </span><span class="lineCov">         16 :         return FALSE;</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">          8 :     return array_bsearch(&amp;mstream-&gt;match_change_lines, &amp;mstream-&gt;cur_line,</span>
+<span class="lineNum">     130 </span>            :                  cmp_uint) != NULL;
+<a name="131"><span class="lineNum">     131 </span>            : }</a>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineCov">        112 : static void add_eol(struct header_filter_istream *mstream, bool orig_crlf)</span>
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span><span class="lineCov">        112 :     if (mstream-&gt;crlf || (orig_crlf &amp;&amp; mstream-&gt;crlf_preserve))</span>
+<span class="lineNum">     136 </span><span class="lineCov">         26 :         buffer_append(mstream-&gt;hdr_buf, &quot;\r\n&quot;, 2);</span>
+<span class="lineNum">     137 </span>            :     else
+<span class="lineNum">     138 </span><span class="lineCov">         86 :         buffer_append_c(mstream-&gt;hdr_buf, '\n');</span>
+<span class="lineNum">     139 </span><span class="lineCov">        112 :     mstream-&gt;last_orig_crlf = orig_crlf;</span>
+<span class="lineNum">     140 </span><span class="lineCov">        112 :     mstream-&gt;last_added_newline = TRUE;</span>
+<a name="141"><span class="lineNum">     141 </span><span class="lineCov">        112 : }</span></a>
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span><span class="lineCov">        584 : static ssize_t hdr_stream_update_pos(struct header_filter_istream *mstream)</span>
+<span class="lineNum">     144 </span>            : {
+<span class="lineNum">     145 </span>            :     ssize_t ret;
+<span class="lineNum">     146 </span>            :     size_t pos;
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineCov">        584 :     mstream-&gt;istream.buffer = buffer_get_data(mstream-&gt;hdr_buf, &amp;pos);</span>
+<span class="lineNum">     149 </span><span class="lineCov">        584 :     ret = (ssize_t)(pos - mstream-&gt;istream.pos - mstream-&gt;istream.skip);</span>
+<span class="lineNum">     150 </span><span class="lineCov">        584 :     i_assert(ret &gt;= 0);</span>
+<span class="lineNum">     151 </span><span class="lineCov">        584 :     mstream-&gt;istream.pos = pos;</span>
+<span class="lineNum">     152 </span><span class="lineCov">        584 :     return ret;</span>
+<a name="153"><span class="lineNum">     153 </span>            : }</a>
+<span class="lineNum">     154 </span>            : 
+<span class="lineNum">     155 </span><span class="lineCov">        658 : static ssize_t read_header(struct header_filter_istream *mstream)</span>
+<span class="lineNum">     156 </span>            : {
+<span class="lineNum">     157 </span>            :     struct message_header_line *hdr;
+<span class="lineNum">     158 </span>            :     uoff_t highwater_offset;
+<span class="lineNum">     159 </span>            :     size_t max_buffer_size;
+<span class="lineNum">     160 </span>            :     ssize_t ret, ret2;
+<span class="lineNum">     161 </span>            :     int hdr_ret;
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">        658 :     if (mstream-&gt;hdr_ctx == NULL) {</span>
+<span class="lineNum">     164 </span><span class="lineCov">        116 :         mstream-&gt;hdr_ctx =</span>
+<span class="lineNum">     165 </span><span class="lineCov">        116 :             message_parse_header_init(mstream-&gt;istream.parent,</span>
+<span class="lineNum">     166 </span>            :                           NULL, 0);
+<span class="lineNum">     167 </span>            :     }
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span>            :     /* remove skipped data from hdr_buf */
+<span class="lineNum">     170 </span><span class="lineCov">       1316 :     buffer_copy(mstream-&gt;hdr_buf, 0,</span>
+<span class="lineNum">     171 </span><span class="lineCov">        658 :             mstream-&gt;hdr_buf, mstream-&gt;istream.skip, (size_t)-1);</span>
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineCov">        658 :         mstream-&gt;istream.pos -= mstream-&gt;istream.skip;</span>
+<span class="lineNum">     174 </span><span class="lineCov">        658 :     mstream-&gt;istream.skip = 0;</span>
+<span class="lineNum">     175 </span><span class="lineCov">        658 :     buffer_set_used_size(mstream-&gt;hdr_buf, mstream-&gt;istream.pos);</span>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">        658 :     if (mstream-&gt;header_read) {</span>
+<span class="lineNum">     178 </span><span class="lineCov">        105 :         i_assert(mstream-&gt;istream.skip == 0);</span>
+<span class="lineNum">     179 </span><span class="lineCov">        210 :         highwater_offset = mstream-&gt;istream.istream.v_offset +</span>
+<span class="lineNum">     180 </span><span class="lineCov">        105 :             mstream-&gt;istream.pos;</span>
+<span class="lineNum">     181 </span><span class="lineCov">        105 :         if (highwater_offset &gt;= mstream-&gt;header_size.virtual_size) {</span>
+<span class="lineNum">     182 </span>            :             /* we want to return mixed headers and body */
+<span class="lineNum">     183 </span><span class="lineCov">        105 :             size_t body_highwater_size = highwater_offset -</span>
+<span class="lineNum">     184 </span><span class="lineCov">        105 :                 mstream-&gt;header_size.virtual_size;</span>
+<span class="lineNum">     185 </span><span class="lineCov">        105 :             return read_mixed(mstream, body_highwater_size);</span>
+<span class="lineNum">     186 </span>            :         }
+<span class="lineNum">     187 </span>            :     }
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span><span class="lineCov">        553 :     max_buffer_size = i_stream_get_max_buffer_size(&amp;mstream-&gt;istream.istream);</span>
+<span class="lineNum">     190 </span><span class="lineCov">        553 :     if (mstream-&gt;hdr_buf-&gt;used &gt;= max_buffer_size) {</span>
+<span class="lineNum">     191 </span><span class="lineCov">         14 :         i_assert(max_buffer_size &gt; 0);</span>
+<span class="lineNum">     192 </span><span class="lineCov">         14 :         return -2;</span>
+<span class="lineNum">     193 </span>            :     }
+<span class="lineNum">     194 </span>            : 
+<span class="lineNum">     195 </span><span class="lineCov">       1147 :     while ((hdr_ret = message_parse_header_next(mstream-&gt;hdr_ctx,</span>
+<span class="lineNum">     196 </span>            :                             &amp;hdr)) &gt; 0) {
+<span class="lineNum">     197 </span>            :         bool matched;
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineCov">        211 :         if (!hdr-&gt;continued)</span>
+<span class="lineNum">     200 </span><span class="lineCov">        126 :             mstream-&gt;cur_line++;</span>
+<span class="lineNum">     201 </span><span class="lineCov">        211 :         if (hdr-&gt;eoh) {</span>
+<span class="lineNum">     202 </span><span class="lineCov">         33 :             mstream-&gt;seen_eoh = TRUE;</span>
+<span class="lineNum">     203 </span><span class="lineCov">         33 :             matched = FALSE;</span>
+<span class="lineNum">     204 </span><span class="lineCov">         33 :             if (mstream-&gt;header_parsed &amp;&amp; !mstream-&gt;headers_edited) {</span>
+<span class="lineNum">     205 </span><span class="lineCov">         28 :                 if (mstream-&gt;eoh_not_matched)</span>
+<span class="lineNum">     206 </span><span class="lineCov">          1 :                     matched = !matched;</span>
+<span class="lineNum">     207 </span><span class="lineCov">         19 :             } else if (mstream-&gt;callback != NULL) {</span>
+<span class="lineNum">     208 </span><span class="lineCov">         16 :                 mstream-&gt;callback(mstream, hdr, &amp;matched,</span>
+<span class="lineNum">     209 </span>            :                           mstream-&gt;context);
+<span class="lineNum">     210 </span><span class="lineCov">         16 :                 mstream-&gt;callbacks_called = TRUE;</span>
+<span class="lineNum">     211 </span>            :             }
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span><span class="lineCov">         33 :             if (matched) {</span>
+<span class="lineNum">     214 </span><span class="lineCov">          5 :                 mstream-&gt;seen_eoh = FALSE;</span>
+<span class="lineNum">     215 </span><span class="lineCov">          5 :                 mstream-&gt;eoh_not_matched = TRUE;</span>
+<span class="lineNum">     216 </span><span class="lineCov">         38 :                 continue;</span>
+<span class="lineNum">     217 </span>            :             }
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span><span class="lineCov">         28 :             add_eol(mstream, hdr-&gt;crlf_newline);</span>
+<span class="lineNum">     220 </span><span class="lineCov">         28 :             continue;</span>
+<span class="lineNum">     221 </span>            :         }
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span><span class="lineCov">        178 :         if (hdr-&gt;continued) {</span>
+<span class="lineNum">     224 </span>            :             /* Header line continued - use only the first line's
+<span class="lineNum">     225 </span>            :                matched-result. Otherwise multiline headers might
+<span class="lineNum">     226 </span>            :                end up being only partially picked, which wouldn't
+<span class="lineNum">     227 </span>            :                be very good. However, allow callbacks to modify
+<span class="lineNum">     228 </span>            :                the headers in any way they want. */
+<span class="lineNum">     229 </span><span class="lineCov">         85 :             matched = mstream-&gt;prev_matched;</span>
+<span class="lineNum">     230 </span><span class="lineCov">         93 :         } else if (mstream-&gt;headers_count == 0) {</span>
+<span class="lineNum">     231 </span>            :             /* no include/exclude headers - default matching */
+<span class="lineNum">     232 </span><span class="lineCov">         55 :             matched = FALSE;</span>
+<span class="lineNum">     233 </span>            :         } else {
+<span class="lineNum">     234 </span><span class="lineCov">         76 :             matched = i_bsearch(hdr-&gt;name, mstream-&gt;headers,</span>
+<span class="lineNum">     235 </span>            :                         mstream-&gt;headers_count,
+<span class="lineNum">     236 </span>            :                         sizeof(*mstream-&gt;headers),
+<span class="lineNum">     237 </span><span class="lineCov">         38 :                         bsearch_strcasecmp) != NULL;</span>
+<span class="lineNum">     238 </span>            :         }
+<span class="lineNum">     239 </span><span class="lineCov">        178 :         if (mstream-&gt;callback == NULL) {</span>
+<span class="lineNum">     240 </span>            :             /* nothing gets excluded */
+<span class="lineNum">     241 </span><span class="lineCov">        242 :         } else if (!mstream-&gt;header_parsed || mstream-&gt;headers_edited) {</span>
+<span class="lineNum">     242 </span>            :             /* first time in this line or we have actually modified
+<span class="lineNum">     243 </span>            :                the header so we always want to call the callbacks */
+<span class="lineNum">     244 </span><span class="lineCov">         96 :             bool orig_matched = matched;</span>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span><span class="lineCov">         96 :             mstream-&gt;parsed_lines = mstream-&gt;cur_line;</span>
+<span class="lineNum">     247 </span><span class="lineCov">         96 :             mstream-&gt;callback(mstream, hdr, &amp;matched,</span>
+<span class="lineNum">     248 </span>            :                       mstream-&gt;context);
+<span class="lineNum">     249 </span><span class="lineCov">         96 :             mstream-&gt;callbacks_called = TRUE;</span>
+<span class="lineNum">     250 </span><span class="lineCov">        111 :             if (matched != orig_matched &amp;&amp;</span>
+<span class="lineNum">     251 </span><span class="lineCov">         27 :                 !hdr-&gt;continued &amp;&amp; !mstream-&gt;headers_edited) {</span>
+<span class="lineNum">     252 </span><span class="lineCov">          8 :                 if (!array_is_created(&amp;mstream-&gt;match_change_lines))</span>
+<span class="lineNum">     253 </span><span class="lineCov">          6 :                     i_array_init(&amp;mstream-&gt;match_change_lines, 8);</span>
+<span class="lineNum">     254 </span><span class="lineCov">          8 :                 array_append(&amp;mstream-&gt;match_change_lines,</span>
+<span class="lineNum">     255 </span>            :                          &amp;mstream-&gt;cur_line, 1);
+<span class="lineNum">     256 </span>            :             }
+<span class="lineNum">     257 </span><span class="lineCov">         50 :         } else if (!hdr-&gt;continued) {</span>
+<span class="lineNum">     258 </span>            :             /* second time in this line. was it excluded by the
+<span class="lineNum">     259 </span>            :                callback the first time? */
+<span class="lineNum">     260 </span><span class="lineCov">         24 :             if (match_line_changed(mstream))</span>
+<span class="lineNum">     261 </span><span class="lineCov">          3 :                 matched = !matched;</span>
+<span class="lineNum">     262 </span>            :         }
+<span class="lineNum">     263 </span><span class="lineCov">        178 :         mstream-&gt;prev_matched = matched;</span>
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineCov">        178 :         if (matched == mstream-&gt;exclude) {</span>
+<span class="lineNum">     266 </span>            :             /* ignore */
+<span class="lineNum">     267 </span>            :         } else {
+<span class="lineNum">     268 </span><span class="lineCov">        142 :             if (!hdr-&gt;continued) {</span>
+<span class="lineNum">     269 </span><span class="lineCov">        148 :                 buffer_append(mstream-&gt;hdr_buf,</span>
+<span class="lineNum">     270 </span><span class="lineCov">        148 :                           hdr-&gt;name, hdr-&gt;name_len);</span>
+<span class="lineNum">     271 </span><span class="lineCov">        148 :                 buffer_append(mstream-&gt;hdr_buf,</span>
+<span class="lineNum">     272 </span><span class="lineCov">        148 :                           hdr-&gt;middle, hdr-&gt;middle_len);</span>
+<span class="lineNum">     273 </span>            :             }
+<span class="lineNum">     274 </span><span class="lineCov">        284 :             buffer_append(mstream-&gt;hdr_buf,</span>
+<span class="lineNum">     275 </span><span class="lineCov">        284 :                       hdr-&gt;value, hdr-&gt;value_len);</span>
+<span class="lineNum">     276 </span><span class="lineCov">        142 :             if (!hdr-&gt;no_newline)</span>
+<span class="lineNum">     277 </span><span class="lineCov">         74 :                 add_eol(mstream, hdr-&gt;crlf_newline);</span>
+<span class="lineNum">     278 </span>            : 
+<span class="lineNum">     279 </span><span class="lineCov">        142 :             if (mstream-&gt;skip_count &gt;= mstream-&gt;hdr_buf-&gt;used) {</span>
+<span class="lineNum">     280 </span>            :                 /* we need more */
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :                 mstream-&gt;skip_count -= mstream-&gt;hdr_buf-&gt;used;</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :                 buffer_set_used_size(mstream-&gt;hdr_buf, 0);</span>
+<span class="lineNum">     283 </span>            :             } else {
+<span class="lineNum">     284 </span><span class="lineCov">        142 :                 if (mstream-&gt;skip_count &gt; 0) {</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :                     mstream-&gt;istream.skip =</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :                         mstream-&gt;skip_count;</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :                     mstream-&gt;skip_count = 0;</span>
+<span class="lineNum">     288 </span>            :                 }
+<span class="lineNum">     289 </span><span class="lineCov">        284 :                 break;</span>
+<span class="lineNum">     290 </span>            :             }
+<span class="lineNum">     291 </span>            :         }
+<span class="lineNum">     292 </span><span class="lineCov">         36 :         if (mstream-&gt;hdr_buf-&gt;used &gt;= max_buffer_size)</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     294 </span>            :     }
+<span class="lineNum">     295 </span><span class="lineCov">        539 :     if (mstream-&gt;hdr_buf-&gt;used &gt; 0) {</span>
+<span class="lineNum">     296 </span><span class="lineCov">        248 :         const unsigned char *data = mstream-&gt;hdr_buf-&gt;data;</span>
+<span class="lineNum">     297 </span><span class="lineCov">        248 :         mstream-&gt;last_added_newline =</span>
+<span class="lineNum">     298 </span><span class="lineCov">        248 :             data[mstream-&gt;hdr_buf-&gt;used-1] == '\n';</span>
+<span class="lineNum">     299 </span>            :     }
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineCov">        539 :     if (hdr_ret &lt; 0) {</span>
+<span class="lineNum">     302 </span><span class="lineCov">         69 :         if (mstream-&gt;istream.parent-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :             mstream-&gt;istream.istream.stream_errno =</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :                 mstream-&gt;istream.parent-&gt;stream_errno;</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :             mstream-&gt;istream.istream.eof =</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :                 mstream-&gt;istream.parent-&gt;eof;</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     308 </span>            :         }
+<span class="lineNum">     309 </span><span class="lineCov">         69 :         if (!mstream-&gt;seen_eoh &amp;&amp; mstream-&gt;add_missing_eoh) {</span>
+<span class="lineNum">     310 </span><span class="lineCov">         10 :             bool matched = FALSE;</span>
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineCov">         10 :             mstream-&gt;seen_eoh = TRUE;</span>
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span><span class="lineCov">         10 :             if (!mstream-&gt;last_added_newline)</span>
+<span class="lineNum">     315 </span><span class="lineCov">          2 :                 add_eol(mstream, mstream-&gt;last_orig_crlf);</span>
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineCov">         10 :             if (mstream-&gt;header_parsed &amp;&amp; !mstream-&gt;headers_edited) {</span>
+<span class="lineNum">     318 </span><span class="lineCov">          8 :                 if (mstream-&gt;eoh_not_matched)</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :                     matched = !matched;</span>
+<span class="lineNum">     320 </span><span class="lineCov">          6 :             } else if (mstream-&gt;callback != NULL) {</span>
+<span class="lineNum">     321 </span><span class="lineCov">          6 :                 struct message_header_line fake_eoh_hdr = {</span>
+<span class="lineNum">     322 </span>            :                     .eoh = TRUE,
+<span class="lineNum">     323 </span>            :                     .name = &quot;&quot;,
+<span class="lineNum">     324 </span>            :                 };
+<span class="lineNum">     325 </span><span class="lineCov">          6 :                 mstream-&gt;callback(mstream, &amp;fake_eoh_hdr,</span>
+<span class="lineNum">     326 </span>            :                           &amp;matched, mstream-&gt;context);
+<span class="lineNum">     327 </span><span class="lineCov">          6 :                 mstream-&gt;callbacks_called = TRUE;</span>
+<span class="lineNum">     328 </span>            :             }
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineCov">         10 :             if (matched) {</span>
+<span class="lineNum">     331 </span><span class="lineCov">          2 :                 mstream-&gt;seen_eoh = FALSE;</span>
+<span class="lineNum">     332 </span>            :             } else {
+<span class="lineNum">     333 </span><span class="lineCov">          8 :                 add_eol(mstream, mstream-&gt;last_orig_crlf);</span>
+<span class="lineNum">     334 </span>            :             }
+<span class="lineNum">     335 </span>            :         }
+<span class="lineNum">     336 </span>            :     }
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span>            :     /* don't copy eof here because we're only returning headers here.
+<span class="lineNum">     339 </span>            :        the body will be returned in separate read() call. */
+<span class="lineNum">     340 </span><span class="lineCov">        539 :     ret = hdr_stream_update_pos(mstream);</span>
+<span class="lineNum">     341 </span>            : 
+<span class="lineNum">     342 </span><span class="lineCov">        539 :     if (hdr_ret == 0) {</span>
+<span class="lineNum">     343 </span>            :         /* need more data to finish parsing headers. we may have some
+<span class="lineNum">     344 </span>            :            data already available though. */
+<span class="lineNum">     345 </span><span class="lineCov">        328 :         return ret;</span>
+<span class="lineNum">     346 </span>            :     }
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineCov">        211 :     if (hdr == NULL) {</span>
+<span class="lineNum">     349 </span>            :         /* finished */
+<span class="lineNum">     350 </span><span class="lineCov">         69 :         message_parse_header_deinit(&amp;mstream-&gt;hdr_ctx);</span>
+<span class="lineNum">     351 </span><span class="lineCov">         69 :         mstream-&gt;hdr_ctx = NULL;</span>
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineCov">         90 :         if ((!mstream-&gt;header_parsed || mstream-&gt;headers_edited ||</span>
+<span class="lineNum">     354 </span><span class="lineCov">         69 :              mstream-&gt;callbacks_called) &amp;&amp;</span>
+<span class="lineNum">     355 </span><span class="lineCov">         48 :             mstream-&gt;callback != NULL) {</span>
+<span class="lineNum">     356 </span><span class="lineCov">         45 :             bool matched = FALSE;</span>
+<span class="lineNum">     357 </span><span class="lineCov">         45 :             mstream-&gt;callback(mstream, NULL,</span>
+<span class="lineNum">     358 </span>            :                       &amp;matched, mstream-&gt;context);
+<span class="lineNum">     359 </span>            :             /* check if the callback added more headers.
+<span class="lineNum">     360 </span>            :                this is allowed only if EOH wasn't added yet. */
+<span class="lineNum">     361 </span><span class="lineCov">         45 :             ret2 = hdr_stream_update_pos(mstream);</span>
+<span class="lineNum">     362 </span><span class="lineCov">         45 :             if (!mstream-&gt;seen_eoh)</span>
+<span class="lineNum">     363 </span><span class="lineCov">         29 :                 ret += ret2;</span>
+<span class="lineNum">     364 </span>            :             else {
+<span class="lineNum">     365 </span><span class="lineCov">         16 :                 i_assert(ret2 == 0);</span>
+<span class="lineNum">     366 </span>            :             }
+<span class="lineNum">     367 </span>            :         }
+<span class="lineNum">     368 </span><span class="lineCov">         69 :         mstream-&gt;header_parsed = TRUE;</span>
+<span class="lineNum">     369 </span><span class="lineCov">         69 :         mstream-&gt;header_read = TRUE;</span>
+<span class="lineNum">     370 </span><span class="lineCov">         69 :         mstream-&gt;callbacks_called = FALSE;</span>
+<span class="lineNum">     371 </span>            : 
+<span class="lineNum">     372 </span><span class="lineCov">         69 :         mstream-&gt;header_size.physical_size =</span>
+<span class="lineNum">     373 </span><span class="lineCov">         69 :             mstream-&gt;istream.parent-&gt;v_offset;</span>
+<span class="lineNum">     374 </span><span class="lineCov">         69 :         mstream-&gt;header_size.virtual_size =</span>
+<span class="lineNum">     375 </span><span class="lineCov">        138 :             mstream-&gt;istream.istream.v_offset +</span>
+<span class="lineNum">     376 </span><span class="lineCov">         69 :             mstream-&gt;istream.pos;</span>
+<span class="lineNum">     377 </span>            :     }
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineCov">        211 :     if (ret == 0) {</span>
+<span class="lineNum">     380 </span>            :         /* we're at the end of headers. */
+<span class="lineNum">     381 </span><span class="lineCov">         25 :         i_assert(hdr == NULL);</span>
+<span class="lineNum">     382 </span><span class="lineCov">         25 :         i_assert(mstream-&gt;istream.istream.v_offset +</span>
+<span class="lineNum">     383 </span>            :              mstream-&gt;istream.pos ==
+<span class="lineNum">     384 </span>            :              mstream-&gt;header_size.virtual_size);
+<span class="lineNum">     385 </span>            : 
+<span class="lineNum">     386 </span><span class="lineCov">         25 :         return i_stream_header_filter_read(&amp;mstream-&gt;istream);</span>
+<span class="lineNum">     387 </span>            :     }
+<span class="lineNum">     388 </span>            : 
+<span class="lineNum">     389 </span><span class="lineCov">        186 :     return ret;</span>
+<span class="lineNum">     390 </span>            : }
+<a name="391"><span class="lineNum">     391 </span>            : </a>
+<span class="lineNum">     392 </span>            : static ssize_t
+<span class="lineNum">     393 </span><span class="lineCov">         12 : handle_end_body_with_lf(struct header_filter_istream *mstream, ssize_t ret)</span>
+<span class="lineNum">     394 </span>            : {
+<span class="lineNum">     395 </span><span class="lineCov">         12 :     struct istream_private *stream = &amp;mstream-&gt;istream;</span>
+<span class="lineNum">     396 </span>            :     const unsigned char *data;
+<span class="lineNum">     397 </span>            :     size_t size, last_offset;
+<span class="lineNum">     398 </span>            :     bool last_lf;
+<span class="lineNum">     399 </span>            : 
+<span class="lineNum">     400 </span><span class="lineCov">         12 :     data = i_stream_get_data(stream-&gt;parent, &amp;size);</span>
+<span class="lineNum">     401 </span><span class="lineCov">         12 :     last_offset = stream-&gt;parent-&gt;v_offset + size-1;</span>
+<span class="lineNum">     402 </span>            : 
+<span class="lineNum">     403 </span><span class="lineCov">         12 :     if (mstream-&gt;last_lf_offset == last_offset)</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :         last_lf = TRUE;</span>
+<span class="lineNum">     405 </span><span class="lineCov">         12 :     else if (size &gt; 0)</span>
+<span class="lineNum">     406 </span><span class="lineCov">         12 :         last_lf = data[size-1] == '\n';</span>
+<span class="lineNum">     407 </span>            :     else
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         last_lf = FALSE;</span>
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineCov">         12 :     if (ret == -1 &amp;&amp; stream-&gt;parent-&gt;eof &amp;&amp; !last_lf) {</span>
+<span class="lineNum">     411 </span>            :         /* missing LF, need to add it */
+<span class="lineNum">     412 </span><span class="lineCov">          2 :         i_assert(!mstream-&gt;last_lf_added);</span>
+<span class="lineNum">     413 </span><span class="lineCov">          2 :         i_assert(size == 0 || data[size-1] != '\n');</span>
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineCov">          2 :         buffer_set_used_size(mstream-&gt;hdr_buf, 0);</span>
+<span class="lineNum">     416 </span><span class="lineCov">          2 :         buffer_append(mstream-&gt;hdr_buf, data, size);</span>
+<span class="lineNum">     417 </span><span class="lineCov">          2 :         if (mstream-&gt;crlf)</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :             buffer_append_c(mstream-&gt;hdr_buf, '\r');</span>
+<span class="lineNum">     419 </span><span class="lineCov">          2 :         buffer_append_c(mstream-&gt;hdr_buf, '\n');</span>
+<span class="lineNum">     420 </span><span class="lineCov">          2 :         mstream-&gt;last_lf_offset = last_offset;</span>
+<span class="lineNum">     421 </span><span class="lineCov">          2 :         mstream-&gt;last_lf_added = TRUE;</span>
+<span class="lineNum">     422 </span>            : 
+<span class="lineNum">     423 </span><span class="lineCov">          2 :         stream-&gt;skip = 0;</span>
+<span class="lineNum">     424 </span><span class="lineCov">          2 :         stream-&gt;pos = mstream-&gt;hdr_buf-&gt;used;</span>
+<span class="lineNum">     425 </span><span class="lineCov">          2 :         stream-&gt;buffer = mstream-&gt;hdr_buf-&gt;data;</span>
+<span class="lineNum">     426 </span><span class="lineCov">          2 :         return mstream-&gt;crlf ? 2 : 1;</span>
+<span class="lineNum">     427 </span>            :     } else {
+<span class="lineNum">     428 </span><span class="lineCov">         10 :         mstream-&gt;last_lf_offset = last_lf ? last_offset : (uoff_t)-1;</span>
+<span class="lineNum">     429 </span>            :     }
+<span class="lineNum">     430 </span><span class="lineCov">         10 :     return ret;</span>
+<a name="431"><span class="lineNum">     431 </span>            : }</a>
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineCov">        704 : static ssize_t i_stream_header_filter_read(struct istream_private *stream)</span>
+<span class="lineNum">     434 </span>            : {
+<span class="lineNum">     435 </span><span class="lineCov">        704 :     struct header_filter_istream *mstream =</span>
+<span class="lineNum">     436 </span>            :         (struct header_filter_istream *)stream;
+<span class="lineNum">     437 </span>            :     uoff_t v_offset;
+<span class="lineNum">     438 </span>            :     ssize_t ret;
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineCov">        704 :     if (mstream-&gt;last_lf_added) {</span>
+<span class="lineNum">     441 </span><span class="lineCov">          1 :         stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     442 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     443 </span>            :     }
+<span class="lineNum">     444 </span>            : 
+<span class="lineNum">     445 </span><span class="lineCov">        853 :     if (!mstream-&gt;header_read ||</span>
+<span class="lineNum">     446 </span><span class="lineCov">        150 :         stream-&gt;istream.v_offset &lt; mstream-&gt;header_size.virtual_size)</span>
+<span class="lineNum">     447 </span><span class="lineCov">        658 :         return read_header(mstream);</span>
+<span class="lineNum">     448 </span>            : 
+<span class="lineNum">     449 </span><span class="lineCov">         45 :     if (mstream-&gt;hide_body) {</span>
+<span class="lineNum">     450 </span><span class="lineCov">         20 :         stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     451 </span><span class="lineCov">         20 :         return -1;</span>
+<span class="lineNum">     452 </span>            :     }
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineCov">         75 :     v_offset = stream-&gt;parent_start_offset + stream-&gt;istream.v_offset -</span>
+<span class="lineNum">     455 </span><span class="lineCov">         25 :         mstream-&gt;header_size.virtual_size +</span>
+<span class="lineNum">     456 </span><span class="lineCov">         25 :         mstream-&gt;header_size.physical_size;</span>
+<span class="lineNum">     457 </span><span class="lineCov">         25 :     i_stream_seek(stream-&gt;parent, v_offset);</span>
+<span class="lineNum">     458 </span><span class="lineCov">         25 :     ret = i_stream_read_copy_from_parent(&amp;stream-&gt;istream);</span>
+<span class="lineNum">     459 </span><span class="lineCov">         25 :     if (mstream-&gt;end_body_with_lf)</span>
+<span class="lineNum">     460 </span><span class="lineCov">         11 :         ret = handle_end_body_with_lf(mstream, ret);</span>
+<span class="lineNum">     461 </span><span class="lineCov">         25 :     return ret;</span>
+<span class="lineNum">     462 </span>            : }
+<a name="463"><span class="lineNum">     463 </span>            : </a>
+<span class="lineNum">     464 </span>            : static void
+<span class="lineNum">     465 </span><span class="lineCov">         27 : i_stream_header_filter_seek_to_header(struct header_filter_istream *mstream,</span>
+<span class="lineNum">     466 </span>            :                       uoff_t v_offset)
+<span class="lineNum">     467 </span>            : {
+<span class="lineNum">     468 </span><span class="lineCov">         27 :     i_stream_seek(mstream-&gt;istream.parent,</span>
+<span class="lineNum">     469 </span>            :               mstream-&gt;istream.parent_start_offset);
+<span class="lineNum">     470 </span><span class="lineCov">         27 :     mstream-&gt;istream.parent_expected_offset =</span>
+<span class="lineNum">     471 </span><span class="lineCov">         27 :         mstream-&gt;istream.parent_start_offset;</span>
+<span class="lineNum">     472 </span><span class="lineCov">         27 :     mstream-&gt;istream.access_counter =</span>
+<span class="lineNum">     473 </span><span class="lineCov">         27 :         mstream-&gt;istream.parent-&gt;real_stream-&gt;access_counter;</span>
+<span class="lineNum">     474 </span>            : 
+<span class="lineNum">     475 </span><span class="lineCov">         27 :     if (mstream-&gt;hdr_ctx != NULL)</span>
+<span class="lineNum">     476 </span><span class="lineCov">         25 :         message_parse_header_deinit(&amp;mstream-&gt;hdr_ctx);</span>
+<span class="lineNum">     477 </span><span class="lineCov">         27 :     mstream-&gt;skip_count = v_offset;</span>
+<span class="lineNum">     478 </span><span class="lineCov">         27 :     mstream-&gt;cur_line = 0;</span>
+<span class="lineNum">     479 </span><span class="lineCov">         27 :     mstream-&gt;prev_matched = FALSE;</span>
+<span class="lineNum">     480 </span><span class="lineCov">         27 :     mstream-&gt;header_read = FALSE;</span>
+<span class="lineNum">     481 </span><span class="lineCov">         27 :     mstream-&gt;seen_eoh = FALSE;</span>
+<span class="lineNum">     482 </span><span class="lineCov">         27 :     mstream-&gt;last_added_newline = TRUE;</span>
+<a name="483"><span class="lineNum">     483 </span><span class="lineCov">         27 : }</span></a>
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span><span class="lineCov">         51 : static int skip_header(struct header_filter_istream *mstream)</span>
+<span class="lineNum">     486 </span>            : {
+<span class="lineNum">     487 </span>            :     size_t pos;
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineCov">         51 :     if (mstream-&gt;header_read)</span>
+<span class="lineNum">     490 </span><span class="lineCov">         51 :         return 0;</span>
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     if (mstream-&gt;istream.access_counter !=</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :         mstream-&gt;istream.parent-&gt;real_stream-&gt;access_counter) {</span>
+<span class="lineNum">     494 </span>            :         /* need to re-parse headers */
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :         i_stream_header_filter_seek_to_header(mstream, 0);</span>
+<span class="lineNum">     496 </span>            :     }
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :     while (!mstream-&gt;header_read &amp;&amp;</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :            i_stream_read_memarea(&amp;mstream-&gt;istream.istream) != -1) {</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         pos = i_stream_get_data_size(&amp;mstream-&gt;istream.istream);</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :         i_stream_skip(&amp;mstream-&gt;istream.istream, pos);</span>
+<span class="lineNum">     502 </span>            :     }
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     return mstream-&gt;istream.istream.stream_errno != 0 ? -1 : 0;</span>
+<span class="lineNum">     504 </span>            : }
+<a name="505"><span class="lineNum">     505 </span>            : </a>
+<span class="lineNum">     506 </span>            : static void
+<span class="lineNum">     507 </span><span class="lineCov">         29 : stream_reset_to(struct header_filter_istream *mstream, uoff_t v_offset)</span>
+<span class="lineNum">     508 </span>            : {
+<span class="lineNum">     509 </span><span class="lineCov">         29 :     mstream-&gt;istream.istream.v_offset = v_offset;</span>
+<span class="lineNum">     510 </span><span class="lineCov">         29 :     mstream-&gt;istream.skip = mstream-&gt;istream.pos = 0;</span>
+<span class="lineNum">     511 </span><span class="lineCov">         29 :     mstream-&gt;istream.buffer = NULL;</span>
+<span class="lineNum">     512 </span><span class="lineCov">         29 :     buffer_set_used_size(mstream-&gt;hdr_buf, 0);</span>
+<a name="513"><span class="lineNum">     513 </span><span class="lineCov">         29 : }</span></a>
+<span class="lineNum">     514 </span>            : 
+<span class="lineNum">     515 </span><span class="lineCov">         29 : static void i_stream_header_filter_seek(struct istream_private *stream,</span>
+<span class="lineNum">     516 </span>            :                     uoff_t v_offset, bool mark ATTR_UNUSED)
+<span class="lineNum">     517 </span>            : {
+<span class="lineNum">     518 </span><span class="lineCov">         29 :     struct header_filter_istream *mstream =</span>
+<span class="lineNum">     519 </span>            :         (struct header_filter_istream *)stream;
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineCov">         29 :     if (stream-&gt;istream.v_offset == v_offset) {</span>
+<span class="lineNum">     522 </span>            :         /* just reset the input buffer */
+<span class="lineNum">     523 </span><span class="lineCov">          1 :         stream_reset_to(mstream, v_offset);</span>
+<span class="lineNum">     524 </span><span class="lineCov">          1 :         i_stream_seek(mstream-&gt;istream.parent,</span>
+<span class="lineNum">     525 </span>            :                   mstream-&gt;istream.parent_expected_offset);
+<span class="lineNum">     526 </span><span class="lineCov">          1 :         return;</span>
+<span class="lineNum">     527 </span>            :     }
+<span class="lineNum">     528 </span>            :     /* if last_lf_added=TRUE, we're currently at EOF. So reset it only if
+<span class="lineNum">     529 </span>            :        we're seeking backwards, otherwise we would just add a duplicate */
+<span class="lineNum">     530 </span><span class="lineCov">         28 :     mstream-&gt;last_lf_added = FALSE;</span>
+<span class="lineNum">     531 </span>            : 
+<span class="lineNum">     532 </span><span class="lineCov">         28 :     if (v_offset == 0) {</span>
+<span class="lineNum">     533 </span>            :         /* seeking to beginning of headers. */
+<span class="lineNum">     534 </span><span class="lineCov">         27 :         stream_reset_to(mstream, 0);</span>
+<span class="lineNum">     535 </span><span class="lineCov">         27 :         i_stream_header_filter_seek_to_header(mstream, 0);</span>
+<span class="lineNum">     536 </span><span class="lineCov">         27 :         return;</span>
+<span class="lineNum">     537 </span>            :     }
+<span class="lineNum">     538 </span>            : 
+<span class="lineNum">     539 </span>            :     /* if we haven't parsed the whole header yet, we don't know if we
+<span class="lineNum">     540 </span>            :        want to seek inside header or body. so make sure we've parsed the
+<span class="lineNum">     541 </span>            :        header. */
+<span class="lineNum">     542 </span><span class="lineCov">          1 :     if (skip_header(mstream) &lt; 0)</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     544 </span><span class="lineCov">          1 :     stream_reset_to(mstream, v_offset);</span>
+<span class="lineNum">     545 </span>            : 
+<span class="lineNum">     546 </span><span class="lineCov">          1 :     if (v_offset &lt; mstream-&gt;header_size.virtual_size) {</span>
+<span class="lineNum">     547 </span>            :         /* seek into headers. we'll have to re-parse them, use
+<span class="lineNum">     548 </span>            :            skip_count to set the wanted position */
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :         i_stream_header_filter_seek_to_header(mstream, v_offset);</span>
+<span class="lineNum">     550 </span>            :     } else {
+<span class="lineNum">     551 </span>            :         /* body */
+<span class="lineNum">     552 </span><span class="lineCov">          2 :         v_offset += mstream-&gt;header_size.physical_size -</span>
+<span class="lineNum">     553 </span><span class="lineCov">          1 :             mstream-&gt;header_size.virtual_size;</span>
+<span class="lineNum">     554 </span><span class="lineCov">          1 :         i_stream_seek(stream-&gt;parent,</span>
+<span class="lineNum">     555 </span><span class="lineCov">          1 :                   stream-&gt;parent_start_offset + v_offset);</span>
+<span class="lineNum">     556 </span>            :     }
+<span class="lineNum">     557 </span>            : }
+<a name="558"><span class="lineNum">     558 </span>            : </a>
+<span class="lineNum">     559 </span>            : static void ATTR_NORETURN
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 : i_stream_header_filter_sync(struct istream_private *stream ATTR_UNUSED)</span>
+<span class="lineNum">     561 </span>            : {
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     i_panic(&quot;istream-header-filter sync() not implemented&quot;);</span>
+<span class="lineNum">     563 </span>            : }
+<a name="564"><span class="lineNum">     564 </span>            : </a>
+<span class="lineNum">     565 </span>            : static int
+<span class="lineNum">     566 </span><span class="lineCov">         50 : i_stream_header_filter_stat(struct istream_private *stream, bool exact)</span>
+<span class="lineNum">     567 </span>            : {
+<span class="lineNum">     568 </span><span class="lineCov">         50 :     struct header_filter_istream *mstream =</span>
+<span class="lineNum">     569 </span>            :         (struct header_filter_istream *)stream;
+<span class="lineNum">     570 </span>            :     const struct stat *st;
+<span class="lineNum">     571 </span>            :     uoff_t old_offset;
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineCov">         50 :     if (i_stream_stat(stream-&gt;parent, exact, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     576 </span>            :     }
+<span class="lineNum">     577 </span><span class="lineCov">         50 :     stream-&gt;statbuf = *st;</span>
+<span class="lineNum">     578 </span><span class="lineCov">         50 :     if (stream-&gt;statbuf.st_size == -1 || !exact)</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     580 </span>            : 
+<span class="lineNum">     581 </span>            :     /* fix the filtered header size */
+<span class="lineNum">     582 </span><span class="lineCov">         50 :     old_offset = stream-&gt;istream.v_offset;</span>
+<span class="lineNum">     583 </span><span class="lineCov">         50 :     if (skip_header(mstream) &lt; 0)</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     585 </span>            : 
+<span class="lineNum">     586 </span><span class="lineCov">         50 :     if (mstream-&gt;hide_body) {</span>
+<span class="lineNum">     587 </span>            :         /* no body */
+<span class="lineNum">     588 </span><span class="lineCov">         16 :         stream-&gt;statbuf.st_size = mstream-&gt;header_size.physical_size;</span>
+<span class="lineNum">     589 </span><span class="lineCov">         34 :     } else if (!mstream-&gt;end_body_with_lf) {</span>
+<span class="lineNum">     590 </span>            :         /* no last-LF */
+<span class="lineNum">     591 </span><span class="lineCov">          1 :     } else if (mstream-&gt;last_lf_added) {</span>
+<span class="lineNum">     592 </span>            :         /* yes, we have added LF */
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :         stream-&gt;statbuf.st_size += mstream-&gt;crlf ? 2 : 1;</span>
+<span class="lineNum">     594 </span><span class="lineCov">          1 :     } else if (mstream-&gt;last_lf_offset != (uoff_t)-1) {</span>
+<span class="lineNum">     595 </span>            :         /* no, we didn't need to add LF */
+<span class="lineNum">     596 </span>            :     } else {
+<span class="lineNum">     597 </span>            :         /* check if we need to add LF */
+<span class="lineNum">     598 </span><span class="lineCov">          1 :         i_stream_seek(stream-&gt;parent, st-&gt;st_size - 1);</span>
+<span class="lineNum">     599 </span><span class="lineCov">          1 :         (void)i_stream_read_memarea(stream-&gt;parent);</span>
+<span class="lineNum">     600 </span><span class="lineCov">          1 :         if (stream-&gt;parent-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :             stream-&gt;istream.stream_errno =</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :                 stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     604 </span>            :         }
+<span class="lineNum">     605 </span><span class="lineCov">          1 :         i_assert(stream-&gt;parent-&gt;eof);</span>
+<span class="lineNum">     606 </span><span class="lineCov">          1 :         ssize_t ret = handle_end_body_with_lf(mstream, -1);</span>
+<span class="lineNum">     607 </span><span class="lineCov">          1 :         if (ret &gt; 0)</span>
+<span class="lineNum">     608 </span><span class="lineCov">          1 :             stream-&gt;statbuf.st_size += ret;</span>
+<span class="lineNum">     609 </span>            :     }
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineCov">        100 :     stream-&gt;statbuf.st_size -=</span>
+<span class="lineNum">     612 </span><span class="lineCov">         50 :         (off_t)mstream-&gt;header_size.physical_size -</span>
+<span class="lineNum">     613 </span><span class="lineCov">         50 :         (off_t)mstream-&gt;header_size.virtual_size;</span>
+<span class="lineNum">     614 </span><span class="lineCov">         50 :     i_stream_seek(&amp;stream-&gt;istream, old_offset);</span>
+<span class="lineNum">     615 </span><span class="lineCov">         50 :     return 0;</span>
+<span class="lineNum">     616 </span>            : }
+<span class="lineNum">     617 </span>            : 
+<a name="618"><span class="lineNum">     618 </span>            : #undef i_stream_create_header_filter</a>
+<span class="lineNum">     619 </span>            : struct istream *
+<span class="lineNum">     620 </span><span class="lineCov">         44 : i_stream_create_header_filter(struct istream *input,</span>
+<span class="lineNum">     621 </span>            :                               enum header_filter_flags flags,
+<span class="lineNum">     622 </span>            :                   const char *const *headers,
+<span class="lineNum">     623 </span>            :                   unsigned int headers_count,
+<span class="lineNum">     624 </span>            :                   header_filter_callback *callback, void *context)
+<span class="lineNum">     625 </span>            : {
+<span class="lineNum">     626 </span>            :     struct header_filter_istream *mstream;
+<span class="lineNum">     627 </span>            :     unsigned int i, j;
+<span class="lineNum">     628 </span>            :     int ret;
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span><span class="lineCov">         44 :     i_assert((flags &amp; (HEADER_FILTER_INCLUDE|HEADER_FILTER_EXCLUDE)) != 0);</span>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineCov">         44 :     mstream = i_new(struct header_filter_istream, 1);</span>
+<span class="lineNum">     633 </span><span class="lineCov">         44 :     mstream-&gt;pool = pool_alloconly_create(MEMPOOL_GROWING</span>
+<span class="lineNum">     634 </span>            :                           &quot;header filter stream&quot;, 4096);
+<span class="lineNum">     635 </span><span class="lineCov">         44 :     mstream-&gt;istream.max_buffer_size = input-&gt;real_stream-&gt;max_buffer_size;</span>
+<span class="lineNum">     636 </span>            : 
+<span class="lineNum">     637 </span><span class="lineCov">         65 :     mstream-&gt;headers = headers_count == 0 ? NULL :</span>
+<span class="lineNum">     638 </span><span class="lineCov">         21 :         p_new(mstream-&gt;pool, const char *, headers_count);</span>
+<span class="lineNum">     639 </span><span class="lineCov">        247 :     for (i = j = 0; i &lt; headers_count; i++)  {</span>
+<span class="lineNum">     640 </span><span class="lineCov">        385 :         ret = j == 0 ? -1 :</span>
+<span class="lineNum">     641 </span><span class="lineCov">        182 :             strcasecmp(mstream-&gt;headers[j-1], headers[i]);</span>
+<span class="lineNum">     642 </span><span class="lineCov">        203 :         if (ret == 0) {</span>
+<span class="lineNum">     643 </span>            :             /* drop duplicate */
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     645 </span>            :         } 
+<span class="lineNum">     646 </span><span class="lineCov">        203 :         i_assert(ret &lt; 0);</span>
+<span class="lineNum">     647 </span><span class="lineCov">        203 :         mstream-&gt;headers[j++] = p_strdup(mstream-&gt;pool, headers[i]);</span>
+<span class="lineNum">     648 </span>            :     }
+<span class="lineNum">     649 </span><span class="lineCov">         44 :     mstream-&gt;headers_count = j;</span>
+<span class="lineNum">     650 </span><span class="lineCov">         44 :     mstream-&gt;hdr_buf = buffer_create_dynamic(mstream-&gt;pool, 1024);</span>
+<span class="lineNum">     651 </span>            : 
+<span class="lineNum">     652 </span><span class="lineCov">         44 :     mstream-&gt;callback = callback;</span>
+<span class="lineNum">     653 </span><span class="lineCov">         44 :     mstream-&gt;context = context;</span>
+<span class="lineNum">     654 </span><span class="lineCov">         44 :     mstream-&gt;exclude = (flags &amp; HEADER_FILTER_EXCLUDE) != 0;</span>
+<span class="lineNum">     655 </span><span class="lineCov">         44 :     if ((flags &amp; HEADER_FILTER_CRLF_PRESERVE) != 0)</span>
+<span class="lineNum">     656 </span><span class="lineCov">         15 :         mstream-&gt;crlf_preserve = TRUE;</span>
+<span class="lineNum">     657 </span><span class="lineCov">         29 :     else if ((flags &amp; HEADER_FILTER_NO_CR) != 0)</span>
+<span class="lineNum">     658 </span><span class="lineCov">         28 :         mstream-&gt;crlf = FALSE;</span>
+<span class="lineNum">     659 </span>            :     else
+<span class="lineNum">     660 </span><span class="lineCov">          1 :         mstream-&gt;crlf = TRUE;</span>
+<span class="lineNum">     661 </span><span class="lineCov">         44 :     mstream-&gt;hide_body = (flags &amp; HEADER_FILTER_HIDE_BODY) != 0;</span>
+<span class="lineNum">     662 </span><span class="lineCov">         44 :     mstream-&gt;add_missing_eoh = (flags &amp; HEADER_FILTER_ADD_MISSING_EOH) != 0;</span>
+<span class="lineNum">     663 </span><span class="lineCov">         44 :     mstream-&gt;end_body_with_lf =</span>
+<span class="lineNum">     664 </span><span class="lineCov">         44 :         (flags &amp; HEADER_FILTER_END_BODY_WITH_LF) != 0;</span>
+<span class="lineNum">     665 </span><span class="lineCov">         44 :     mstream-&gt;last_lf_offset = (uoff_t)-1;</span>
+<span class="lineNum">     666 </span><span class="lineCov">         44 :     mstream-&gt;last_added_newline = TRUE;</span>
+<span class="lineNum">     667 </span>            : 
+<span class="lineNum">     668 </span><span class="lineCov">         44 :     mstream-&gt;istream.iostream.destroy = i_stream_header_filter_destroy;</span>
+<span class="lineNum">     669 </span><span class="lineCov">         44 :     mstream-&gt;istream.read = i_stream_header_filter_read;</span>
+<span class="lineNum">     670 </span><span class="lineCov">         44 :     mstream-&gt;istream.seek = i_stream_header_filter_seek;</span>
+<span class="lineNum">     671 </span><span class="lineCov">         44 :     mstream-&gt;istream.sync = i_stream_header_filter_sync;</span>
+<span class="lineNum">     672 </span><span class="lineCov">         44 :     mstream-&gt;istream.stat = i_stream_header_filter_stat;</span>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineCov">         44 :     mstream-&gt;istream.istream.readable_fd = FALSE;</span>
+<span class="lineNum">     675 </span><span class="lineCov">         44 :     mstream-&gt;istream.istream.blocking = input-&gt;blocking;</span>
+<span class="lineNum">     676 </span><span class="lineCov">         44 :     mstream-&gt;istream.istream.seekable = input-&gt;seekable;</span>
+<span class="lineNum">     677 </span>            : 
+<span class="lineNum">     678 </span><span class="lineCov">         44 :     return i_stream_create(&amp;mstream-&gt;istream, input, -1, 0);</span>
+<a name="679"><span class="lineNum">     679 </span>            : }</a>
+<span class="lineNum">     680 </span>            : 
+<span class="lineNum">     681 </span><span class="lineCov">         12 : void i_stream_header_filter_add(struct header_filter_istream *input,</span>
+<span class="lineNum">     682 </span>            :                 const void *data, size_t size)
+<span class="lineNum">     683 </span>            : {
+<span class="lineNum">     684 </span><span class="lineCov">         12 :     buffer_append(input-&gt;hdr_buf, data, size);</span>
+<span class="lineNum">     685 </span><span class="lineCov">         12 :     input-&gt;headers_edited = TRUE;</span>
+<span class="lineNum">     686 </span><span class="lineCov">         12 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

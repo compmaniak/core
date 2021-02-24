@@ -1,0 +1,962 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-index/mail-cache.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-index</a> - mail-cache.c<span style="font-size: 80%;"> (source / <a href="mail-cache.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">66</td>
+            <td class="headerCovTableEntry">477</td>
+            <td class="headerCovTableEntryLo">13.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">33</td>
+            <td class="headerCovTableEntryLo">15.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;nfs-workarounds.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;file-cache.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;mmap-util.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;read-full.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;mail-cache-private.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      16 </span>            : 
+<a name="17"><span class="lineNum">      17 </span>            : #define MAIL_CACHE_MIN_HEADER_READ_SIZE 4096</a>
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span><span class="lineNoCov">          0 : void mail_cache_set_syscall_error(struct mail_cache *cache,</span>
+<span class="lineNum">      20 </span>            :                   const char *function)
+<span class="lineNum">      21 </span>            : {
+<span class="lineNum">      22 </span><span class="lineNoCov">          0 :     mail_index_file_set_syscall_error(cache-&gt;index, cache-&gt;filepath,</span>
+<span class="lineNum">      23 </span>            :                       function);
+<a name="24"><span class="lineNum">      24 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span><span class="lineNoCov">          0 : static void mail_cache_unlink(struct mail_cache *cache)</span>
+<span class="lineNum">      27 </span>            : {
+<span class="lineNum">      28 </span><span class="lineNoCov">          0 :     if (!cache-&gt;index-&gt;readonly &amp;&amp; !MAIL_INDEX_IS_IN_MEMORY(cache-&gt;index))</span>
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 :         i_unlink_if_exists(cache-&gt;filepath);</span>
+<a name="30"><span class="lineNum">      30 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 : void mail_cache_reset(struct mail_cache *cache)</span>
+<span class="lineNum">      33 </span>            : {
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     mail_cache_unlink(cache);</span>
+<span class="lineNum">      35 </span>            :     /* mark the cache as unusable */
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :     cache-&gt;hdr = NULL;</span>
+<a name="37"><span class="lineNum">      37 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 : void mail_cache_set_corrupted(struct mail_cache *cache, const char *fmt, ...)</span>
+<span class="lineNum">      40 </span>            : {
+<span class="lineNum">      41 </span>            :     va_list va;
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :     mail_cache_reset(cache);</span>
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :     va_start(va, fmt);</span>
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :         mail_index_set_error(cache-&gt;index,</span>
+<span class="lineNum">      48 </span>            :                      &quot;Corrupted index cache file %s: %s&quot;,
+<span class="lineNum">      49 </span>            :                      cache-&gt;filepath,
+<span class="lineNum">      50 </span>            :                      t_strdup_vprintf(fmt, va));
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     va_end(va);</span>
+<a name="53"><span class="lineNum">      53 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 : void mail_cache_set_seq_corrupted_reason(struct mail_cache_view *cache_view,</span>
+<span class="lineNum">      56 </span>            :                      uint32_t seq, const char *reason)
+<span class="lineNum">      57 </span>            : {
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     uint32_t empty = 0;</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     struct mail_cache *cache = cache_view-&gt;cache;</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     struct mail_index_view *view = cache_view-&gt;view;</span>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     mail_index_set_error(cache-&gt;index,</span>
+<span class="lineNum">      63 </span>            :                  &quot;Corrupted record in index cache file %s: %s&quot;,
+<span class="lineNum">      64 </span>            :                          cache-&gt;filepath, reason);
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span>            :     /* drop cache pointer */
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     struct mail_index_transaction *t =</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         mail_index_transaction_begin(view, MAIL_INDEX_TRANSACTION_FLAG_EXTERNAL);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     mail_index_update_ext(t, seq, cache-&gt;ext_id, &amp;empty, NULL);</span>
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     if (mail_index_transaction_commit(&amp;t) &lt; 0)</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :         mail_cache_reset(cache);</span>
+<span class="lineNum">      73 </span>            :     else
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         mail_cache_expunge_count(cache, 1);</span>
+<a name="75"><span class="lineNum">      75 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span><span class="lineCov">          5 : void mail_cache_file_close(struct mail_cache *cache)</span>
+<span class="lineNum">      78 </span>            : {
+<span class="lineNum">      79 </span><span class="lineCov">          5 :     if (cache-&gt;mmap_base != NULL) {</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         if (munmap(cache-&gt;mmap_base, cache-&gt;mmap_length) &lt; 0)</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, &quot;munmap()&quot;);</span>
+<span class="lineNum">      82 </span>            :     }
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineCov">          5 :     if (cache-&gt;file_cache != NULL)</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :         file_cache_set_fd(cache-&gt;file_cache, -1);</span>
+<span class="lineNum">      86 </span><span class="lineCov">          5 :     if (cache-&gt;read_buf != NULL)</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :         buffer_set_used_size(cache-&gt;read_buf, 0);</span>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">          5 :     cache-&gt;mmap_base = NULL;</span>
+<span class="lineNum">      90 </span><span class="lineCov">          5 :     cache-&gt;hdr = NULL;</span>
+<span class="lineNum">      91 </span><span class="lineCov">          5 :     cache-&gt;mmap_length = 0;</span>
+<span class="lineNum">      92 </span><span class="lineCov">          5 :     cache-&gt;last_field_header_offset = 0;</span>
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineCov">          5 :     if (cache-&gt;file_lock != NULL)</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         file_lock_free(&amp;cache-&gt;file_lock);</span>
+<span class="lineNum">      96 </span><span class="lineCov">          5 :     cache-&gt;locked = FALSE;</span>
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineCov">          5 :     if (cache-&gt;fd != -1) {</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         if (close(cache-&gt;fd) &lt; 0)</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, &quot;close()&quot;);</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         cache-&gt;fd = -1;</span>
+<span class="lineNum">     102 </span>            :     }
+<span class="lineNum">     103 </span><span class="lineCov">          5 :     cache-&gt;opened = FALSE;</span>
+<a name="104"><span class="lineNum">     104 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 : static void mail_cache_init_file_cache(struct mail_cache *cache)</span>
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span>            :     struct stat st;
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (cache-&gt;file_cache != NULL)</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         file_cache_set_fd(cache-&gt;file_cache, cache-&gt;fd);</span>
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     if (fstat(cache-&gt;fd, &amp;st) == 0) {</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         if (cache-&gt;file_cache != NULL)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             (void)file_cache_set_size(cache-&gt;file_cache, st.st_size);</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     } else if (!ESTALE_FSTAT(errno)) {</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         mail_cache_set_syscall_error(cache, &quot;fstat()&quot;);</span>
+<span class="lineNum">     118 </span>            :     }
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     cache-&gt;st_ino = st.st_ino;</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     cache-&gt;st_dev = st.st_dev;</span>
+<a name="122"><span class="lineNum">     122 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 : static int mail_cache_try_open(struct mail_cache *cache)</span>
+<span class="lineNum">     125 </span>            : {
+<span class="lineNum">     126 </span>            :     const void *data;
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     i_assert(!cache-&gt;opened);</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     cache-&gt;opened = TRUE;</span>
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     if (MAIL_INDEX_IS_IN_MEMORY(cache-&gt;index))</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     133 </span>            : 
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     i_assert(cache-&gt;fd == -1);</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     cache-&gt;fd = nfs_safe_open(cache-&gt;filepath,</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :                   cache-&gt;index-&gt;readonly ? O_RDONLY : O_RDWR);</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     if (cache-&gt;fd == -1) {</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :         mail_cache_file_close(cache);</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         if (errno == ENOENT) {</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :             cache-&gt;need_compress_file_seq = 0;</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     142 </span>            :         }
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         mail_cache_set_syscall_error(cache, &quot;open()&quot;);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     146 </span>            :     }
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     mail_cache_init_file_cache(cache);</span>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     if (mail_cache_map(cache, 0, 0, &amp;data) &lt; 0) {</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         mail_cache_file_close(cache);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     153 </span>            :     }
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="155"><span class="lineNum">     155 </span>            : }</a>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 : static bool mail_cache_need_reopen(struct mail_cache *cache)</span>
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span>            :     struct stat st;
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     if (MAIL_CACHE_IS_UNUSABLE(cache)) {</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         if (cache-&gt;need_compress_file_seq != 0) {</span>
+<span class="lineNum">     163 </span>            :             /* we're waiting for compression */
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     165 </span>            :         }
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :         if (MAIL_INDEX_IS_IN_MEMORY(cache-&gt;index)) {</span>
+<span class="lineNum">     167 </span>            :             /* disabled */
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     169 </span>            :         }
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     if (cache-&gt;fd == -1)</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span>            :     /* see if the file has changed */
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     if ((cache-&gt;index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_NFS_FLUSH) != 0) {</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         i_assert(!cache-&gt;locked);</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         nfs_flush_file_handle_cache(cache-&gt;filepath);</span>
+<span class="lineNum">     179 </span>            :     }
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :     if (nfs_safe_stat(cache-&gt;filepath, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :         mail_cache_set_syscall_error(cache, &quot;stat()&quot;);</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     183 </span>            :     }
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :     if (st.st_ino != cache-&gt;st_ino ||</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :         !CMP_DEV_T(st.st_dev, cache-&gt;st_dev)) {</span>
+<span class="lineNum">     187 </span>            :         /* file changed */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     189 </span>            :     }
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     if ((cache-&gt;index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_NFS_FLUSH) != 0) {</span>
+<span class="lineNum">     192 </span>            :         /* if the old file has been deleted, the new file may have
+<span class="lineNum">     193 </span>            :            the same inode as the old one. we'll catch this here by
+<span class="lineNum">     194 </span>            :            checking if fstat() fails with ESTALE */
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :         if (fstat(cache-&gt;fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :             if (ESTALE_FSTAT(errno))</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, &quot;fstat()&quot;);</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     200 </span>            :         }
+<span class="lineNum">     201 </span>            :     }
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="203"><span class="lineNum">     203 </span>            : }</a>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 : static int mail_cache_reopen_now(struct mail_cache *cache)</span>
+<span class="lineNum">     206 </span>            : {
+<span class="lineNum">     207 </span>            :     struct mail_index_view *view;
+<span class="lineNum">     208 </span>            :     const struct mail_index_ext *ext;
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     mail_cache_file_close(cache);</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     if (mail_cache_try_open(cache) &lt;= 0)</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     if (mail_cache_header_fields_read(cache) &lt; 0)</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     217 </span>            : 
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     view = mail_index_view_open(cache-&gt;index);</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     ext = mail_index_view_get_ext(view, cache-&gt;ext_id);</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     if (ext == NULL || cache-&gt;hdr-&gt;file_seq != ext-&gt;reset_id) {</span>
+<span class="lineNum">     221 </span>            :         /* still different - maybe a race condition or maybe the
+<span class="lineNum">     222 </span>            :            file_seq really is corrupted. either way, this shouldn't
+<span class="lineNum">     223 </span>            :            happen often so we'll just mark cache to be compressed
+<span class="lineNum">     224 </span>            :            later which fixes this. */
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         cache-&gt;need_compress_file_seq = cache-&gt;hdr-&gt;file_seq;</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     228 </span>            :     }
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;view);</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     i_assert(!MAIL_CACHE_IS_UNUSABLE(cache));</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="233"><span class="lineNum">     233 </span>            : }</a>
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 : int mail_cache_reopen(struct mail_cache *cache)</span>
+<span class="lineNum">     236 </span>            : {
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     i_assert(!cache-&gt;locked);</span>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     if (!mail_cache_need_reopen(cache)) {</span>
+<span class="lineNum">     240 </span>            :         /* reopening does no good */
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     242 </span>            :     }
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     return mail_cache_reopen_now(cache);</span>
+<a name="244"><span class="lineNum">     244 </span>            : }</a>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 : static void mail_cache_update_need_compress(struct mail_cache *cache)</span>
+<span class="lineNum">     247 </span>            : {
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :     const struct mail_index_cache_optimization_settings *set =</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         &amp;cache-&gt;index-&gt;optimization_set.cache;</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     const struct mail_cache_header *hdr = cache-&gt;hdr;</span>
+<span class="lineNum">     251 </span>            :     struct stat st;
+<span class="lineNum">     252 </span>            :     unsigned int msg_count;
+<span class="lineNum">     253 </span>            :     unsigned int records_count, cont_percentage, delete_percentage;
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     bool want_compress = FALSE;</span>
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     if (hdr-&gt;minor_version == 0) {</span>
+<span class="lineNum">     257 </span>            :         /* compress to get ourself into the new header version */
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         cache-&gt;need_compress_file_seq = hdr-&gt;file_seq;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     260 </span>            :     }
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     msg_count = cache-&gt;index-&gt;map-&gt;rec_map-&gt;records_count;</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :     if (msg_count == 0)</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :         records_count = 1;</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     else if (hdr-&gt;record_count == 0 || hdr-&gt;record_count &gt; msg_count*2) {</span>
+<span class="lineNum">     266 </span>            :         /* probably not the real record_count, but hole offset that
+<span class="lineNum">     267 </span>            :            Dovecot &lt;=v2.1 versions used to use in this position.
+<span class="lineNum">     268 </span>            :            we already checked that minor_version&gt;0, but this could
+<span class="lineNum">     269 </span>            :            happen if old Dovecot was used to access mailbox after
+<span class="lineNum">     270 </span>            :            it had been updated. */
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :         records_count = I_MAX(msg_count, 1);</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         cache-&gt;hdr_copy.record_count = msg_count;</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         cache-&gt;hdr_modified = TRUE;</span>
+<span class="lineNum">     274 </span>            :     } else {
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         records_count = hdr-&gt;record_count;</span>
+<span class="lineNum">     276 </span>            :     }
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     cont_percentage = hdr-&gt;continued_record_count * 100 / records_count;</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     if (cont_percentage &gt;= set-&gt;compress_continued_percentage) {</span>
+<span class="lineNum">     280 </span>            :         /* too many continued rows, compress */
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         want_compress = TRUE;</span>
+<span class="lineNum">     282 </span>            :     }
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     delete_percentage = hdr-&gt;deleted_record_count * 100 /</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         (records_count + hdr-&gt;deleted_record_count);</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     if (delete_percentage &gt;= set-&gt;compress_delete_percentage) {</span>
+<span class="lineNum">     287 </span>            :         /* too many deleted records, compress */
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         want_compress = TRUE;</span>
+<span class="lineNum">     289 </span>            :     }
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     if (want_compress) {</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         if (fstat(cache-&gt;fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :             if (!ESTALE_FSTAT(errno))</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :                 mail_cache_set_syscall_error(cache, &quot;fstat()&quot;);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     296 </span>            :         }
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :         if ((uoff_t)st.st_size &gt;= set-&gt;compress_min_size)</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :             cache-&gt;need_compress_file_seq = hdr-&gt;file_seq;</span>
+<span class="lineNum">     299 </span>            :     }
+<span class="lineNum">     300 </span>            : 
+<a name="301"><span class="lineNum">     301 </span>            : }</a>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 : static bool mail_cache_verify_header(struct mail_cache *cache,</span>
+<span class="lineNum">     304 </span>            :                      const struct mail_cache_header *hdr)
+<span class="lineNum">     305 </span>            : {
+<span class="lineNum">     306 </span>            :     /* check that the header is still ok */
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     if (cache-&gt;mmap_length &lt; sizeof(struct mail_cache_header)) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         mail_cache_set_corrupted(cache, &quot;File too small&quot;);</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     310 </span>            :     }
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     if (hdr-&gt;major_version != MAIL_CACHE_MAJOR_VERSION) {</span>
+<span class="lineNum">     313 </span>            :         /* version changed - upgrade silently */
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         mail_cache_unlink(cache);</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     316 </span>            :     }
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     if (hdr-&gt;compat_sizeof_uoff_t != sizeof(uoff_t)) {</span>
+<span class="lineNum">     318 </span>            :         /* architecture change - handle silently(?) */
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         mail_cache_unlink(cache);</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     321 </span>            :     }
+<span class="lineNum">     322 </span>            : 
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     if (hdr-&gt;indexid != cache-&gt;index-&gt;indexid) {</span>
+<span class="lineNum">     324 </span>            :         /* index id changed - handle silently */
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :         mail_cache_unlink(cache);</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     327 </span>            :     }
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     if (hdr-&gt;file_seq == 0) {</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :         mail_cache_set_corrupted(cache, &quot;file_seq is 0&quot;);</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     331 </span>            :     }
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     333 </span>            : }
+<a name="334"><span class="lineNum">     334 </span>            : </a>
+<span class="lineNum">     335 </span>            : static int
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 : mail_cache_map_finish(struct mail_cache *cache, uoff_t offset, size_t size,</span>
+<span class="lineNum">     337 </span>            :               const void *hdr_data, bool copy_hdr)
+<span class="lineNum">     338 </span>            : {
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     const struct mail_cache_header *hdr = hdr_data;</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     if (offset == 0) {</span>
+<span class="lineNum">     342 </span>            :         /* verify the header validity only with offset=0. this way
+<span class="lineNum">     343 </span>            :            we won't waste time re-verifying it all the time */
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :         if (!mail_cache_verify_header(cache, hdr)) {</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :             cache-&gt;need_compress_file_seq =</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :                 !MAIL_CACHE_IS_UNUSABLE(cache) &amp;&amp;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :                 cache-&gt;hdr-&gt;file_seq != 0 ?</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :                 cache-&gt;hdr-&gt;file_seq : 0;</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :             cache-&gt;hdr = NULL;</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     351 </span>            :         }
+<span class="lineNum">     352 </span>            :     }
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     if (hdr_data != NULL) {</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         if (!copy_hdr)</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :             cache-&gt;hdr = hdr;</span>
+<span class="lineNum">     356 </span>            :         else {
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :             memcpy(&amp;cache-&gt;hdr_ro_copy, hdr,</span>
+<span class="lineNum">     358 </span>            :                    sizeof(cache-&gt;hdr_ro_copy));
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :             cache-&gt;hdr = &amp;cache-&gt;hdr_ro_copy;</span>
+<span class="lineNum">     360 </span>            :         }
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         mail_cache_update_need_compress(cache);</span>
+<span class="lineNum">     362 </span>            :     } else {
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :         i_assert(cache-&gt;hdr != NULL);</span>
+<span class="lineNum">     364 </span>            :     }
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     i_assert(cache-&gt;hdr-&gt;file_seq != 0);</span>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     if (offset + size &gt; cache-&gt;mmap_length)</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     370 </span>            : }
+<a name="371"><span class="lineNum">     371 </span>            : </a>
+<span class="lineNum">     372 </span>            : static int
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 : mail_cache_map_with_read(struct mail_cache *cache, size_t offset, size_t size,</span>
+<span class="lineNum">     374 </span>            :              const void **data_r)
+<span class="lineNum">     375 </span>            : {
+<span class="lineNum">     376 </span>            :     const void *hdr_data;
+<span class="lineNum">     377 </span>            :     void *data;
+<span class="lineNum">     378 </span>            :     ssize_t ret;
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     if (cache-&gt;read_buf == NULL) {</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         cache-&gt;read_buf =</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :             buffer_create_dynamic(default_pool, size);</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     } else if (cache-&gt;read_offset &lt;= offset &amp;&amp;</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :            cache-&gt;read_offset + cache-&gt;read_buf-&gt;used &gt;= offset+size) {</span>
+<span class="lineNum">     385 </span>            :         /* already mapped */
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         *data_r = CONST_PTR_OFFSET(cache-&gt;read_buf-&gt;data,</span>
+<span class="lineNum">     387 </span>            :                        offset - cache-&gt;read_offset);
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         hdr_data = offset == 0 ? *data_r : NULL;</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :         return mail_cache_map_finish(cache, offset, size, hdr_data, TRUE);</span>
+<span class="lineNum">     390 </span>            :     } else {
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         buffer_set_used_size(cache-&gt;read_buf, 0);</span>
+<span class="lineNum">     392 </span>            :     }
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :     if (offset == 0 &amp;&amp; size &lt; MAIL_CACHE_MIN_HEADER_READ_SIZE) {</span>
+<span class="lineNum">     394 </span>            :         /* we can usually read the fields header after the cache
+<span class="lineNum">     395 </span>            :            header. we need them both, so try to read them all with one
+<span class="lineNum">     396 </span>            :            pread() call. */
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :         size = MAIL_CACHE_MIN_HEADER_READ_SIZE;</span>
+<span class="lineNum">     398 </span>            :     }
+<span class="lineNum">     399 </span>            : 
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     data = buffer_append_space_unsafe(cache-&gt;read_buf, size);</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     ret = pread(cache-&gt;fd, data, size, offset);</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :         if (errno != ESTALE)</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, &quot;read()&quot;);</span>
+<span class="lineNum">     405 </span>            : 
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         buffer_set_used_size(cache-&gt;read_buf, 0);</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         cache-&gt;hdr = NULL;</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         cache-&gt;mmap_length = 0;</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     410 </span>            :     }
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     buffer_set_used_size(cache-&gt;read_buf, ret);</span>
+<span class="lineNum">     412 </span>            : 
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     cache-&gt;read_offset = offset;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     cache-&gt;mmap_length = offset + cache-&gt;read_buf-&gt;used;</span>
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     *data_r = data;</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :     hdr_data = offset == 0 ? *data_r : NULL;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     return mail_cache_map_finish(cache, offset,</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :                      cache-&gt;read_buf-&gt;used, hdr_data, TRUE);</span>
+<a name="420"><span class="lineNum">     420 </span>            : }</a>
+<span class="lineNum">     421 </span>            : 
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 : int mail_cache_map(struct mail_cache *cache, size_t offset, size_t size,</span>
+<span class="lineNum">     423 </span>            :            const void **data_r)
+<span class="lineNum">     424 </span>            : {
+<span class="lineNum">     425 </span>            :     struct stat st;
+<span class="lineNum">     426 </span>            :     const void *data;
+<span class="lineNum">     427 </span>            :     ssize_t ret;
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     if (size == 0)</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :         size = sizeof(struct mail_cache_header);</span>
+<span class="lineNum">     431 </span>            : 
+<span class="lineNum">     432 </span>            :     /* verify offset + size before trying to allocate a huge amount of
+<span class="lineNum">     433 </span>            :        memory due to them. note that we may be prefetching more than we
+<span class="lineNum">     434 </span>            :        actually need, so don't fail too early. */
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     if ((size &gt; cache-&gt;mmap_length || offset + size &gt; cache-&gt;mmap_length) &amp;&amp;</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :         (offset &gt; 0 || size &gt; sizeof(struct mail_cache_header))) {</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         if (fstat(cache-&gt;fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :             i_error(&quot;fstat(%s) failed: %m&quot;, cache-&gt;filepath);</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     440 </span>            :         }
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         if (offset &gt;= (uoff_t)st.st_size) {</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :             *data_r = NULL;</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     444 </span>            :         }
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :         if (offset + size &gt; (uoff_t)st.st_size)</span>
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :             size = st.st_size - offset;</span>
+<span class="lineNum">     447 </span>            :     }
+<span class="lineNum">     448 </span>            : 
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     cache-&gt;remap_counter++;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :     if (cache-&gt;map_with_read)</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :         return mail_cache_map_with_read(cache, offset, size, data_r);</span>
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :     if (cache-&gt;file_cache != NULL) {</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :         ret = file_cache_read(cache-&gt;file_cache, offset, size);</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     456 </span>            :                         /* In case of ESTALE we'll simply fail without error
+<span class="lineNum">     457 </span>            :                            messages. The caller will then just have to
+<span class="lineNum">     458 </span>            :                            fallback to generating the value itself.
+<span class="lineNum">     459 </span>            : 
+<span class="lineNum">     460 </span>            :                            We can't simply reopen the cache file, because
+<span class="lineNum">     461 </span>            :                            using it requires also having updated file
+<span class="lineNum">     462 </span>            :                            offsets. */
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :                         if (errno != ESTALE)</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :                                 mail_cache_set_syscall_error(cache, &quot;read()&quot;);</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :             cache-&gt;hdr = NULL;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     467 </span>            :         }
+<span class="lineNum">     468 </span>            : 
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         data = file_cache_get_map(cache-&gt;file_cache,</span>
+<span class="lineNum">     470 </span>            :                       &amp;cache-&gt;mmap_length);
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :         *data_r = offset &gt; cache-&gt;mmap_length ? NULL :</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :             CONST_PTR_OFFSET(data, offset);</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         return mail_cache_map_finish(cache, offset, size,</span>
+<span class="lineNum">     474 </span>            :                          offset == 0 ? data : NULL, TRUE);
+<span class="lineNum">     475 </span>            :     }
+<span class="lineNum">     476 </span>            : 
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :     if (offset &lt; cache-&gt;mmap_length &amp;&amp;</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         size &lt;= cache-&gt;mmap_length - offset) {</span>
+<span class="lineNum">     479 </span>            :         /* already mapped */
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :         i_assert(cache-&gt;mmap_base != NULL);</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         *data_r = CONST_PTR_OFFSET(cache-&gt;mmap_base, offset);</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     483 </span>            :     }
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :     if (cache-&gt;mmap_base != NULL) {</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         if (munmap(cache-&gt;mmap_base, cache-&gt;mmap_length) &lt; 0)</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, &quot;munmap()&quot;);</span>
+<span class="lineNum">     488 </span>            :     } else {
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :         if (cache-&gt;fd == -1) {</span>
+<span class="lineNum">     490 </span>            :             /* unusable, waiting for compression or
+<span class="lineNum">     491 </span>            :                index is in memory */
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :             i_assert(cache-&gt;need_compress_file_seq != 0 ||</span>
+<span class="lineNum">     493 </span>            :                  MAIL_INDEX_IS_IN_MEMORY(cache-&gt;index));
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     495 </span>            :         }
+<span class="lineNum">     496 </span>            :     }
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span>            :     /* map the whole file */
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     cache-&gt;hdr = NULL;</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :     cache-&gt;mmap_length = 0;</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     if (cache-&gt;read_buf != NULL)</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :         buffer_set_used_size(cache-&gt;read_buf, 0);</span>
+<span class="lineNum">     503 </span>            : 
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :     cache-&gt;mmap_base = mmap_ro_file(cache-&gt;fd, &amp;cache-&gt;mmap_length);</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :     if (cache-&gt;mmap_base == MAP_FAILED) {</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :         cache-&gt;mmap_base = NULL;</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :         if (ioloop_time != cache-&gt;last_mmap_error_time) {</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :             cache-&gt;last_mmap_error_time = ioloop_time;</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, t_strdup_printf(</span>
+<span class="lineNum">     510 </span>            :                 &quot;mmap(size=%&quot;PRIuSIZE_T&quot;)&quot;, cache-&gt;mmap_length));
+<span class="lineNum">     511 </span>            :         }
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :         cache-&gt;mmap_length = 0;</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     514 </span>            :     }
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :     *data_r = offset &gt; cache-&gt;mmap_length ? NULL :</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         CONST_PTR_OFFSET(cache-&gt;mmap_base, offset);</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :     return mail_cache_map_finish(cache, offset, size,</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :                      cache-&gt;mmap_base, FALSE);</span>
+<a name="519"><span class="lineNum">     519 </span>            : }</a>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 : int mail_cache_open_and_verify(struct mail_cache *cache)</span>
+<span class="lineNum">     522 </span>            : {
+<span class="lineNum">     523 </span>            :     int ret;
+<span class="lineNum">     524 </span>            : 
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     if (cache-&gt;opened)</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :     ret = mail_cache_try_open(cache);</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :     if (ret &gt; 0)</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         ret = mail_cache_header_fields_read(cache);</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     531 </span>            :         /* failed for some reason - doesn't really matter,
+<span class="lineNum">     532 </span>            :            it's disabled for now. */
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         mail_cache_file_close(cache);</span>
+<span class="lineNum">     534 </span>            :     }
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     536 </span>            : }
+<a name="537"><span class="lineNum">     537 </span>            : </a>
+<span class="lineNum">     538 </span>            : struct mail_cache *
+<span class="lineNum">     539 </span><span class="lineCov">          5 : mail_cache_open_or_create_path(struct mail_index *index, const char *path)</span>
+<span class="lineNum">     540 </span>            : {
+<span class="lineNum">     541 </span>            :     struct mail_cache *cache;
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span><span class="lineCov">          5 :     cache = i_new(struct mail_cache, 1);</span>
+<span class="lineNum">     544 </span><span class="lineCov">          5 :     cache-&gt;index = index;</span>
+<span class="lineNum">     545 </span><span class="lineCov">          5 :     cache-&gt;fd = -1;</span>
+<span class="lineNum">     546 </span><span class="lineCov">          5 :     cache-&gt;filepath = i_strdup(path);</span>
+<span class="lineNum">     547 </span><span class="lineCov">          5 :     cache-&gt;field_pool = pool_alloconly_create(&quot;Cache fields&quot;, 2048);</span>
+<span class="lineNum">     548 </span><span class="lineCov">          5 :     hash_table_create(&amp;cache-&gt;field_name_hash, cache-&gt;field_pool, 0,</span>
+<span class="lineNum">     549 </span>            :               strcase_hash, strcasecmp);
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineCov">          5 :     cache-&gt;dotlock_settings.use_excl_lock =</span>
+<span class="lineNum">     552 </span><span class="lineCov">          5 :         (index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_DOTLOCK_USE_EXCL) != 0;</span>
+<span class="lineNum">     553 </span><span class="lineCov">          5 :     cache-&gt;dotlock_settings.nfs_flush =</span>
+<span class="lineNum">     554 </span><span class="lineCov">          5 :         (index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_NFS_FLUSH) != 0;</span>
+<span class="lineNum">     555 </span><span class="lineCov">          5 :     cache-&gt;dotlock_settings.timeout =</span>
+<span class="lineNum">     556 </span><span class="lineCov">          5 :         I_MIN(MAIL_CACHE_LOCK_TIMEOUT, index-&gt;max_lock_timeout_secs);</span>
+<span class="lineNum">     557 </span><span class="lineCov">          5 :     cache-&gt;dotlock_settings.stale_timeout = MAIL_CACHE_LOCK_CHANGE_TIMEOUT;</span>
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineCov">          8 :     if (!MAIL_INDEX_IS_IN_MEMORY(index) &amp;&amp;</span>
+<span class="lineNum">     560 </span><span class="lineCov">          3 :         (index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_MMAP_DISABLE) != 0)</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :         cache-&gt;file_cache = file_cache_new_path(-1, cache-&gt;filepath);</span>
+<span class="lineNum">     562 </span><span class="lineCov">          5 :     cache-&gt;map_with_read =</span>
+<span class="lineNum">     563 </span><span class="lineCov">          5 :         (cache-&gt;index-&gt;flags &amp; MAIL_INDEX_OPEN_FLAG_SAVEONLY) != 0;</span>
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineCov">          5 :     cache-&gt;ext_id =</span>
+<span class="lineNum">     566 </span><span class="lineCov">          5 :         mail_index_ext_register(index, &quot;cache&quot;, 0,</span>
+<span class="lineNum">     567 </span>            :                     sizeof(uint32_t), sizeof(uint32_t));
+<span class="lineNum">     568 </span><span class="lineCov">          5 :     mail_index_register_expunge_handler(index, cache-&gt;ext_id, FALSE,</span>
+<span class="lineNum">     569 </span>            :                         mail_cache_expunge_handler, cache);
+<span class="lineNum">     570 </span><span class="lineCov">          5 :     return cache;</span>
+<a name="571"><span class="lineNum">     571 </span>            : }</a>
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 : struct mail_cache *mail_cache_open_or_create(struct mail_index *index)</span>
+<span class="lineNum">     574 </span>            : {
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     const char *path = t_strconcat(index-&gt;filepath,</span>
+<span class="lineNum">     576 </span>            :                        MAIL_CACHE_FILE_SUFFIX, NULL);
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     return mail_cache_open_or_create_path(index, path);</span>
+<a name="578"><span class="lineNum">     578 </span>            : }</a>
+<span class="lineNum">     579 </span>            : 
+<span class="lineNum">     580 </span><span class="lineCov">          5 : void mail_cache_free(struct mail_cache **_cache)</span>
+<span class="lineNum">     581 </span>            : {
+<span class="lineNum">     582 </span><span class="lineCov">          5 :     struct mail_cache *cache = *_cache;</span>
+<span class="lineNum">     583 </span>            : 
+<span class="lineNum">     584 </span><span class="lineCov">          5 :     *_cache = NULL;</span>
+<span class="lineNum">     585 </span><span class="lineCov">          5 :     if (cache-&gt;file_cache != NULL)</span>
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :         file_cache_free(&amp;cache-&gt;file_cache);</span>
+<span class="lineNum">     587 </span>            : 
+<span class="lineNum">     588 </span><span class="lineCov">          5 :     mail_index_unregister_expunge_handler(cache-&gt;index, cache-&gt;ext_id);</span>
+<span class="lineNum">     589 </span><span class="lineCov">          5 :     mail_cache_file_close(cache);</span>
+<span class="lineNum">     590 </span>            : 
+<span class="lineNum">     591 </span><span class="lineCov">          5 :     buffer_free(&amp;cache-&gt;read_buf);</span>
+<span class="lineNum">     592 </span><span class="lineCov">          5 :     hash_table_destroy(&amp;cache-&gt;field_name_hash);</span>
+<span class="lineNum">     593 </span><span class="lineCov">          5 :     pool_unref(&amp;cache-&gt;field_pool);</span>
+<span class="lineNum">     594 </span><span class="lineCov">          5 :     i_free(cache-&gt;field_file_map);</span>
+<span class="lineNum">     595 </span><span class="lineCov">          5 :     i_free(cache-&gt;file_field_map);</span>
+<span class="lineNum">     596 </span><span class="lineCov">          5 :     i_free(cache-&gt;fields);</span>
+<span class="lineNum">     597 </span><span class="lineCov">          5 :     i_free(cache-&gt;filepath);</span>
+<span class="lineNum">     598 </span><span class="lineCov">          5 :     i_free(cache);</span>
+<a name="599"><span class="lineNum">     599 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 : static int mail_cache_lock_file(struct mail_cache *cache, bool nonblock)</span>
+<span class="lineNum">     602 </span>            : {
+<span class="lineNum">     603 </span>            :     unsigned int timeout_secs;
+<span class="lineNum">     604 </span>            :     int ret;
+<span class="lineNum">     605 </span>            : 
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :     if (cache-&gt;last_lock_failed) {</span>
+<span class="lineNum">     607 </span>            :         /* previous locking failed. don't waste time waiting on it
+<span class="lineNum">     608 </span>            :            again, just try once to see if it's available now. */
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :         nonblock = TRUE;</span>
+<span class="lineNum">     610 </span>            :     }
+<span class="lineNum">     611 </span>            : 
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     if (cache-&gt;index-&gt;lock_method != FILE_LOCK_METHOD_DOTLOCK) {</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :         i_assert(cache-&gt;file_lock == NULL);</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :         timeout_secs = I_MIN(MAIL_CACHE_LOCK_TIMEOUT,</span>
+<span class="lineNum">     615 </span>            :                      cache-&gt;index-&gt;max_lock_timeout_secs);
+<span class="lineNum">     616 </span>            : 
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :         ret = mail_index_lock_fd(cache-&gt;index, cache-&gt;filepath,</span>
+<span class="lineNum">     618 </span>            :                      cache-&gt;fd, F_WRLCK,
+<span class="lineNum">     619 </span>            :                      nonblock ? 0 : timeout_secs,
+<span class="lineNum">     620 </span>            :                      &amp;cache-&gt;file_lock);
+<span class="lineNum">     621 </span>            :     } else {
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :         enum dotlock_create_flags flags =</span>
+<span class="lineNum">     623 </span>            :             nonblock ? DOTLOCK_CREATE_FLAG_NONBLOCK : 0;
+<span class="lineNum">     624 </span>            : 
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :         i_assert(cache-&gt;dotlock == NULL);</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :         ret = file_dotlock_create(&amp;cache-&gt;dotlock_settings,</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :                       cache-&gt;filepath, flags,</span>
+<span class="lineNum">     628 </span>            :                       &amp;cache-&gt;dotlock);
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache,</span>
+<span class="lineNum">     631 </span>            :                              &quot;file_dotlock_create()&quot;);
+<span class="lineNum">     632 </span>            :         }
+<span class="lineNum">     633 </span>            :     }
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :     cache-&gt;last_lock_failed = ret &lt;= 0;</span>
+<span class="lineNum">     635 </span>            : 
+<span class="lineNum">     636 </span>            :     /* don't bother warning if locking failed due to a timeout. since cache
+<span class="lineNum">     637 </span>            :        updating isn't all that important we're using a very short timeout
+<span class="lineNum">     638 </span>            :        so it can be triggered sometimes on heavy load */
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0)</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     641 </span>            : 
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :     mail_index_flush_read_cache(cache-&gt;index, cache-&gt;filepath, cache-&gt;fd,</span>
+<span class="lineNum">     643 </span>            :                     TRUE);
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="645"><span class="lineNum">     645 </span>            : }</a>
+<span class="lineNum">     646 </span>            : 
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 : static void mail_cache_unlock_file(struct mail_cache *cache)</span>
+<span class="lineNum">     648 </span>            : {
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :     if (cache-&gt;index-&gt;lock_method != FILE_LOCK_METHOD_DOTLOCK)</span>
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :         file_unlock(&amp;cache-&gt;file_lock);</span>
+<span class="lineNum">     651 </span>            :     else
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :         file_dotlock_delete(&amp;cache-&gt;dotlock);</span>
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 : }</span>
+<a name="654"><span class="lineNum">     654 </span>            : </a>
+<span class="lineNum">     655 </span>            : static int
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 : mail_cache_lock_full(struct mail_cache *cache, bool nonblock)</span>
+<span class="lineNum">     657 </span>            : {
+<span class="lineNum">     658 </span>            :     const struct mail_index_ext *ext;
+<span class="lineNum">     659 </span>            :     const void *data;
+<span class="lineNum">     660 </span>            :     struct mail_index_view *iview;
+<span class="lineNum">     661 </span>            :     uint32_t reset_id;
+<span class="lineNum">     662 </span>            :     int i;
+<span class="lineNum">     663 </span>            : 
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :     i_assert(!cache-&gt;locked);</span>
+<span class="lineNum">     665 </span>            : 
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     if (!cache-&gt;opened)</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :         (void)mail_cache_open_and_verify(cache);</span>
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     if (MAIL_CACHE_IS_UNUSABLE(cache) ||</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :         MAIL_INDEX_IS_IN_MEMORY(cache-&gt;index) ||</span>
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :         cache-&gt;index-&gt;readonly)</span>
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span>            :     for (;;) {
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :         if (mail_cache_lock_file(cache, nonblock) &lt;= 0)</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :         i_assert(!MAIL_CACHE_IS_UNUSABLE(cache));</span>
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :         if (!mail_cache_need_reopen(cache)) {</span>
+<span class="lineNum">     679 </span>            :             /* locked the latest file */
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     681 </span>            :         }
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :         if (mail_cache_reopen_now(cache) &lt;= 0) {</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :             i_assert(cache-&gt;file_lock == NULL);</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     685 </span>            :         }
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :         i_assert(cache-&gt;file_lock == NULL);</span>
+<span class="lineNum">     687 </span>            :         /* okay, so it was just compressed. try again. */
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     689 </span>            : 
+<span class="lineNum">     690 </span>            :     /* now verify that the index reset_id matches the cache's file_seq */
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     for (i = 0; ; i++) {</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :         iview = mail_index_view_open(cache-&gt;index);</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :         ext = mail_index_view_get_ext(iview, cache-&gt;ext_id);</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :         reset_id = ext == NULL ? 0 : ext-&gt;reset_id;</span>
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;iview);</span>
+<span class="lineNum">     696 </span>            : 
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :         if (cache-&gt;hdr-&gt;file_seq == reset_id)</span>
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     699 </span>            :         /* mismatch. try refreshing index once. if that doesn't help,
+<span class="lineNum">     700 </span>            :            we can't use the cache. */
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :         if (i &gt; 0 || cache-&gt;index-&gt;mapping) {</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :             mail_cache_unlock_file(cache);</span>
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     704 </span>            :         }
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :         if (mail_index_refresh(cache-&gt;index) &lt; 0) {</span>
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :             mail_cache_unlock_file(cache);</span>
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     708 </span>            :         }
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     710 </span>            : 
+<span class="lineNum">     711 </span>            :     /* successfully locked - make sure our header is up to date */
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :     cache-&gt;locked = TRUE;</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     cache-&gt;hdr_modified = FALSE;</span>
+<span class="lineNum">     714 </span>            : 
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :     if (cache-&gt;file_cache != NULL) {</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :         file_cache_invalidate(cache-&gt;file_cache, 0,</span>
+<span class="lineNum">     717 </span>            :                       sizeof(struct mail_cache_header));
+<span class="lineNum">     718 </span>            :     }
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     if (cache-&gt;read_buf != NULL)</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :         buffer_set_used_size(cache-&gt;read_buf, 0);</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :     if (mail_cache_map(cache, 0, 0, &amp;data) &lt;= 0) {</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :         (void)mail_cache_unlock(cache);</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     724 </span>            :     }
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     cache-&gt;hdr_copy = *cache-&gt;hdr;</span>
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="727"><span class="lineNum">     727 </span>            : }</a>
+<span class="lineNum">     728 </span>            : 
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 : int mail_cache_lock(struct mail_cache *cache)</span>
+<span class="lineNum">     730 </span>            : {
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :     return mail_cache_lock_full(cache, FALSE);</span>
+<a name="732"><span class="lineNum">     732 </span>            : }</a>
+<span class="lineNum">     733 </span>            : 
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 : int mail_cache_try_lock(struct mail_cache *cache)</span>
+<span class="lineNum">     735 </span>            : {
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :     return mail_cache_lock_full(cache, TRUE);</span>
+<a name="737"><span class="lineNum">     737 </span>            : }</a>
+<span class="lineNum">     738 </span>            : 
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 : int mail_cache_unlock(struct mail_cache *cache)</span>
+<span class="lineNum">     740 </span>            : {
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     742 </span>            : 
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :     i_assert(cache-&gt;locked);</span>
+<span class="lineNum">     744 </span>            : 
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :     if (cache-&gt;field_header_write_pending)</span>
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :                 ret = mail_cache_header_fields_update(cache);</span>
+<span class="lineNum">     747 </span>            : 
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     if (MAIL_CACHE_IS_UNUSABLE(cache)) {</span>
+<span class="lineNum">     749 </span>            :         /* we found it to be broken during the lock. just clean up. */
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :         cache-&gt;hdr_modified = FALSE;</span>
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :         cache-&gt;locked = FALSE;</span>
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     753 </span>            :     }
+<span class="lineNum">     754 </span>            : 
+<span class="lineNum">     755 </span><span class="lineNoCov">          0 :     if (cache-&gt;hdr_modified) {</span>
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :         cache-&gt;hdr_modified = FALSE;</span>
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :         if (mail_cache_write(cache, &amp;cache-&gt;hdr_copy,</span>
+<span class="lineNum">     758 </span>            :                      sizeof(cache-&gt;hdr_copy), 0) &lt; 0)
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 :         cache-&gt;hdr_ro_copy = cache-&gt;hdr_copy;</span>
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :         mail_cache_update_need_compress(cache);</span>
+<span class="lineNum">     762 </span>            :     }
+<span class="lineNum">     763 </span>            : 
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     if (cache-&gt;index-&gt;fsync_mode == FSYNC_MODE_ALWAYS) {</span>
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :         if (fdatasync(cache-&gt;fd) &lt; 0)</span>
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :             mail_cache_set_syscall_error(cache, &quot;fdatasync()&quot;);</span>
+<span class="lineNum">     767 </span>            :     }
+<span class="lineNum">     768 </span>            : 
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 :     cache-&gt;locked = FALSE;</span>
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :     mail_cache_unlock_file(cache);</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="772"><span class="lineNum">     772 </span>            : }</a>
+<span class="lineNum">     773 </span>            : 
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 : int mail_cache_write(struct mail_cache *cache, const void *data, size_t size,</span>
+<span class="lineNum">     775 </span>            :              uoff_t offset)
+<span class="lineNum">     776 </span>            : {
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :     i_assert(cache-&gt;locked);</span>
+<span class="lineNum">     778 </span>            : 
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :     if (pwrite_full(cache-&gt;fd, data, size, offset) &lt; 0) {</span>
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :         mail_cache_set_syscall_error(cache, &quot;pwrite_full()&quot;);</span>
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     782 </span>            :     }
+<span class="lineNum">     783 </span>            : 
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :     if (cache-&gt;file_cache != NULL)</span>
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :         file_cache_write(cache-&gt;file_cache, data, size, offset);</span>
+<span class="lineNum">     786 </span><span class="lineNoCov">          0 :     if (cache-&gt;read_buf != NULL)</span>
+<span class="lineNum">     787 </span><span class="lineNoCov">          0 :         buffer_set_used_size(cache-&gt;read_buf, 0);</span>
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="789"><span class="lineNum">     789 </span>            : }</a>
+<span class="lineNum">     790 </span>            : 
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 : int mail_cache_append(struct mail_cache *cache, const void *data, size_t size,</span>
+<span class="lineNum">     792 </span>            :               uint32_t *offset)
+<span class="lineNum">     793 </span>            : {
+<span class="lineNum">     794 </span>            :     struct stat st;
+<span class="lineNum">     795 </span>            : 
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :     if (*offset == 0) {</span>
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 :         if (fstat(cache-&gt;fd, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :             if (!ESTALE_FSTAT(errno))</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :                 mail_cache_set_syscall_error(cache, &quot;fstat()&quot;);</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     801 </span>            :         }
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :         if (st.st_size &gt; (uint32_t)-1) {</span>
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :             mail_cache_set_corrupted(cache, &quot;Cache file too large&quot;);</span>
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     805 </span>            :         }
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 :         *offset = st.st_size;</span>
+<span class="lineNum">     807 </span>            :     }
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :     if ((uint32_t)-1 - *offset &lt; size) {</span>
+<span class="lineNum">     809 </span><span class="lineNoCov">          0 :         mail_cache_set_corrupted(cache, &quot;Cache file too large&quot;);</span>
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     811 </span>            :     }
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :     if (mail_cache_write(cache, data, size, *offset) &lt; 0)</span>
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     814 </span>            : 
+<span class="lineNum">     815 </span>            :     /* FIXME: this is updated only so that older Dovecot versions (&lt;=v2.1)
+<span class="lineNum">     816 </span>            :        can read this file. we can remove this later. */
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :     cache-&gt;hdr_modified = TRUE;</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :     cache-&gt;hdr_copy.backwards_compat_used_file_size = *offset + size;</span>
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="820"><span class="lineNum">     820 </span>            : }</a>
+<span class="lineNum">     821 </span>            : 
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 : bool mail_cache_exists(struct mail_cache *cache)</span>
+<span class="lineNum">     823 </span>            : {
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :     return !MAIL_CACHE_IS_UNUSABLE(cache);</span>
+<span class="lineNum">     825 </span>            : }
+<a name="826"><span class="lineNum">     826 </span>            : </a>
+<span class="lineNum">     827 </span>            : struct mail_cache_view *
+<span class="lineNum">     828 </span><span class="lineCov">          5 : mail_cache_view_open(struct mail_cache *cache, struct mail_index_view *iview)</span>
+<span class="lineNum">     829 </span>            : {
+<span class="lineNum">     830 </span>            :     struct mail_cache_view *view;
+<span class="lineNum">     831 </span>            : 
+<span class="lineNum">     832 </span><span class="lineCov">          5 :     view = i_new(struct mail_cache_view, 1);</span>
+<span class="lineNum">     833 </span><span class="lineCov">          5 :     view-&gt;cache = cache;</span>
+<span class="lineNum">     834 </span><span class="lineCov">          5 :     view-&gt;view = iview;</span>
+<span class="lineNum">     835 </span><span class="lineCov">          5 :     view-&gt;cached_exists_buf =</span>
+<span class="lineNum">     836 </span><span class="lineCov">          5 :         buffer_create_dynamic(default_pool,</span>
+<span class="lineNum">     837 </span><span class="lineCov">          5 :                       cache-&gt;file_fields_count + 10);</span>
+<span class="lineNum">     838 </span><span class="lineCov">          5 :     return view;</span>
+<a name="839"><span class="lineNum">     839 </span>            : }</a>
+<span class="lineNum">     840 </span>            : 
+<span class="lineNum">     841 </span><span class="lineCov">          5 : void mail_cache_view_close(struct mail_cache_view **_view)</span>
+<span class="lineNum">     842 </span>            : {
+<span class="lineNum">     843 </span><span class="lineCov">          5 :     struct mail_cache_view *view = *_view;</span>
+<span class="lineNum">     844 </span>            : 
+<span class="lineNum">     845 </span><span class="lineCov">          5 :     i_assert(view-&gt;trans_view == NULL);</span>
+<span class="lineNum">     846 </span>            : 
+<span class="lineNum">     847 </span><span class="lineCov">          5 :     *_view = NULL;</span>
+<span class="lineNum">     848 </span><span class="lineCov">          5 :     if (view-&gt;cache-&gt;field_header_write_pending &amp;&amp;</span>
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :         !view-&gt;cache-&gt;compressing)</span>
+<span class="lineNum">     850 </span><span class="lineNoCov">          0 :                 (void)mail_cache_header_fields_update(view-&gt;cache);</span>
+<span class="lineNum">     851 </span>            : 
+<span class="lineNum">     852 </span><span class="lineCov">          5 :     buffer_free(&amp;view-&gt;cached_exists_buf);</span>
+<span class="lineNum">     853 </span><span class="lineCov">          5 :     i_free(view);</span>
+<a name="854"><span class="lineNum">     854 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     855 </span>            : 
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 : void mail_cache_view_update_cache_decisions(struct mail_cache_view *view,</span>
+<span class="lineNum">     857 </span>            :                         bool update)
+<span class="lineNum">     858 </span>            : {
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :     view-&gt;no_decision_updates = !update;</span>
+<a name="860"><span class="lineNum">     860 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     861 </span>            : 
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 : uint32_t mail_cache_get_first_new_seq(struct mail_index_view *view)</span>
+<span class="lineNum">     863 </span>            : {
+<span class="lineNum">     864 </span>            :     const struct mail_index_header *idx_hdr;
+<span class="lineNum">     865 </span>            :     uint32_t first_new_seq, message_count;
+<span class="lineNum">     866 </span>            : 
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :     idx_hdr = mail_index_get_header(view);</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :     if (idx_hdr-&gt;day_first_uid[7] == 0)</span>
+<span class="lineNum">     869 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     870 </span>            : 
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :     if (!mail_index_lookup_seq_range(view, idx_hdr-&gt;day_first_uid[7],</span>
+<span class="lineNum">     872 </span>            :                      (uint32_t)-1, &amp;first_new_seq,
+<span class="lineNum">     873 </span>            :                      &amp;message_count)) {
+<span class="lineNum">     874 </span>            :         /* all messages are too old */
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :         return message_count+1;</span>
+<span class="lineNum">     876 </span>            :     }
+<span class="lineNum">     877 </span><span class="lineNoCov">          0 :     return first_new_seq;</span>
+<span class="lineNum">     878 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

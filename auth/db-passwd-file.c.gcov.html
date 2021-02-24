@@ -1,0 +1,566 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - auth/db-passwd-file.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">auth</a> - db-passwd-file.c<span style="font-size: 80%;"> (source / <a href="db-passwd-file.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">234</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;auth-common.h&quot;
+<span class="lineNum">       4 </span>            : 
+<span class="lineNum">       5 </span>            : #if defined (USERDB_PASSWD_FILE) || defined(PASSDB_PASSWD_FILE)
+<span class="lineNum">       6 </span>            : 
+<span class="lineNum">       7 </span>            : #include &quot;userdb.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;db-passwd-file.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      19 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      20 </span>            : #include &lt;time.h&gt;
+<span class="lineNum">      21 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : #define PARSE_TIME_STARTUP_WARN_SECS 60
+<span class="lineNum">      24 </span>            : #define PARSE_TIME_RELOAD_WARN_SECS 10
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            : static struct db_passwd_file *passwd_files;
+<a name="27"><span class="lineNum">      27 </span>            : </a>
+<span class="lineNum">      28 </span>            : static void ATTR_NULL(3)
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 : passwd_file_add(struct passwd_file *pw, const char *username,</span>
+<span class="lineNum">      30 </span>            :         const char *pass, const char *const *args)
+<span class="lineNum">      31 </span>            : {
+<span class="lineNum">      32 </span>            :     /* args = uid, gid, user info, home dir, shell, extra_fields */
+<span class="lineNum">      33 </span>            :     struct passwd_user *pu;
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :     const char *extra_fields = NULL;</span>
+<span class="lineNum">      35 </span>            :     char *user;
+<span class="lineNum">      36 </span>            :     size_t len;
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :     if (hash_table_lookup(pw-&gt;users, username) != NULL) {</span>
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 :         i_error(&quot;passwd-file %s: User %s exists more than once&quot;,</span>
+<span class="lineNum">      40 </span>            :             pw-&gt;path, username);
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      42 </span>            :     }
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :     pu = p_new(pw-&gt;pool, struct passwd_user, 1);</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :     user = p_strdup(pw-&gt;pool, username);</span>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     len = pass == NULL ? 0 : strlen(pass);</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     if (len &gt; 4 &amp;&amp; pass[0] != '{' &amp;&amp; pass[0] != '$' &amp;&amp;</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :         pass[len-1] == ']' &amp;&amp; pass[len-4] == '[') {</span>
+<span class="lineNum">      50 </span>            :         /* password[type] - we're being libpam-pwdfile compatible
+<span class="lineNum">      51 </span>            :            here. it uses 13 = DES and 34 = MD5. For backwards
+<span class="lineNum">      52 </span>            :            compatibility with ourself, we have also 56 = Digest-MD5. */
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         int num = (pass[len-3] - '0') * 10 + (pass[len-2] - '0');</span>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :         pass = t_strndup(pass, len-4);</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :         if (num == 34) {</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :             pu-&gt;password = p_strconcat(pw-&gt;pool, &quot;{PLAIN-MD5}&quot;,</span>
+<span class="lineNum">      58 </span>            :                            pass, NULL);
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :         } else if (num == 56) {</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :             pu-&gt;password = p_strconcat(pw-&gt;pool, &quot;{DIGEST-MD5}&quot;,</span>
+<span class="lineNum">      61 </span>            :                            pass, NULL);
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :             if (strlen(pu-&gt;password) != 32 + 12) {</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :                 i_error(&quot;passwd-file %s: User %s &quot;</span>
+<span class="lineNum">      64 </span>            :                     &quot;has invalid password&quot;,
+<span class="lineNum">      65 </span>            :                     pw-&gt;path, username);
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">      67 </span>            :             }
+<span class="lineNum">      68 </span>            :         } else {
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :             pu-&gt;password = p_strconcat(pw-&gt;pool, &quot;{CRYPT}&quot;,</span>
+<span class="lineNum">      70 </span>            :                            pass, NULL);
+<span class="lineNum">      71 </span>            :         }
+<span class="lineNum">      72 </span>            :     } else {
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         pu-&gt;password = p_strdup(pw-&gt;pool, pass);</span>
+<span class="lineNum">      74 </span>            :     }
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     pu-&gt;uid = (uid_t)-1;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     pu-&gt;gid = (gid_t)-1;</span>
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     if (*args == NULL)</span>
+<span class="lineNum">      80 </span>            :         ;
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     else if (!pw-&gt;db-&gt;userdb || **args == '\0') {</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">      83 </span>            :     } else {
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :         pu-&gt;uid = userdb_parse_uid(NULL, *args);</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :         if (pu-&gt;uid == 0 || pu-&gt;uid == (uid_t)-1) {</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :             i_error(&quot;passwd-file %s: User %s has invalid UID '%s'&quot;,</span>
+<span class="lineNum">      87 </span>            :                 pw-&gt;path, username, *args);
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">      89 </span>            :         }
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">      91 </span>            :     }
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     if (*args == NULL) {</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         if (pw-&gt;db-&gt;userdb_warn_missing) {</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :             i_error(&quot;passwd-file %s: User %s is missing &quot;</span>
+<span class="lineNum">      96 </span>            :                 &quot;userdb info&quot;, pw-&gt;path, username);
+<span class="lineNum">      97 </span>            :         }
+<span class="lineNum">      98 </span>            :         /* don't allow userdb lookups */
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         pu-&gt;uid = 0;</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         pu-&gt;gid = 0;</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     } else if (!pw-&gt;db-&gt;userdb || **args == '\0')</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">     103 </span>            :     else {
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         pu-&gt;gid = userdb_parse_gid(NULL, *args);</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         if (pu-&gt;gid == 0 || pu-&gt;gid == (gid_t)-1) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :             i_error(&quot;passwd-file %s: User %s has invalid GID '%s'&quot;,</span>
+<span class="lineNum">     107 </span>            :                 pw-&gt;path, username, *args);
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     109 </span>            :         }
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">     111 </span>            :     }
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span>            :     /* user info */
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     if (*args != NULL)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span>            :     /* home */
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     if (*args != NULL) {</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         if (pw-&gt;db-&gt;userdb)</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :             pu-&gt;home = p_strdup_empty(pw-&gt;pool, *args);</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">     122 </span>            :     }
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span>            :     /* shell */
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     if (*args != NULL)</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (*args != NULL &amp;&amp; **args == '\0') {</span>
+<span class="lineNum">     129 </span>            :         /* old format, this field is empty and next field may
+<span class="lineNum">     130 </span>            :            contain MAIL */
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         args++;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         if (*args != NULL &amp;&amp; **args != '\0' &amp;&amp; pw-&gt;db-&gt;userdb) {</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :             extra_fields =</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :                                 t_strconcat(&quot;userdb_mail=&quot;,</span>
+<span class="lineNum">     135 </span>            :                                             t_strarray_join(args, &quot;:&quot;), NULL);
+<span class="lineNum">     136 </span>            :         }
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     } else if (*args != NULL) {</span>
+<span class="lineNum">     138 </span>            :         /* new format, contains a space separated list of
+<span class="lineNum">     139 </span>            :            extra fields */
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :                 extra_fields = t_strarray_join(args, &quot;:&quot;);</span>
+<span class="lineNum">     141 </span>            :         }
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         if (extra_fields != NULL) {</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :                 pu-&gt;extra_fields =</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :                         p_strsplit_spaces(pw-&gt;pool, extra_fields, &quot; &quot;);</span>
+<span class="lineNum">     146 </span>            :         }
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     hash_table_insert(pw-&gt;users, user, pu);</span>
+<span class="lineNum">     149 </span>            : }
+<a name="150"><span class="lineNum">     150 </span>            : </a>
+<span class="lineNum">     151 </span>            : static struct passwd_file *
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 : passwd_file_new(struct db_passwd_file *db, const char *expanded_path)</span>
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span>            :     struct passwd_file *pw;
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     pw = i_new(struct passwd_file, 1);</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     pw-&gt;db = db;</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     pw-&gt;path = i_strdup(expanded_path);</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     pw-&gt;fd = -1;</span>
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     if (hash_table_is_created(db-&gt;files))</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :         hash_table_insert(db-&gt;files, pw-&gt;path, pw);</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     return pw;</span>
+<a name="164"><span class="lineNum">     164 </span>            : }</a>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 : static int passwd_file_open(struct passwd_file *pw, bool startup,</span>
+<span class="lineNum">     167 </span>            :                 const char **error_r)
+<span class="lineNum">     168 </span>            : {
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     const char *no_args = NULL;</span>
+<span class="lineNum">     170 </span>            :     struct istream *input;
+<span class="lineNum">     171 </span>            :     const char *line;
+<span class="lineNum">     172 </span>            :     struct stat st;
+<span class="lineNum">     173 </span>            :     time_t start_time, end_time;
+<span class="lineNum">     174 </span>            :     unsigned int time_secs;
+<span class="lineNum">     175 </span>            :     int fd;
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     fd = open(pw-&gt;path, O_RDONLY);</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     if (fd == -1) {</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         if (errno == EACCES)</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :             *error_r = eacces_error_get(&quot;open&quot;, pw-&gt;path);</span>
+<span class="lineNum">     181 </span>            :         else {
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;open(%s) failed: %m&quot;,</span>
+<span class="lineNum">     183 </span>            :                            pw-&gt;path);
+<span class="lineNum">     184 </span>            :         }
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     186 </span>            :     }
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     if (fstat(fd, &amp;st) != 0) {</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;fstat(%s) failed: %m&quot;,</span>
+<span class="lineNum">     190 </span>            :                        pw-&gt;path);
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;fd);</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     193 </span>            :     }
+<span class="lineNum">     194 </span>            : 
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     pw-&gt;fd = fd;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     pw-&gt;stamp = st.st_mtime;</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     pw-&gt;size = st.st_size;</span>
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     pw-&gt;pool = pool_alloconly_create(MEMPOOL_GROWING&quot;passwd_file&quot;, 10240);</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     hash_table_create(&amp;pw-&gt;users, pw-&gt;pool, 0, str_hash, strcmp);</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     start_time = time(NULL);</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     input = i_stream_create_fd(pw-&gt;fd, (size_t)-1);</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     i_stream_set_return_partial_line(input, TRUE);</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     while ((line = i_stream_read_next_line(input)) != NULL) {</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         if (*line == '\0' || *line == ':' || *line == '#')</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :             continue; /* no username or comment */</span>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :             const char *const *args = t_strsplit(line, &quot;:&quot;);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :             if (args[1] != NULL) {</span>
+<span class="lineNum">     212 </span>            :                 /* at least username+password */
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :                 passwd_file_add(pw, args[0], args[1], args+2);</span>
+<span class="lineNum">     214 </span>            :             } else {
+<span class="lineNum">     215 </span>            :                 /* only username */
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :                 passwd_file_add(pw, args[0], NULL, &amp;no_args);</span>
+<span class="lineNum">     217 </span>            :             }
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     i_stream_destroy(&amp;input);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     end_time = time(NULL);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     time_secs = end_time - start_time;</span>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     if ((time_secs &gt; PARSE_TIME_STARTUP_WARN_SECS &amp;&amp; startup) ||</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         (time_secs &gt; PARSE_TIME_RELOAD_WARN_SECS &amp;&amp; !startup)) {</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :         i_warning(&quot;passwd-file %s: Reading %u users took %u secs&quot;,</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :               pw-&gt;path, hash_table_count(pw-&gt;users), time_secs);</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     } else if (pw-&gt;db-&gt;debug) {</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         i_debug(&quot;passwd-file %s: Read %u users in %u secs&quot;,</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             pw-&gt;path, hash_table_count(pw-&gt;users), time_secs);</span>
+<span class="lineNum">     231 </span>            :     }
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="233"><span class="lineNum">     233 </span>            : }</a>
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 : static void passwd_file_close(struct passwd_file *pw)</span>
+<span class="lineNum">     236 </span>            : {
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     i_close_fd_path(&amp;pw-&gt;fd, pw-&gt;path);</span>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     if (hash_table_is_created(pw-&gt;users))</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         hash_table_destroy(&amp;pw-&gt;users);</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     pool_unref(&amp;pw-&gt;pool);</span>
+<a name="242"><span class="lineNum">     242 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     243 </span>            : 
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 : static void passwd_file_free(struct passwd_file *pw)</span>
+<span class="lineNum">     245 </span>            : {
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :     if (hash_table_is_created(pw-&gt;db-&gt;files))</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         hash_table_remove(pw-&gt;db-&gt;files, pw-&gt;path);</span>
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :     passwd_file_close(pw);</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     i_free(pw-&gt;path);</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     i_free(pw);</span>
+<a name="252"><span class="lineNum">     252 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 : static int passwd_file_sync(struct auth_request *request,</span>
+<span class="lineNum">     255 </span>            :                 struct passwd_file *pw)
+<span class="lineNum">     256 </span>            : {
+<span class="lineNum">     257 </span>            :     struct stat st;
+<span class="lineNum">     258 </span>            :     const char *error;
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :     if (pw-&gt;last_sync_time == ioloop_time)</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         return hash_table_is_created(pw-&gt;users) ? 0 : -1;</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     pw-&gt;last_sync_time = ioloop_time;</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     if (stat(pw-&gt;path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     265 </span>            :         /* with variables don't give hard errors, or errors about
+<span class="lineNum">     266 </span>            :            nonexistent files */
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         if (errno == EACCES) {</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :             auth_request_log_error(request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :                 &quot;%s&quot;, eacces_error_get(&quot;stat&quot;, pw-&gt;path));</span>
+<span class="lineNum">     270 </span>            :         } else {
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :             auth_request_log_error(request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     272 </span>            :                 &quot;stat(%s) failed: %m&quot;, pw-&gt;path);
+<span class="lineNum">     273 </span>            :         }
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         if (pw-&gt;db-&gt;default_file != pw)</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :             passwd_file_free(pw);</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     278 </span>            :     }
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     if (st.st_mtime != pw-&gt;stamp || st.st_size != pw-&gt;size) {</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         passwd_file_close(pw);</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         if (passwd_file_open(pw, FALSE, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :             auth_request_log_error(request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     284 </span>            :                 &quot;%s&quot;, error);
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     286 </span>            :         }
+<span class="lineNum">     287 </span>            :     }
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="289"><span class="lineNum">     289 </span>            : }</a>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 : static struct db_passwd_file *db_passwd_file_find(const char *path)</span>
+<span class="lineNum">     292 </span>            : {
+<span class="lineNum">     293 </span>            :     struct db_passwd_file *f;
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     for (f = passwd_files; f != NULL; f = f-&gt;next) {</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         if (strcmp(f-&gt;path, path) == 0)</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :             return f;</span>
+<span class="lineNum">     298 </span>            :     }
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     return NULL;</span>
+<a name="301"><span class="lineNum">     301 </span>            : }</a>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 : static void db_passwd_file_set_userdb(struct db_passwd_file *db)</span>
+<span class="lineNum">     304 </span>            : {
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     db-&gt;userdb = TRUE;</span>
+<span class="lineNum">     306 </span>            :     /* warn about missing userdb fields only when there aren't any other
+<span class="lineNum">     307 </span>            :        userdbs. */
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     db-&gt;userdb_warn_missing =</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :         array_is_created(&amp;global_auth_settings-&gt;userdbs) &amp;&amp;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         array_count(&amp;global_auth_settings-&gt;userdbs) == 1;</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 : }</span>
+<a name="312"><span class="lineNum">     312 </span>            : </a>
+<span class="lineNum">     313 </span>            : struct db_passwd_file *
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 : db_passwd_file_init(const char *path, bool userdb, bool debug)</span>
+<span class="lineNum">     315 </span>            : {
+<span class="lineNum">     316 </span>            :     struct db_passwd_file *db;
+<span class="lineNum">     317 </span>            :     const char *p;
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     bool percents = FALSE;</span>
+<span class="lineNum">     319 </span>            : 
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     db = db_passwd_file_find(path);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     if (db != NULL) {</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         db-&gt;refcount++;</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         if (userdb)</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :             db_passwd_file_set_userdb(db);</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :         return db;</span>
+<span class="lineNum">     326 </span>            :     }
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     db = i_new(struct db_passwd_file, 1);</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     db-&gt;refcount = 1;</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     if (userdb)</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :         db_passwd_file_set_userdb(db);</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     db-&gt;debug = debug;</span>
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     for (p = path; *p != '\0'; p++) {</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         if (*p == '%' &amp;&amp; p[1] != '\0') {</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :             if (var_get_key(++p) == '%')</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :                 percents = TRUE;</span>
+<span class="lineNum">     338 </span>            :             else
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :                 db-&gt;vars = TRUE;</span>
+<span class="lineNum">     340 </span>            :         }
+<span class="lineNum">     341 </span>            :     }
+<span class="lineNum">     342 </span>            : 
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :     if (percents &amp;&amp; !db-&gt;vars) {</span>
+<span class="lineNum">     344 </span>            :         /* just extra escaped % chars. remove them. */
+<span class="lineNum">     345 </span>            :         struct var_expand_table empty_table[1];
+<span class="lineNum">     346 </span>            :         string_t *dest;
+<span class="lineNum">     347 </span>            :         const char *error;
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :         empty_table[0].key = '\0';</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :         dest = t_str_new(256);</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :         if (var_expand(dest, path, empty_table, &amp;error) &lt;= 0)</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         path = str_c(dest);</span>
+<span class="lineNum">     354 </span>            :     }
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     db-&gt;path = i_strdup(path);</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     if (db-&gt;vars) {</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :         hash_table_create(&amp;db-&gt;files, default_pool, 0,</span>
+<span class="lineNum">     359 </span>            :                   str_hash, strcmp);
+<span class="lineNum">     360 </span>            :     } else {
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :         db-&gt;default_file = passwd_file_new(db, path);</span>
+<span class="lineNum">     362 </span>            :     }
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     db-&gt;next = passwd_files;</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     passwd_files = db;</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     return db;</span>
+<a name="367"><span class="lineNum">     367 </span>            : }</a>
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 : void db_passwd_file_parse(struct db_passwd_file *db)</span>
+<span class="lineNum">     370 </span>            : {
+<span class="lineNum">     371 </span>            :     const char *error;
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :     if (db-&gt;default_file != NULL &amp;&amp; db-&gt;default_file-&gt;stamp == 0) {</span>
+<span class="lineNum">     374 </span>            :         /* no variables, open the file immediately */
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :         if (passwd_file_open(db-&gt;default_file, TRUE, &amp;error) &lt; 0)</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             i_error(&quot;passwd-file: %s&quot;, error);</span>
+<span class="lineNum">     377 </span>            :     }
+<a name="378"><span class="lineNum">     378 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 : void db_passwd_file_unref(struct db_passwd_file **_db)</span>
+<span class="lineNum">     381 </span>            : {
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :         struct db_passwd_file *db = *_db;</span>
+<span class="lineNum">     383 </span>            :         struct db_passwd_file **p;
+<span class="lineNum">     384 </span>            :     struct hash_iterate_context *iter;
+<span class="lineNum">     385 </span>            :     char *path;
+<span class="lineNum">     386 </span>            :     struct passwd_file *file;
+<span class="lineNum">     387 </span>            : 
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :     *_db = NULL;</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :     i_assert(db-&gt;refcount &gt;= 0);</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     if (--db-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     392 </span>            : 
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :     for (p = &amp;passwd_files; *p != NULL; p = &amp;(*p)-&gt;next) {</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :         if (*p == db) {</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :             *p = db-&gt;next;</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     397 </span>            :         }
+<span class="lineNum">     398 </span>            :     }
+<span class="lineNum">     399 </span>            : 
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     if (db-&gt;default_file != NULL)</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :         passwd_file_free(db-&gt;default_file);</span>
+<span class="lineNum">     402 </span>            :     else {
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :         iter = hash_table_iterate_init(db-&gt;files);</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :         while (hash_table_iterate(iter, db-&gt;files, &amp;path, &amp;file))</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :             passwd_file_free(file);</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         hash_table_iterate_deinit(&amp;iter);</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         hash_table_destroy(&amp;db-&gt;files);</span>
+<span class="lineNum">     408 </span>            :     }
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     i_free(db-&gt;path);</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     i_free(db);</span>
+<span class="lineNum">     411 </span>            : }
+<a name="412"><span class="lineNum">     412 </span>            : </a>
+<span class="lineNum">     413 </span>            : static const char *
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 : path_fix(const char *path,</span>
+<span class="lineNum">     415 </span>            :      const struct auth_request *auth_request ATTR_UNUSED)
+<span class="lineNum">     416 </span>            : {
+<span class="lineNum">     417 </span>            :     const char *p;
+<span class="lineNum">     418 </span>            : 
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     p = strchr(path, '/');</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :     if (p == NULL)</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :         return path;</span>
+<span class="lineNum">     422 </span>            : 
+<span class="lineNum">     423 </span>            :     /* most likely this is an invalid request. just cut off the '/' and
+<span class="lineNum">     424 </span>            :        everything after it. */
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     return t_strdup_until(path, p);</span>
+<a name="426"><span class="lineNum">     426 </span>            : }</a>
+<span class="lineNum">     427 </span>            : 
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 : int db_passwd_file_lookup(struct db_passwd_file *db,</span>
+<span class="lineNum">     429 </span>            :               struct auth_request *request,
+<span class="lineNum">     430 </span>            :               const char *username_format,
+<span class="lineNum">     431 </span>            :               struct passwd_user **user_r)
+<span class="lineNum">     432 </span>            : {
+<span class="lineNum">     433 </span>            :     struct passwd_file *pw;
+<span class="lineNum">     434 </span>            :     string_t *username, *dest;
+<span class="lineNum">     435 </span>            :     const char *error;
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :     if (!db-&gt;vars)</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :         pw = db-&gt;default_file;</span>
+<span class="lineNum">     439 </span>            :     else {
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :         dest = t_str_new(256);</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         if (auth_request_var_expand(dest, db-&gt;path, request, path_fix,</span>
+<span class="lineNum">     442 </span>            :                         &amp;error) &lt;= 0) {
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :             auth_request_log_error(request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     444 </span>            :                 &quot;Failed to expand passwd-file path %s: %s&quot;,
+<span class="lineNum">     445 </span>            :                 db-&gt;path, error);
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     447 </span>            :         }
+<span class="lineNum">     448 </span>            : 
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         pw = hash_table_lookup(db-&gt;files, str_c(dest));</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         if (pw == NULL) {</span>
+<span class="lineNum">     451 </span>            :             /* doesn't exist yet. create lookup for it. */
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :             pw = passwd_file_new(db, str_c(dest));</span>
+<span class="lineNum">     453 </span>            :         }
+<span class="lineNum">     454 </span>            :     }
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :     if (passwd_file_sync(request, pw) &lt; 0) {</span>
+<span class="lineNum">     457 </span>            :         /* pw may be freed now */
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     459 </span>            :     }
+<span class="lineNum">     460 </span>            : 
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     username = t_str_new(256);</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     if (auth_request_var_expand(username, username_format, request,</span>
+<span class="lineNum">     463 </span>            :                     auth_request_str_escape, &amp;error) &lt;= 0) {
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         auth_request_log_error(request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     465 </span>            :             &quot;Failed to expand username_format=%s: %s&quot;,
+<span class="lineNum">     466 </span>            :             username_format, error);
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     468 </span>            :     }
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :     auth_request_log_debug(request, AUTH_SUBSYS_DB,</span>
+<span class="lineNum">     471 </span>            :                    &quot;lookup: user=%s file=%s&quot;,
+<span class="lineNum">     472 </span>            :                    str_c(username), pw-&gt;path);
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :     *user_r = hash_table_lookup(pw-&gt;users, str_c(username));</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :     if (*user_r == NULL) {</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         auth_request_log_unknown_user(request, AUTH_SUBSYS_DB);</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     478 </span>            :     }
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     480 </span>            : }
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span>            : #endif
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

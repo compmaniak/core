@@ -1,0 +1,1404 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/uri-util.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - uri-util.c<span style="font-size: 80%;"> (source / <a href="uri-util.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">479</td>
+            <td class="headerCovTableEntry">603</td>
+            <td class="headerCovTableEntryMed">79.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">37</td>
+            <td class="headerCovTableEntry">52</td>
+            <td class="headerCovTableEntryLo">71.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;uri-util.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : /* [URI-GEN] RFC3986 Appendix A:
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            :    URI           = scheme &quot;:&quot; hier-part [ &quot;?&quot; query ] [ &quot;#&quot; fragment ]
+<span class="lineNum">      14 </span>            :    absolute-URI  = scheme &quot;:&quot; hier-part [ &quot;?&quot; query ]
+<span class="lineNum">      15 </span>            :    scheme        = ALPHA *( ALPHA / DIGIT / &quot;+&quot; / &quot;-&quot; / &quot;.&quot; )
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            :    URI-reference = URI / relative-ref
+<span class="lineNum">      18 </span>            :    relative-ref  = relative-part [ &quot;?&quot; query ] [ &quot;#&quot; fragment ]
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            :    relative-part = &quot;//&quot; authority path-abempty
+<span class="lineNum">      21 </span>            :                  / path-absolute
+<span class="lineNum">      22 </span>            :                  / path-noscheme
+<span class="lineNum">      23 </span>            :                  / path-empty
+<span class="lineNum">      24 </span>            :    hier-part     = &quot;//&quot; authority path-abempty
+<span class="lineNum">      25 </span>            :                  / path-absolute
+<span class="lineNum">      26 </span>            :                  / path-rootless
+<span class="lineNum">      27 </span>            :                  / path-empty
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :    authority     = [ userinfo &quot;@&quot; ] host [ &quot;:&quot; port ]
+<span class="lineNum">      30 </span>            :    userinfo      = *( unreserved / pct-encoded / sub-delims / &quot;:&quot; )
+<span class="lineNum">      31 </span>            :    host          = IP-literal / IPv4address / reg-name
+<span class="lineNum">      32 </span>            :    port          = *DIGIT
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :    IP-literal    = &quot;[&quot; ( IPv6address / IPvFuture  ) &quot;]&quot;
+<span class="lineNum">      35 </span>            :    IPvFuture     = &quot;v&quot; 1*HEXDIG &quot;.&quot; 1*( unreserved / sub-delims / &quot;:&quot; )
+<span class="lineNum">      36 </span>            :    IPv6address   =                            6( h16 &quot;:&quot; ) ls32
+<span class="lineNum">      37 </span>            :                  /                       &quot;::&quot; 5( h16 &quot;:&quot; ) ls32
+<span class="lineNum">      38 </span>            :                  / [               h16 ] &quot;::&quot; 4( h16 &quot;:&quot; ) ls32
+<span class="lineNum">      39 </span>            :                  / [ *1( h16 &quot;:&quot; ) h16 ] &quot;::&quot; 3( h16 &quot;:&quot; ) ls32
+<span class="lineNum">      40 </span>            :                  / [ *2( h16 &quot;:&quot; ) h16 ] &quot;::&quot; 2( h16 &quot;:&quot; ) ls32
+<span class="lineNum">      41 </span>            :                  / [ *3( h16 &quot;:&quot; ) h16 ] &quot;::&quot;    h16 &quot;:&quot;   ls32
+<span class="lineNum">      42 </span>            :                  / [ *4( h16 &quot;:&quot; ) h16 ] &quot;::&quot;              ls32
+<span class="lineNum">      43 </span>            :                  / [ *5( h16 &quot;:&quot; ) h16 ] &quot;::&quot;              h16
+<span class="lineNum">      44 </span>            :                  / [ *6( h16 &quot;:&quot; ) h16 ] &quot;::&quot;
+<span class="lineNum">      45 </span>            :    h16           = 1*4HEXDIG
+<span class="lineNum">      46 </span>            :    ls32          = ( h16 &quot;:&quot; h16 ) / IPv4address
+<span class="lineNum">      47 </span>            :    IPv4address   = dec-octet &quot;.&quot; dec-octet &quot;.&quot; dec-octet &quot;.&quot; dec-octet
+<span class="lineNum">      48 </span>            :    dec-octet     = DIGIT                 ; 0-9
+<span class="lineNum">      49 </span>            :                  / %x31-39 DIGIT         ; 10-99
+<span class="lineNum">      50 </span>            :                  / &quot;1&quot; 2DIGIT            ; 100-199
+<span class="lineNum">      51 </span>            :                  / &quot;2&quot; %x30-34 DIGIT     ; 200-249
+<span class="lineNum">      52 </span>            :                  / &quot;25&quot; %x30-35          ; 250-255
+<span class="lineNum">      53 </span>            :    reg-name      = *( unreserved / pct-encoded / sub-delims )
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :    path          = path-abempty    ; begins with &quot;/&quot; or is empty
+<span class="lineNum">      56 </span>            :                  / path-absolute   ; begins with &quot;/&quot; but not &quot;//&quot;
+<span class="lineNum">      57 </span>            :                  / path-noscheme   ; begins with a non-colon segment
+<span class="lineNum">      58 </span>            :                  / path-rootless   ; begins with a segment
+<span class="lineNum">      59 </span>            :                  / path-empty      ; zero characters
+<span class="lineNum">      60 </span>            :    path-abempty  = *( &quot;/&quot; segment )
+<span class="lineNum">      61 </span>            :    path-absolute = &quot;/&quot; [ segment-nz *( &quot;/&quot; segment ) ]
+<span class="lineNum">      62 </span>            :    path-noscheme = segment-nz-nc *( &quot;/&quot; segment )
+<span class="lineNum">      63 </span>            :    path-rootless = segment-nz *( &quot;/&quot; segment )
+<span class="lineNum">      64 </span>            :    path-empty    = 0&lt;pchar&gt;
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span>            :    segment       = *pchar
+<span class="lineNum">      67 </span>            :    segment-nz    = 1*pchar
+<span class="lineNum">      68 </span>            :    segment-nz-nc = 1*( unreserved / pct-encoded / sub-delims / &quot;@&quot; )
+<span class="lineNum">      69 </span>            :                  ; non-zero-length segment without any colon &quot;:&quot;
+<span class="lineNum">      70 </span>            :    pchar         = unreserved / pct-encoded / sub-delims / &quot;:&quot; / &quot;@&quot;
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            :    query         = *( pchar / &quot;/&quot; / &quot;?&quot; )
+<span class="lineNum">      73 </span>            :    fragment      = *( pchar / &quot;/&quot; / &quot;?&quot; )
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span>            :    pct-encoded   = &quot;%&quot; HEXDIG HEXDIG
+<span class="lineNum">      76 </span>            :    unreserved    = ALPHA / DIGIT / &quot;-&quot; / &quot;.&quot; / &quot;_&quot; / &quot;~&quot;
+<span class="lineNum">      77 </span>            :    reserved      = gen-delims / sub-delims
+<span class="lineNum">      78 </span>            :    gen-delims    = &quot;:&quot; / &quot;/&quot; / &quot;?&quot; / &quot;#&quot; / &quot;[&quot; / &quot;]&quot; / &quot;@&quot;
+<span class="lineNum">      79 </span>            :    sub-delims    = &quot;!&quot; / &quot;$&quot; / &quot;&amp;&quot; / &quot;'&quot; / &quot;(&quot; / &quot;)&quot;
+<span class="lineNum">      80 </span>            :                  / &quot;*&quot; / &quot;+&quot; / &quot;,&quot; / &quot;;&quot; / &quot;=&quot;
+<span class="lineNum">      81 </span>            :  */
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            : #define URI_MAX_SCHEME_NAME_LEN 64
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span>            : /* Character lookup table
+<span class="lineNum">      86 </span>            :  *
+<span class="lineNum">      87 </span>            :  * unreserved    = ALPHA / DIGIT / &quot;-&quot; / &quot;.&quot; / &quot;_&quot; / &quot;~&quot;     [bit0]
+<span class="lineNum">      88 </span>            :  * sub-delims    = &quot;!&quot; / &quot;$&quot; / &quot;&amp;&quot; / &quot;'&quot; / &quot;(&quot; / &quot;)&quot;
+<span class="lineNum">      89 </span>            :  *               / &quot;*&quot; / &quot;+&quot; / &quot;,&quot; / &quot;;&quot; / &quot;=&quot;               [bit1]
+<span class="lineNum">      90 </span>            :  * gen-delims    = &quot;:&quot; / &quot;/&quot; / &quot;?&quot; / &quot;#&quot; / &quot;[&quot; / &quot;]&quot; / &quot;@&quot;   [bit2]
+<span class="lineNum">      91 </span>            :  * pchar         = unreserved / sub-delims / &quot;:&quot; / &quot;@&quot;       [bit0|bit1|bit3]
+<span class="lineNum">      92 </span>            :  * 'pfchar'      = unreserved / sub-delims / &quot;:&quot; / &quot;@&quot; / &quot;/&quot; 
+<span class="lineNum">      93 </span>            :  *                                                      [bit0|bit1|bit3|bit5]
+<span class="lineNum">      94 </span>            :  * 'uchar'       = unreserved / sub-delims / &quot;:&quot;             [bit0|bit1|bit4]
+<span class="lineNum">      95 </span>            :  * 'qchar'       = pchar / &quot;/&quot; / &quot;?&quot;               [bit0|bit1|bit3|bit5|bit6]
+<span class="lineNum">      96 </span>            :  *
+<span class="lineNum">      97 </span>            :  */
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span>            : #define CHAR_MASK_UNRESERVED (1&lt;&lt;0)
+<span class="lineNum">     100 </span>            : #define CHAR_MASK_SUB_DELIMS (1&lt;&lt;1)
+<span class="lineNum">     101 </span>            : #define CHAR_MASK_PCHAR ((1&lt;&lt;0)|(1&lt;&lt;1)|(1&lt;&lt;3))
+<span class="lineNum">     102 </span>            : #define CHAR_MASK_PFCHAR ((1&lt;&lt;0)|(1&lt;&lt;1)|(1&lt;&lt;3)|(1&lt;&lt;5))
+<span class="lineNum">     103 </span>            : #define CHAR_MASK_UCHAR ((1&lt;&lt;0)|(1&lt;&lt;1)|(1&lt;&lt;4))
+<span class="lineNum">     104 </span>            : #define CHAR_MASK_QCHAR ((1&lt;&lt;0)|(1&lt;&lt;1)|(1&lt;&lt;3)|(1&lt;&lt;5)|(1&lt;&lt;6))
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span>            : static unsigned const char _uri_char_lookup[256] = {
+<span class="lineNum">     107 </span>            :      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 00
+<span class="lineNum">     108 </span>            :      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 10
+<span class="lineNum">     109 </span>            :      0,  2,  0,  4,  2,  0,  2,  2,  2,  2,  2,  2,  2,  1,  1, 36,  // 20
+<span class="lineNum">     110 </span>            :      1,  1,  1,  1,  1,  1,  1,  1,  1,  1, 28,  2,  0,  2,  0, 68,  // 30
+<span class="lineNum">     111 </span>            :     12,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 40
+<span class="lineNum">     112 </span>            :      1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  4,  0,  4,  0,  1,  // 50
+<span class="lineNum">     113 </span>            :      0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 60
+<span class="lineNum">     114 </span>            :      1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0,  0,  0,  1,  0,  // 70
+<a name="115"><span class="lineNum">     115 </span>            : };</a>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span><span class="lineCov">        702 : static inline int _decode_hex_digit(const unsigned char digit)</span>
+<span class="lineNum">     118 </span>            : {
+<span class="lineNum">     119 </span><span class="lineCov">        702 :     switch (digit) {</span>
+<span class="lineNum">     120 </span>            :     case '0': case '1': case '2': case '3': case '4':
+<span class="lineNum">     121 </span>            :     case '5': case '6': case '7': case '8': case '9':
+<span class="lineNum">     122 </span><span class="lineCov">        513 :         return digit - '0';</span>
+<span class="lineNum">     123 </span>            : 
+<span class="lineNum">     124 </span>            :     case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+<span class="lineNum">     125 </span><span class="lineCov">         36 :         return digit - 'a' + 0x0a;</span>
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span>            :     case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
+<span class="lineNum">     128 </span><span class="lineCov">        145 :         return digit - 'A' + 0x0A;</span>
+<span class="lineNum">     129 </span>            :     }
+<span class="lineNum">     130 </span><span class="lineCov">          8 :     return -1;</span>
+<span class="lineNum">     131 </span>            : }
+<a name="132"><span class="lineNum">     132 </span>            : </a>
+<span class="lineNum">     133 </span>            : static int
+<span class="lineNum">     134 </span><span class="lineCov">       6589 : uri_parse_pct_encoded_data(struct uri_parser *parser,</span>
+<span class="lineNum">     135 </span>            :               const unsigned char **p, const unsigned char *pend,
+<span class="lineNum">     136 </span>            :               unsigned char *ch_r) ATTR_NULL(3)
+<span class="lineNum">     137 </span>            : {
+<span class="lineNum">     138 </span>            :     int value;
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineCov">       6589 :     if (**p != '%' || (pend != NULL &amp;&amp; *p &gt;= pend))</span>
+<span class="lineNum">     141 </span><span class="lineCov">       6232 :         return 0;</span>
+<span class="lineNum">     142 </span><span class="lineCov">        357 :     *p += 1;</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineCov">        357 :     if (**p == 0 || *(*p+1) == 0 || (pend != NULL &amp;&amp; *p+1 &gt;= pend)) {</span>
+<span class="lineNum">     145 </span><span class="lineCov">          5 :         parser-&gt;error = &quot;Unexpected URI boundary after '%'&quot;;</span>
+<span class="lineNum">     146 </span><span class="lineCov">          5 :         return -1;</span>
+<span class="lineNum">     147 </span>            :     }
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineCov">        352 :     if ((value = _decode_hex_digit(**p)) &lt; 0) {</span>
+<span class="lineNum">     150 </span><span class="lineCov">          2 :         parser-&gt;error = p_strdup_printf(parser-&gt;pool,</span>
+<span class="lineNum">     151 </span><span class="lineCov">          2 :             &quot;Expecting hex digit after '%%', but found '%c'&quot;, **p);</span>
+<span class="lineNum">     152 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     153 </span>            :     }
+<span class="lineNum">     154 </span>            :     
+<span class="lineNum">     155 </span><span class="lineCov">        350 :     *ch_r = (value &amp; 0x0f) &lt;&lt; 4;</span>
+<span class="lineNum">     156 </span><span class="lineCov">        350 :     *p += 1;</span>
+<span class="lineNum">     157 </span>            :     
+<span class="lineNum">     158 </span><span class="lineCov">        350 :     if ((value = _decode_hex_digit(**p)) &lt; 0) {</span>
+<span class="lineNum">     159 </span><span class="lineCov">         12 :         parser-&gt;error = p_strdup_printf(parser-&gt;pool,</span>
+<span class="lineNum">     160 </span><span class="lineCov">         12 :             &quot;Expecting hex digit after '%%%c', but found '%c'&quot;,   *((*p)-1), **p);</span>
+<span class="lineNum">     161 </span><span class="lineCov">          6 :         return -1;</span>
+<span class="lineNum">     162 </span>            :     }
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span><span class="lineCov">        344 :     *ch_r |= (value &amp; 0x0f);</span>
+<span class="lineNum">     165 </span><span class="lineCov">        344 :     *p += 1;</span>
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineCov">        344 :     if (!parser-&gt;allow_pct_nul &amp;&amp; *ch_r == '\0') {</span>
+<span class="lineNum">     168 </span><span class="lineCov">          9 :         parser-&gt;error =</span>
+<span class="lineNum">     169 </span>            :             &quot;Percent encoding is not allowed to encode NUL character&quot;;
+<span class="lineNum">     170 </span><span class="lineCov">          9 :         return -1;</span>
+<span class="lineNum">     171 </span>            :     }
+<span class="lineNum">     172 </span><span class="lineCov">        335 :     return 1;   </span>
+<a name="173"><span class="lineNum">     173 </span>            : }</a>
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">       5227 : int uri_parse_pct_encoded(struct uri_parser *parser,</span>
+<span class="lineNum">     176 </span>            :               unsigned char *ch_r)
+<span class="lineNum">     177 </span>            : {
+<span class="lineNum">     178 </span><span class="lineCov">       5227 :     return uri_parse_pct_encoded_data</span>
+<span class="lineNum">     179 </span><span class="lineCov">       5227 :         (parser, &amp;parser-&gt;cur, parser-&gt;end, ch_r);</span>
+<span class="lineNum">     180 </span>            : }
+<a name="181"><span class="lineNum">     181 </span>            : </a>
+<span class="lineNum">     182 </span>            : static int
+<span class="lineNum">     183 </span><span class="lineCov">       2797 : uri_parse_unreserved_char(struct uri_parser *parser, unsigned char *ch_r)</span>
+<span class="lineNum">     184 </span>            : {
+<span class="lineNum">     185 </span><span class="lineCov">       2797 :     if ((*parser-&gt;cur &amp; 0x80) != 0)</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineCov">       2797 :     if ((_uri_char_lookup[*parser-&gt;cur] &amp; CHAR_MASK_UNRESERVED) != 0) {</span>
+<span class="lineNum">     189 </span><span class="lineCov">       2611 :         *ch_r = *parser-&gt;cur;</span>
+<span class="lineNum">     190 </span><span class="lineCov">       2611 :         parser-&gt;cur++;</span>
+<span class="lineNum">     191 </span><span class="lineCov">       2611 :         return 1;</span>
+<span class="lineNum">     192 </span>            :     }           
+<span class="lineNum">     193 </span><span class="lineCov">        186 :     return 0;</span>
+<a name="194"><span class="lineNum">     194 </span>            : }</a>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 : int uri_parse_unreserved(struct uri_parser *parser, string_t *part)</span>
+<span class="lineNum">     197 </span>            : {
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     int len = 0;</span>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     while (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     201 </span>            :         int ret;
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         unsigned char ch = 0;</span>
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :         if ((ret = uri_parse_unreserved_char(parser, &amp;ch)) &lt; 0)</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         if (part != NULL)</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :             str_append_c(part, ch);</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :         len++;</span>
+<span class="lineNum">     212 </span>            :     }
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     return len &gt; 0 ? 1 : 0;</span>
+<a name="215"><span class="lineNum">     215 </span>            : }</a>
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 : int uri_parse_unreserved_pct(struct uri_parser *parser, string_t *part)</span>
+<span class="lineNum">     218 </span>            : {
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     int len = 0;</span>
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     while (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     222 </span>            :         int ret;
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :         unsigned char ch = 0;</span>
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         if ((ret=uri_parse_pct_encoded(parser, &amp;ch)) &lt; 0)</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         else if (ret == 0 &amp;&amp;</span>
+<span class="lineNum">     228 </span>            :             (ret=uri_parse_unreserved_char(parser, &amp;ch)) &lt; 0)
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :         if (part != NULL)</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :             str_append_c(part, ch);</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         len++;</span>
+<span class="lineNum">     236 </span>            :     }
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     return len &gt; 0 ? 1 : 0;</span>
+<a name="239"><span class="lineNum">     239 </span>            : }</a>
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span><span class="lineCov">        290 : bool uri_data_decode(struct uri_parser *parser, const char *data,</span>
+<span class="lineNum">     242 </span>            :              const char *until, const char **decoded_r)
+<span class="lineNum">     243 </span>            : {
+<span class="lineNum">     244 </span><span class="lineCov">        290 :     const unsigned char *p = (const unsigned char *)data;</span>
+<span class="lineNum">     245 </span><span class="lineCov">        290 :     const unsigned char *pend = (const unsigned char *)until;</span>
+<span class="lineNum">     246 </span>            :     string_t *decoded;
+<span class="lineNum">     247 </span>            :     int ret;
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineCov">        290 :     if (pend == NULL) {</span>
+<span class="lineNum">     250 </span>            :         /* NULL means unlimited; solely rely on '\0' */
+<span class="lineNum">     251 </span><span class="lineCov">        195 :         pend = (const unsigned char *)(size_t)-1;</span>
+<span class="lineNum">     252 </span>            :     }
+<span class="lineNum">     253 </span>            :     
+<span class="lineNum">     254 </span><span class="lineCov">        290 :     if (p &gt;= pend || *p == '\0') {</span>
+<span class="lineNum">     255 </span><span class="lineCov">         21 :         if (decoded_r != NULL)</span>
+<span class="lineNum">     256 </span><span class="lineCov">         21 :             *decoded_r = &quot;&quot;;</span>
+<span class="lineNum">     257 </span><span class="lineCov">         21 :         return TRUE;</span>
+<span class="lineNum">     258 </span>            :     }
+<span class="lineNum">     259 </span>            :     
+<span class="lineNum">     260 </span><span class="lineCov">        269 :     decoded = uri_parser_get_tmpbuf(parser, 256);</span>
+<span class="lineNum">     261 </span><span class="lineCov">       1894 :     while (p &lt; pend &amp;&amp; *p != '\0') {</span>
+<span class="lineNum">     262 </span>            :         unsigned char ch;
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">       1362 :         if ((ret=uri_parse_pct_encoded_data</span>
+<span class="lineNum">     265 </span>            :             (parser, &amp;p, NULL, &amp;ch)) != 0) {
+<span class="lineNum">     266 </span><span class="lineCov">         36 :             if (ret &lt; 0)</span>
+<span class="lineNum">     267 </span><span class="lineCov">          6 :                 return FALSE;</span>
+<span class="lineNum">     268 </span><span class="lineCov">         30 :             str_append_c(decoded, ch);</span>
+<span class="lineNum">     269 </span>            :         } else {
+<span class="lineNum">     270 </span><span class="lineCov">       1326 :             str_append_c(decoded, *p);</span>
+<span class="lineNum">     271 </span><span class="lineCov">       1326 :             p++;</span>
+<span class="lineNum">     272 </span>            :         }
+<span class="lineNum">     273 </span>            :     }
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineCov">        263 :     if (decoded_r != NULL)</span>
+<span class="lineNum">     276 </span><span class="lineCov">        263 :         *decoded_r = p_strdup(parser-&gt;pool, str_c(decoded));</span>
+<span class="lineNum">     277 </span><span class="lineCov">        263 :     return TRUE;</span>
+<a name="278"><span class="lineNum">     278 </span>            : }</a>
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineCov">        610 : int uri_parse_scheme(struct uri_parser *parser, const char **scheme_r)</span>
+<span class="lineNum">     281 </span>            : {
+<span class="lineNum">     282 </span><span class="lineCov">        610 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     283 </span><span class="lineCov">        610 :     size_t len = 1;</span>
+<span class="lineNum">     284 </span>            :     
+<span class="lineNum">     285 </span>            :     /* RFC 3968:
+<span class="lineNum">     286 </span>            :      *   scheme  = ALPHA *( ALPHA / DIGIT / &quot;+&quot; / &quot;-&quot; / &quot;.&quot; )
+<span class="lineNum">     287 </span>            :      */
+<span class="lineNum">     288 </span>            :     
+<span class="lineNum">     289 </span><span class="lineCov">        610 :     if (parser-&gt;cur &gt;= parser-&gt;end || !i_isalpha(*parser-&gt;cur))</span>
+<span class="lineNum">     290 </span><span class="lineCov">         56 :         return 0;</span>
+<span class="lineNum">     291 </span><span class="lineCov">        554 :     parser-&gt;cur++;</span>
+<span class="lineNum">     292 </span>            :         
+<span class="lineNum">     293 </span><span class="lineCov">       5048 :     while (len &lt; URI_MAX_SCHEME_NAME_LEN &amp;&amp;</span>
+<span class="lineNum">     294 </span><span class="lineCov">       2247 :         parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     295 </span><span class="lineCov">       2808 :         if (!i_isalnum(*parser-&gt;cur) &amp;&amp;</span>
+<span class="lineNum">     296 </span><span class="lineCov">       1701 :             *parser-&gt;cur != '+' &amp;&amp; *parser-&gt;cur != '-' &amp;&amp;</span>
+<span class="lineNum">     297 </span><span class="lineCov">        567 :             *parser-&gt;cur != '.')</span>
+<span class="lineNum">     298 </span><span class="lineCov">        548 :             break;</span>
+<span class="lineNum">     299 </span><span class="lineCov">       1693 :         parser-&gt;cur++;</span>
+<span class="lineNum">     300 </span><span class="lineCov">       1693 :         len++;</span>
+<span class="lineNum">     301 </span>            :     }
+<span class="lineNum">     302 </span>            :     
+<span class="lineNum">     303 </span><span class="lineCov">        554 :     if (parser-&gt;cur &gt;= parser-&gt;end || *parser-&gt;cur != ':') {</span>
+<span class="lineNum">     304 </span><span class="lineCov">         22 :         parser-&gt;error = &quot;Invalid URI scheme&quot;;</span>
+<span class="lineNum">     305 </span><span class="lineCov">         22 :         return -1;</span>
+<span class="lineNum">     306 </span>            :     }
+<span class="lineNum">     307 </span><span class="lineCov">        532 :     if (scheme_r != NULL)</span>
+<span class="lineNum">     308 </span><span class="lineCov">        170 :         *scheme_r = t_strndup(first, parser-&gt;cur - first);</span>
+<span class="lineNum">     309 </span><span class="lineCov">        532 :     parser-&gt;cur++;</span>
+<span class="lineNum">     310 </span><span class="lineCov">        532 :     return 1;</span>
+<a name="311"><span class="lineNum">     311 </span>            : }</a>
+<span class="lineNum">     312 </span>            : 
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 : int uri_cut_scheme(const char **uri_p, const char **scheme_r)</span>
+<span class="lineNum">     314 </span>            : {
+<span class="lineNum">     315 </span>            :     struct uri_parser parser;
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     uri_parser_init(&amp;parser, NULL, *uri_p);</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     if (uri_parse_scheme(&amp;parser, scheme_r) &lt;= 0)</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     *uri_p = (const char *)parser.cur;</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     322 </span>            : }
+<a name="323"><span class="lineNum">     323 </span>            : </a>
+<span class="lineNum">     324 </span>            : static int
+<span class="lineNum">     325 </span><span class="lineCov">        421 : uri_parse_dec_octet(struct uri_parser *parser, string_t *literal,</span>
+<span class="lineNum">     326 </span>            :             uint8_t *octet_r) ATTR_NULL(2)
+<span class="lineNum">     327 </span>            : {
+<span class="lineNum">     328 </span><span class="lineCov">        421 :     unsigned int octet = 0;</span>
+<span class="lineNum">     329 </span><span class="lineCov">        421 :     int count = 0;</span>
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span>            :     /* RFC 3986:
+<span class="lineNum">     332 </span>            :      *
+<span class="lineNum">     333 </span>            :      * dec-octet     = DIGIT                 ; 0-9
+<span class="lineNum">     334 </span>            :      *               / %x31-39 DIGIT         ; 10-99
+<span class="lineNum">     335 </span>            :      *               / &quot;1&quot; 2DIGIT            ; 100-199
+<span class="lineNum">     336 </span>            :      *               / &quot;2&quot; %x30-34 DIGIT     ; 200-249
+<span class="lineNum">     337 </span>            :      *               / &quot;25&quot; %x30-35          ; 250-255
+<span class="lineNum">     338 </span>            :      */
+<span class="lineNum">     339 </span>            : 
+<span class="lineNum">     340 </span><span class="lineCov">        941 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; i_isdigit(*parser-&gt;cur)) {</span>
+<span class="lineNum">     341 </span><span class="lineCov">        102 :         octet = octet * 10 + (parser-&gt;cur[0] - '0');</span>
+<span class="lineNum">     342 </span><span class="lineCov">        102 :         if (octet &gt; 255)</span>
+<span class="lineNum">     343 </span><span class="lineCov">          3 :             return -1;</span>
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span><span class="lineCov">         99 :         if (literal != NULL)</span>
+<span class="lineNum">     346 </span><span class="lineCov">         99 :             str_append_c(literal, *parser-&gt;cur);</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineCov">         99 :         parser-&gt;cur++;</span>
+<span class="lineNum">     349 </span><span class="lineCov">         99 :         count++;</span>
+<span class="lineNum">     350 </span>            :     }
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span><span class="lineCov">        418 :     if (count &gt; 0) {</span>
+<span class="lineNum">     353 </span><span class="lineCov">         52 :         *octet_r = octet;</span>
+<span class="lineNum">     354 </span><span class="lineCov">         52 :         return 1;</span>
+<span class="lineNum">     355 </span>            :     }
+<span class="lineNum">     356 </span><span class="lineCov">        366 :     return 0;</span>
+<span class="lineNum">     357 </span>            : }
+<a name="358"><span class="lineNum">     358 </span>            : </a>
+<span class="lineNum">     359 </span>            : static int
+<span class="lineNum">     360 </span><span class="lineCov">        382 : uri_parse_ipv4address(struct uri_parser *parser, string_t *literal,</span>
+<span class="lineNum">     361 </span>            :               struct in_addr *ip4_r) ATTR_NULL(2,3)
+<span class="lineNum">     362 </span>            : {
+<span class="lineNum">     363 </span>            :     uint8_t octet;
+<span class="lineNum">     364 </span><span class="lineCov">        382 :     uint32_t ip = 0;</span>
+<span class="lineNum">     365 </span>            :     int ret;
+<span class="lineNum">     366 </span>            :     int i;
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span>            :     /* RFC 3986:
+<span class="lineNum">     369 </span>            :      *
+<span class="lineNum">     370 </span>            :      * IPv4address   = dec-octet &quot;.&quot; dec-octet &quot;.&quot; dec-octet &quot;.&quot; dec-octet
+<span class="lineNum">     371 </span>            :      */
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineCov">        382 :     if ((ret = uri_parse_dec_octet(parser, literal, &amp;octet)) &lt;= 0)</span>
+<span class="lineNum">     374 </span><span class="lineCov">        368 :         return ret;</span>
+<span class="lineNum">     375 </span><span class="lineCov">         14 :     ip = octet;</span>
+<span class="lineNum">     376 </span>            :     
+<span class="lineNum">     377 </span><span class="lineCov">         52 :     for (i = 0; i &lt; 3 &amp;&amp; parser-&gt;cur &lt; parser-&gt;end; i++) {</span>
+<span class="lineNum">     378 </span><span class="lineCov">         40 :         if (*parser-&gt;cur != '.')</span>
+<span class="lineNum">     379 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     380 </span>            : 
+<span class="lineNum">     381 </span><span class="lineCov">         39 :         if (literal != NULL)</span>
+<span class="lineNum">     382 </span><span class="lineCov">         39 :             str_append_c(literal, '.');</span>
+<span class="lineNum">     383 </span><span class="lineCov">         39 :         parser-&gt;cur++;</span>
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineCov">         39 :         if ((ret = uri_parse_dec_octet(parser, literal, &amp;octet)) &lt;= 0)</span>
+<span class="lineNum">     386 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     387 </span><span class="lineCov">         38 :         ip = (ip &lt;&lt; 8) + octet;</span>
+<span class="lineNum">     388 </span>            :     }
+<span class="lineNum">     389 </span>            :     
+<span class="lineNum">     390 </span><span class="lineCov">         12 :     if (ip4_r != NULL)</span>
+<span class="lineNum">     391 </span><span class="lineCov">         12 :         ip4_r-&gt;s_addr = htonl(ip);</span>
+<span class="lineNum">     392 </span><span class="lineCov">         12 :     return 1;</span>
+<span class="lineNum">     393 </span>            : }
+<a name="394"><span class="lineNum">     394 </span>            : </a>
+<span class="lineNum">     395 </span>            : static int
+<span class="lineNum">     396 </span><span class="lineCov">        201 : uri_do_parse_reg_name(struct uri_parser *parser,</span>
+<span class="lineNum">     397 </span>            :     string_t *reg_name) ATTR_NULL(2)
+<span class="lineNum">     398 </span>            : {
+<span class="lineNum">     399 </span>            :     /* RFC 3986:
+<span class="lineNum">     400 </span>            :      *
+<span class="lineNum">     401 </span>            :      * reg-name      = *( unreserved / pct-encoded / sub-delims )
+<span class="lineNum">     402 </span>            :     */
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span><span class="lineCov">       3013 :     while (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     405 </span>            :         int ret;
+<span class="lineNum">     406 </span>            :         unsigned char c;
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span>            :         /* unreserved / pct-encoded */
+<span class="lineNum">     409 </span><span class="lineCov">       2797 :         if ((ret=uri_parse_pct_encoded(parser, &amp;c)) &lt; 0)</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     411 </span><span class="lineCov">       2797 :         else if (ret == 0 &amp;&amp;</span>
+<span class="lineNum">     412 </span>            :             (ret=uri_parse_unreserved_char(parser, &amp;c)) &lt; 0)
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineCov">       2797 :         if (ret &gt; 0) {</span>
+<span class="lineNum">     416 </span><span class="lineCov">       2611 :             if (reg_name != NULL)</span>
+<span class="lineNum">     417 </span><span class="lineCov">       2611 :                 str_append_c(reg_name, c);</span>
+<span class="lineNum">     418 </span><span class="lineCov">       5222 :             continue;</span>
+<span class="lineNum">     419 </span>            :         }
+<span class="lineNum">     420 </span>            : 
+<span class="lineNum">     421 </span>            :         /* sub-delims */
+<span class="lineNum">     422 </span><span class="lineCov">        186 :         c = *parser-&gt;cur;</span>
+<span class="lineNum">     423 </span><span class="lineCov">        186 :         if ((c &amp; 0x80) == 0 &amp;&amp; (_uri_char_lookup[c] &amp; CHAR_MASK_SUB_DELIMS) != 0) {</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :             if (reg_name != NULL)</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :                 str_append_c(reg_name, *parser-&gt;cur);</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :             parser-&gt;cur++;</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     428 </span>            :         }
+<span class="lineNum">     429 </span><span class="lineCov">        186 :         break;</span>
+<span class="lineNum">     430 </span>            :     }
+<span class="lineNum">     431 </span><span class="lineCov">        201 :     return 0;</span>
+<a name="432"><span class="lineNum">     432 </span>            : }</a>
+<span class="lineNum">     433 </span>            : 
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 : int uri_parse_reg_name(struct uri_parser *parser,</span>
+<span class="lineNum">     435 </span>            :     const char **reg_name_r)
+<span class="lineNum">     436 </span>            : {
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :     string_t *reg_name = NULL;</span>
+<span class="lineNum">     438 </span>            :     int ret;
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     if (reg_name_r != NULL)</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         reg_name = uri_parser_get_tmpbuf(parser, 256);</span>
+<span class="lineNum">     442 </span>            : 
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :     if ((ret=uri_do_parse_reg_name(parser, reg_name)) &lt;= 0)</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     if (reg_name_r != NULL)</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         *reg_name_r = str_c(reg_name);</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="449"><span class="lineNum">     449 </span>            : }</a>
+<span class="lineNum">     450 </span>            : 
+<span class="lineNum">     451 </span><span class="lineCov">        169 : static int uri_do_parse_host_name(struct uri_parser *parser,</span>
+<span class="lineNum">     452 </span>            :     string_t *host_name) ATTR_NULL(2)
+<span class="lineNum">     453 </span>            : {
+<span class="lineNum">     454 </span>            :     const unsigned char *first, *part;
+<span class="lineNum">     455 </span>            :     int ret;
+<span class="lineNum">     456 </span>            : 
+<span class="lineNum">     457 </span>            :     /* RFC 3986, Section 3.2.2:
+<span class="lineNum">     458 </span>            : 
+<span class="lineNum">     459 </span>            :        A registered name intended for lookup in the DNS uses the syntax
+<span class="lineNum">     460 </span>            :        defined in Section 3.5 of [RFC1034] and Section 2.1 of [RFC1123].
+<span class="lineNum">     461 </span>            :        Such a name consists of a sequence of domain labels separated by &quot;.&quot;,
+<span class="lineNum">     462 </span>            :        each domain label starting and ending with an alphanumeric character
+<span class="lineNum">     463 </span>            :        and possibly also containing &quot;-&quot; characters.  The rightmost domain
+<span class="lineNum">     464 </span>            :        label of a fully qualified domain name in DNS may be followed by a
+<span class="lineNum">     465 </span>            :        single &quot;.&quot; and should be if it is necessary to distinguish between
+<span class="lineNum">     466 </span>            :        the complete domain name and some local domain.
+<span class="lineNum">     467 </span>            : 
+<span class="lineNum">     468 </span>            :        RFC 2396, Section 3.2.2 (old URI specification):
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span>            :        hostname      = *( domainlabel &quot;.&quot; ) toplabel [ &quot;.&quot; ]
+<span class="lineNum">     471 </span>            :        domainlabel   = alphanum | alphanum *( alphanum | &quot;-&quot; ) alphanum
+<span class="lineNum">     472 </span>            :        toplabel      = alpha | alpha *( alphanum | &quot;-&quot; ) alphanum
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span>            :        The description in RFC 3986 is more liberal, so:
+<span class="lineNum">     475 </span>            : 
+<span class="lineNum">     476 </span>            :        hostname      = *( domainlabel &quot;.&quot; ) domainlabel [ &quot;.&quot; ]
+<span class="lineNum">     477 </span>            :        domainlabel   = alphanum | alphanum *( alphanum | &quot;-&quot; ) alphanum
+<span class="lineNum">     478 </span>            : 
+<span class="lineNum">     479 </span>            :        We also support percent encoding in spirit of the generic reg-name,
+<span class="lineNum">     480 </span>            :        even though this should explicitly not be used according to the RFC.
+<span class="lineNum">     481 </span>            :        It is, however, not strictly forbidden (unlike older RFC), so we
+<span class="lineNum">     482 </span>            :        support it.
+<span class="lineNum">     483 </span>            :      */
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span><span class="lineCov">        169 :     first = part = parser-&gt;cur;</span>
+<span class="lineNum">     486 </span>            :     for (;;) {
+<span class="lineNum">     487 </span>            :         const unsigned char *offset;
+<span class="lineNum">     488 </span>            :         unsigned char ch, pch;
+<span class="lineNum">     489 </span>            : 
+<span class="lineNum">     490 </span>            :         /* alphanum */
+<span class="lineNum">     491 </span><span class="lineCov">        376 :         offset = parser-&gt;cur;</span>
+<span class="lineNum">     492 </span><span class="lineCov">        376 :         ch = pch = *parser-&gt;cur;</span>
+<span class="lineNum">     493 </span><span class="lineCov">        376 :         if (parser-&gt;cur &gt;= parser-&gt;end)</span>
+<span class="lineNum">     494 </span><span class="lineCov">        162 :             break;</span>
+<span class="lineNum">     495 </span><span class="lineCov">        376 :         if ((ret=uri_parse_pct_encoded(parser, &amp;ch)) &lt; 0) {</span>
+<span class="lineNum">     496 </span><span class="lineCov">          8 :             return -1;</span>
+<span class="lineNum">     497 </span><span class="lineCov">        375 :         } else if (ret &gt; 0) {</span>
+<span class="lineNum">     498 </span><span class="lineCov">          2 :             if (!i_isalnum(ch))</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     500 </span><span class="lineCov">          2 :             if (host_name != NULL)</span>
+<span class="lineNum">     501 </span><span class="lineCov">          2 :                 str_append_c(host_name, ch);</span>
+<span class="lineNum">     502 </span><span class="lineCov">          2 :             part = parser-&gt;cur;</span>
+<span class="lineNum">     503 </span>            :         } else {
+<span class="lineNum">     504 </span><span class="lineCov">        373 :             if (!i_isalnum(*parser-&gt;cur))</span>
+<span class="lineNum">     505 </span><span class="lineCov">          3 :                 break;</span>
+<span class="lineNum">     506 </span><span class="lineCov">        370 :             parser-&gt;cur++;</span>
+<span class="lineNum">     507 </span>            :         }
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineCov">        372 :         if (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     510 </span>            :             /* *( alphanum | &quot;-&quot; ) alphanum */
+<span class="lineNum">     511 </span>            :             do {
+<span class="lineNum">     512 </span><span class="lineCov">       1754 :                 offset = parser-&gt;cur;</span>
+<span class="lineNum">     513 </span>            : 
+<span class="lineNum">     514 </span><span class="lineCov">       1754 :                 if ((ret=uri_parse_pct_encoded(parser, &amp;ch)) &lt; 0) {</span>
+<span class="lineNum">     515 </span><span class="lineCov">          6 :                     return -1;</span>
+<span class="lineNum">     516 </span><span class="lineCov">       1748 :                 } else if (ret &gt; 0) {</span>
+<span class="lineNum">     517 </span><span class="lineCov">         12 :                     if (!i_isalnum(ch) &amp;&amp; ch != '-')</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     519 </span><span class="lineCov">         12 :                     if (host_name != NULL) {</span>
+<span class="lineNum">     520 </span><span class="lineCov">         12 :                         if (offset &gt; part)</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :                             str_append_n(host_name, part, offset - part);</span>
+<span class="lineNum">     522 </span><span class="lineCov">         12 :                         str_append_c(host_name, ch);</span>
+<span class="lineNum">     523 </span>            :                     }
+<span class="lineNum">     524 </span><span class="lineCov">         12 :                     part = parser-&gt;cur;</span>
+<span class="lineNum">     525 </span>            :                 } else {
+<span class="lineNum">     526 </span><span class="lineCov">       1736 :                     ch = *parser-&gt;cur;</span>
+<span class="lineNum">     527 </span><span class="lineCov">       1736 :                     if (!i_isalnum(ch) &amp;&amp; ch != '-')</span>
+<span class="lineNum">     528 </span><span class="lineCov">        333 :                         break;</span>
+<span class="lineNum">     529 </span><span class="lineCov">       1403 :                     parser-&gt;cur++;</span>
+<span class="lineNum">     530 </span>            :                 }
+<span class="lineNum">     531 </span><span class="lineCov">       1415 :                 pch = ch;</span>
+<span class="lineNum">     532 </span><span class="lineCov">       1415 :             } while (parser-&gt;cur &lt; parser-&gt;end);</span>
+<span class="lineNum">     533 </span>            : 
+<span class="lineNum">     534 </span><span class="lineCov">        365 :             if (!i_isalnum(pch)) {</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :                 parser-&gt;error = &quot;Invalid domain label in hostname&quot;;</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     537 </span>            :             }
+<span class="lineNum">     538 </span>            :         }
+<span class="lineNum">     539 </span>            : 
+<span class="lineNum">     540 </span><span class="lineCov">        366 :         if (host_name != NULL &amp;&amp; parser-&gt;cur &gt; part)</span>
+<span class="lineNum">     541 </span><span class="lineCov">        364 :             str_append_n(host_name, part, parser-&gt;cur - part);</span>
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span>            :         /* &quot;.&quot; */
+<span class="lineNum">     544 </span><span class="lineCov">        366 :         if (parser-&gt;cur &gt;= parser-&gt;end || ch != '.')</span>
+<span class="lineNum">     545 </span>            :             break;
+<span class="lineNum">     546 </span><span class="lineCov">        207 :         if (host_name != NULL)</span>
+<span class="lineNum">     547 </span><span class="lineCov">        207 :             str_append_c(host_name, '.');</span>
+<span class="lineNum">     548 </span><span class="lineCov">        207 :         if (parser-&gt;cur == offset)</span>
+<span class="lineNum">     549 </span><span class="lineCov">        207 :             parser-&gt;cur++;</span>
+<span class="lineNum">     550 </span><span class="lineCov">        207 :         part = parser-&gt;cur;</span>
+<span class="lineNum">     551 </span><span class="lineCov">        207 :     }</span>
+<span class="lineNum">     552 </span>            : 
+<span class="lineNum">     553 </span><span class="lineCov">        162 :     if (parser-&gt;cur == first)</span>
+<span class="lineNum">     554 </span><span class="lineCov">          3 :         return 0;</span>
+<span class="lineNum">     555 </span>            : 
+<span class="lineNum">     556 </span>            :     /* remove trailing '.' */
+<span class="lineNum">     557 </span><span class="lineCov">        159 :     if (host_name != NULL) {</span>
+<span class="lineNum">     558 </span><span class="lineCov">        159 :         const char *name = str_c(host_name);</span>
+<span class="lineNum">     559 </span>            : 
+<span class="lineNum">     560 </span><span class="lineCov">        159 :         i_assert(str_len(host_name) &gt; 0);</span>
+<span class="lineNum">     561 </span><span class="lineCov">        159 :         if (name[str_len(host_name)-1] == '.')</span>
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :             str_truncate(host_name, str_len(host_name)-1);</span>
+<span class="lineNum">     563 </span>            :     }
+<span class="lineNum">     564 </span><span class="lineCov">        159 :     return 1;</span>
+<a name="565"><span class="lineNum">     565 </span>            : }</a>
+<span class="lineNum">     566 </span>            : 
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 : int uri_parse_host_name(struct uri_parser *parser,</span>
+<span class="lineNum">     568 </span>            :     const char **host_name_r)
+<span class="lineNum">     569 </span>            : {
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :     string_t *host_name = NULL;</span>
+<span class="lineNum">     571 </span>            :     int ret;
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     if (host_name_r != NULL)</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         host_name = uri_parser_get_tmpbuf(parser, 256);</span>
+<span class="lineNum">     575 </span>            : 
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :     if ((ret=uri_do_parse_host_name(parser, host_name)) &lt;= 0)</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     578 </span>            : 
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     if (host_name_r != NULL)</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         *host_name_r = str_c(host_name);</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     582 </span>            : }
+<a name="583"><span class="lineNum">     583 </span>            : </a>
+<span class="lineNum">     584 </span>            : static int
+<span class="lineNum">     585 </span><span class="lineCov">         15 : uri_parse_ip_literal(struct uri_parser *parser, string_t *literal,</span>
+<span class="lineNum">     586 </span>            :              struct in6_addr *ip6_r) ATTR_NULL(2,3)
+<span class="lineNum">     587 </span>            : {
+<span class="lineNum">     588 </span>            :     const unsigned char *p;
+<span class="lineNum">     589 </span>            :     const char *address;
+<span class="lineNum">     590 </span>            :     struct in6_addr ip6;
+<span class="lineNum">     591 </span>            :     int ret;
+<span class="lineNum">     592 </span>            : 
+<span class="lineNum">     593 </span>            :     /* IP-literal    = &quot;[&quot; ( IPv6address / IPvFuture  ) &quot;]&quot;
+<span class="lineNum">     594 </span>            :      * IPvFuture     = &quot;v&quot; 1*HEXDIG &quot;.&quot; 1*( unreserved / sub-delims / &quot;:&quot; )
+<span class="lineNum">     595 </span>            :      * IPv6address   = ; Syntax not relevant: parsed using inet_pton()
+<span class="lineNum">     596 </span>            :      */
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span>            :     /* &quot;[&quot; already verified */
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span>            :     /* Scan for end of address */
+<span class="lineNum">     601 </span><span class="lineCov">        134 :     for (p = parser-&gt;cur+1; p &lt; parser-&gt;end; p++) {</span>
+<span class="lineNum">     602 </span><span class="lineCov">        133 :         if (*p == ']')</span>
+<span class="lineNum">     603 </span><span class="lineCov">         14 :             break;</span>
+<span class="lineNum">     604 </span>            :     }
+<span class="lineNum">     605 </span>            : 
+<span class="lineNum">     606 </span><span class="lineCov">         15 :     if (p &gt;= parser-&gt;end || *p != ']') {</span>
+<span class="lineNum">     607 </span><span class="lineCov">          1 :         parser-&gt;error = &quot;Expecting ']' at end of IP-literal&quot;;</span>
+<span class="lineNum">     608 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     609 </span>            :     }
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineCov">         14 :     if (literal != NULL)</span>
+<span class="lineNum">     612 </span><span class="lineCov">         14 :         str_append_n(literal, parser-&gt;cur, p-parser-&gt;cur+1);</span>
+<span class="lineNum">     613 </span><span class="lineCov">         14 :     address = t_strdup_until(parser-&gt;cur+1, p);</span>
+<span class="lineNum">     614 </span><span class="lineCov">         14 :     parser-&gt;cur = p + 1; </span>
+<span class="lineNum">     615 </span>            : 
+<span class="lineNum">     616 </span><span class="lineCov">         14 :     if (*address == '\0') {</span>
+<span class="lineNum">     617 </span><span class="lineCov">          3 :         parser-&gt;error = &quot;Empty IPv6 host address&quot;;</span>
+<span class="lineNum">     618 </span><span class="lineCov">          3 :         return -1;</span>
+<span class="lineNum">     619 </span>            :     }
+<span class="lineNum">     620 </span><span class="lineCov">         11 :     if (*address == 'v') {</span>
+<span class="lineNum">     621 </span><span class="lineCov">          2 :         parser-&gt;error = p_strdup_printf(parser-&gt;pool,</span>
+<span class="lineNum">     622 </span>            :             &quot;Future IP host address '%s' not supported&quot;, address);
+<span class="lineNum">     623 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     624 </span>            :     }
+<span class="lineNum">     625 </span><span class="lineCov">          9 :     if ((ret = inet_pton(AF_INET6, address, &amp;ip6)) &lt;= 0) {</span>
+<span class="lineNum">     626 </span><span class="lineCov">          2 :         parser-&gt;error = p_strdup_printf(parser-&gt;pool,</span>
+<span class="lineNum">     627 </span>            :             &quot;Invalid IPv6 host address '%s'&quot;, address);
+<span class="lineNum">     628 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     629 </span>            :     }
+<span class="lineNum">     630 </span><span class="lineCov">          7 :     if (ip6_r != NULL)</span>
+<span class="lineNum">     631 </span><span class="lineCov">          7 :         *ip6_r = ip6;</span>
+<span class="lineNum">     632 </span><span class="lineCov">          7 :     return 1;</span>
+<span class="lineNum">     633 </span>            : }
+<a name="634"><span class="lineNum">     634 </span>            : </a>
+<span class="lineNum">     635 </span>            : static int
+<span class="lineNum">     636 </span><span class="lineCov">        397 : uri_do_parse_host(struct uri_parser *parser,</span>
+<span class="lineNum">     637 </span>            :     struct uri_host *host, bool host_name)
+<span class="lineNum">     638 </span>            :     ATTR_NULL(2)
+<span class="lineNum">     639 </span>            : {
+<span class="lineNum">     640 </span>            :     const unsigned char *preserve;
+<span class="lineNum">     641 </span>            :     struct in_addr ip4;
+<span class="lineNum">     642 </span>            :     struct in6_addr ip6;
+<span class="lineNum">     643 </span><span class="lineCov">        397 :     string_t *literal = NULL;</span>
+<span class="lineNum">     644 </span>            :     int ret;
+<span class="lineNum">     645 </span>            : 
+<span class="lineNum">     646 </span>            :     /* RFC 3986:
+<span class="lineNum">     647 </span>            :      *
+<span class="lineNum">     648 </span>            :      * host          = IP-literal / IPv4address / reg-name
+<span class="lineNum">     649 </span>            :      */
+<span class="lineNum">     650 </span>            : 
+<span class="lineNum">     651 </span><span class="lineCov">        397 :     if (host != NULL)</span>
+<span class="lineNum">     652 </span><span class="lineCov">        184 :         i_zero(host);</span>
+<span class="lineNum">     653 </span>            : 
+<span class="lineNum">     654 </span><span class="lineCov">        397 :     literal = uri_parser_get_tmpbuf(parser, 256);</span>
+<span class="lineNum">     655 </span>            : 
+<span class="lineNum">     656 </span>            :     /* IP-literal / */
+<span class="lineNum">     657 </span><span class="lineCov">        397 :     if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; *parser-&gt;cur == '[') {</span>
+<span class="lineNum">     658 </span><span class="lineCov">         15 :         if ((ret=uri_parse_ip_literal(parser, literal, &amp;ip6)) &lt;= 0)</span>
+<span class="lineNum">     659 </span><span class="lineCov">          8 :             return -1;</span>
+<span class="lineNum">     660 </span>            : 
+<span class="lineNum">     661 </span><span class="lineCov">          7 :         if (host != NULL) {</span>
+<span class="lineNum">     662 </span><span class="lineCov">          5 :             host-&gt;name = p_strdup(parser-&gt;pool, str_c(literal));;</span>
+<span class="lineNum">     663 </span><span class="lineCov">          5 :             host-&gt;ip.family = AF_INET6;</span>
+<span class="lineNum">     664 </span><span class="lineCov">          5 :             host-&gt;ip.u.ip6 = ip6;</span>
+<span class="lineNum">     665 </span>            :         }
+<span class="lineNum">     666 </span><span class="lineCov">          7 :         return 1;</span>
+<span class="lineNum">     667 </span>            :     }
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span>            :     /* IPv4address /
+<span class="lineNum">     670 </span>            :      *
+<span class="lineNum">     671 </span>            :      * If it fails to parse, we try to parse it as a reg-name
+<span class="lineNum">     672 </span>            :      */
+<span class="lineNum">     673 </span><span class="lineCov">        382 :     preserve = parser-&gt;cur;</span>
+<span class="lineNum">     674 </span><span class="lineCov">        382 :     if ((ret = uri_parse_ipv4address(parser, literal, &amp;ip4)) &gt; 0) {</span>
+<span class="lineNum">     675 </span><span class="lineCov">         12 :         if (host != NULL) {</span>
+<span class="lineNum">     676 </span><span class="lineCov">          4 :             host-&gt;name = p_strdup(parser-&gt;pool, str_c(literal));</span>
+<span class="lineNum">     677 </span><span class="lineCov">          4 :             host-&gt;ip.family = AF_INET;</span>
+<span class="lineNum">     678 </span><span class="lineCov">          4 :             host-&gt;ip.u.ip4 = ip4;</span>
+<span class="lineNum">     679 </span>            :         }
+<span class="lineNum">     680 </span><span class="lineCov">         12 :         return ret;</span>
+<span class="lineNum">     681 </span>            :     }
+<span class="lineNum">     682 </span><span class="lineCov">        370 :     parser-&gt;cur = preserve;</span>
+<span class="lineNum">     683 </span><span class="lineCov">        370 :     str_truncate(literal, 0);</span>
+<span class="lineNum">     684 </span>            : 
+<span class="lineNum">     685 </span>            :     /* reg-name */
+<span class="lineNum">     686 </span><span class="lineCov">        370 :     if (host_name) {</span>
+<span class="lineNum">     687 </span><span class="lineCov">        169 :         if (uri_do_parse_host_name(parser, literal) &lt; 0)</span>
+<span class="lineNum">     688 </span><span class="lineCov">          7 :             return -1;</span>
+<span class="lineNum">     689 </span><span class="lineCov">        201 :     } else  if (uri_do_parse_reg_name(parser, literal) &lt; 0)</span>
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     691 </span><span class="lineCov">        363 :     if (host != NULL)</span>
+<span class="lineNum">     692 </span><span class="lineCov">        162 :         host-&gt;name = p_strdup(parser-&gt;pool, str_c(literal));</span>
+<span class="lineNum">     693 </span><span class="lineCov">        363 :     return 0;</span>
+<a name="694"><span class="lineNum">     694 </span>            : }</a>
+<span class="lineNum">     695 </span>            : 
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 : int uri_parse_host(struct uri_parser *parser,</span>
+<span class="lineNum">     697 </span>            :     struct uri_host *host)
+<span class="lineNum">     698 </span>            : {
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :     return uri_do_parse_host(parser, host, TRUE);</span>
+<span class="lineNum">     700 </span>            : }
+<a name="701"><span class="lineNum">     701 </span>            : </a>
+<span class="lineNum">     702 </span>            : static int
+<span class="lineNum">     703 </span><span class="lineCov">         52 : uri_parse_port(struct uri_parser *parser,</span>
+<span class="lineNum">     704 </span>            :     struct uri_authority *auth) ATTR_NULL(2)
+<span class="lineNum">     705 </span>            : {
+<span class="lineNum">     706 </span>            :     const unsigned char *first;
+<span class="lineNum">     707 </span>            :     in_port_t port;
+<span class="lineNum">     708 </span>            : 
+<span class="lineNum">     709 </span>            :     /* RFC 3986:
+<span class="lineNum">     710 </span>            :      *
+<span class="lineNum">     711 </span>            :      * port        = *DIGIT
+<span class="lineNum">     712 </span>            :      */
+<span class="lineNum">     713 </span>            : 
+<span class="lineNum">     714 </span><span class="lineCov">         52 :     first = parser-&gt;cur;</span>
+<span class="lineNum">     715 </span><span class="lineCov">        291 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; i_isdigit(*parser-&gt;cur))</span>
+<span class="lineNum">     716 </span><span class="lineCov">        187 :         parser-&gt;cur++;</span>
+<span class="lineNum">     717 </span>            : 
+<span class="lineNum">     718 </span><span class="lineCov">         52 :     if (parser-&gt;cur == first)</span>
+<span class="lineNum">     719 </span><span class="lineCov">          2 :         return 0;</span>
+<span class="lineNum">     720 </span><span class="lineCov">         50 :     if (net_str2port(t_strdup_until(first, parser-&gt;cur), &amp;port) &lt; 0) {</span>
+<span class="lineNum">     721 </span><span class="lineCov">          4 :         parser-&gt;error = &quot;Invalid port number&quot;;</span>
+<span class="lineNum">     722 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     723 </span>            :     }
+<span class="lineNum">     724 </span>            : 
+<span class="lineNum">     725 </span><span class="lineCov">         46 :     if (auth != NULL)</span>
+<span class="lineNum">     726 </span><span class="lineCov">         13 :         auth-&gt;port = port;</span>
+<span class="lineNum">     727 </span><span class="lineCov">         46 :     return 1;</span>
+<span class="lineNum">     728 </span>            : }
+<a name="729"><span class="lineNum">     729 </span>            : </a>
+<span class="lineNum">     730 </span>            : static int
+<span class="lineNum">     731 </span><span class="lineCov">        397 : uri_do_parse_authority(struct uri_parser *parser,</span>
+<span class="lineNum">     732 </span>            :     struct uri_authority *auth, bool host_name) ATTR_NULL(2)
+<span class="lineNum">     733 </span>            : {
+<span class="lineNum">     734 </span>            :     const unsigned char *p;
+<span class="lineNum">     735 </span>            :     int ret;
+<span class="lineNum">     736 </span>            :     
+<span class="lineNum">     737 </span>            :     /*
+<span class="lineNum">     738 </span>            :      * authority     = [ userinfo &quot;@&quot; ] host [ &quot;:&quot; port ]
+<span class="lineNum">     739 </span>            :      */
+<span class="lineNum">     740 </span>            : 
+<span class="lineNum">     741 </span><span class="lineCov">        397 :     if (auth != NULL)</span>
+<span class="lineNum">     742 </span><span class="lineCov">        184 :         i_zero(auth);</span>
+<span class="lineNum">     743 </span>            : 
+<span class="lineNum">     744 </span>            :     /* Scan ahead to check whether there is a [userinfo &quot;@&quot;] uri component */
+<span class="lineNum">     745 </span><span class="lineCov">       4983 :     for (p = parser-&gt;cur; p &lt; parser-&gt;end; p++){</span>
+<span class="lineNum">     746 </span>            :         /* refuse 8bit characters */
+<span class="lineNum">     747 </span><span class="lineCov">       4941 :         if ((*p &amp; 0x80) != 0)</span>
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     749 </span>            : 
+<span class="lineNum">     750 </span>            :         /* break at first delimiter */
+<span class="lineNum">     751 </span><span class="lineCov">       4941 :         if (*p != '%' &amp;&amp; (_uri_char_lookup[*p] &amp; CHAR_MASK_UCHAR) == 0)</span>
+<span class="lineNum">     752 </span><span class="lineCov">        355 :             break;</span>
+<span class="lineNum">     753 </span>            :     }
+<span class="lineNum">     754 </span>            : 
+<span class="lineNum">     755 </span>            :     /* Extract userinfo */  
+<span class="lineNum">     756 </span><span class="lineCov">        397 :     if (p &lt; parser-&gt;end &amp;&amp; *p == '@') {</span>
+<span class="lineNum">     757 </span><span class="lineCov">         95 :         if (auth != NULL)</span>
+<span class="lineNum">     758 </span><span class="lineCov">         78 :             auth-&gt;enc_userinfo = p_strdup_until(parser-&gt;pool, parser-&gt;cur, p);</span>
+<span class="lineNum">     759 </span><span class="lineCov">         95 :         parser-&gt;cur = p+1;</span>
+<span class="lineNum">     760 </span>            :     }
+<span class="lineNum">     761 </span>            : 
+<span class="lineNum">     762 </span>            :     /* host */
+<span class="lineNum">     763 </span><span class="lineCov">        397 :     if (uri_do_parse_host(parser,</span>
+<span class="lineNum">     764 </span>            :         (auth == NULL ? NULL : &amp;auth-&gt;host), host_name) &lt; 0)
+<span class="lineNum">     765 </span><span class="lineCov">         15 :         return -1;</span>
+<span class="lineNum">     766 </span><span class="lineCov">        382 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     767 </span><span class="lineCov">         53 :         return 1;</span>
+<span class="lineNum">     768 </span><span class="lineCov">        329 :     switch (*parser-&gt;cur) {</span>
+<span class="lineNum">     769 </span>            :     case ':': case '/': case '?': case '#':
+<span class="lineNum">     770 </span><span class="lineCov">        327 :         break;</span>
+<span class="lineNum">     771 </span>            :     default:
+<span class="lineNum">     772 </span><span class="lineCov">          2 :         parser-&gt;error = &quot;Invalid host identifier&quot;;</span>
+<span class="lineNum">     773 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     774 </span>            :     }
+<span class="lineNum">     775 </span>            : 
+<span class="lineNum">     776 </span>            :     /* [&quot;:&quot; port] */
+<span class="lineNum">     777 </span><span class="lineCov">        327 :     if (*parser-&gt;cur == ':') {</span>
+<span class="lineNum">     778 </span><span class="lineCov">         52 :         parser-&gt;cur++;</span>
+<span class="lineNum">     779 </span>            :     
+<span class="lineNum">     780 </span><span class="lineCov">         52 :         if ((ret = uri_parse_port(parser, auth)) &lt; 0)</span>
+<span class="lineNum">     781 </span><span class="lineCov">          4 :             return ret;</span>
+<span class="lineNum">     782 </span><span class="lineCov">         48 :         if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     783 </span><span class="lineCov">         18 :             return 1;</span>
+<span class="lineNum">     784 </span><span class="lineCov">         30 :         switch (*parser-&gt;cur) {</span>
+<span class="lineNum">     785 </span>            :         case '/': case '?': case '#':
+<span class="lineNum">     786 </span><span class="lineCov">         30 :             break;</span>
+<span class="lineNum">     787 </span>            :         default:
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 :             parser-&gt;error = &quot;Invalid host port&quot;;</span>
+<span class="lineNum">     789 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     790 </span>            :         }
+<span class="lineNum">     791 </span>            :     }
+<span class="lineNum">     792 </span>            : 
+<span class="lineNum">     793 </span><span class="lineCov">        305 :     return 1;</span>
+<span class="lineNum">     794 </span>            : }
+<a name="795"><span class="lineNum">     795 </span>            : </a>
+<span class="lineNum">     796 </span>            : static int
+<span class="lineNum">     797 </span><span class="lineCov">        511 : uri_do_parse_slashslash_authority(struct uri_parser *parser,</span>
+<span class="lineNum">     798 </span>            :     struct uri_authority *auth, bool host_name)
+<span class="lineNum">     799 </span>            :     ATTR_NULL(2)
+<span class="lineNum">     800 </span>            : {
+<span class="lineNum">     801 </span>            :     /* &quot;//&quot; authority */
+<span class="lineNum">     802 </span>            : 
+<span class="lineNum">     803 </span><span class="lineCov">        851 :     if ((parser-&gt;end - parser-&gt;cur) &lt;= 2 || parser-&gt;cur[0] != '/' ||</span>
+<span class="lineNum">     804 </span><span class="lineCov">        340 :         parser-&gt;cur[1] != '/')</span>
+<span class="lineNum">     805 </span><span class="lineCov">        175 :         return 0;</span>
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span><span class="lineCov">        336 :     parser-&gt;cur += 2;</span>
+<span class="lineNum">     808 </span><span class="lineCov">        336 :     return uri_do_parse_authority(parser, auth, host_name);</span>
+<a name="809"><span class="lineNum">     809 </span>            : }</a>
+<span class="lineNum">     810 </span>            : 
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 : int uri_parse_authority(struct uri_parser *parser,</span>
+<span class="lineNum">     812 </span>            :     struct uri_authority *auth)
+<span class="lineNum">     813 </span>            : {
+<span class="lineNum">     814 </span><span class="lineNoCov">          0 :     return uri_do_parse_authority(parser, auth, FALSE);</span>
+<a name="815"><span class="lineNum">     815 </span>            : }</a>
+<span class="lineNum">     816 </span>            : 
+<span class="lineNum">     817 </span><span class="lineCov">        362 : int uri_parse_slashslash_authority(struct uri_parser *parser,</span>
+<span class="lineNum">     818 </span>            :     struct uri_authority *auth)
+<span class="lineNum">     819 </span>            : {
+<span class="lineNum">     820 </span><span class="lineCov">        362 :     return uri_do_parse_slashslash_authority(parser, auth, FALSE);</span>
+<a name="821"><span class="lineNum">     821 </span>            : }</a>
+<span class="lineNum">     822 </span>            : 
+<span class="lineNum">     823 </span><span class="lineCov">         61 : int uri_parse_host_authority(struct uri_parser *parser,</span>
+<span class="lineNum">     824 </span>            :     struct uri_authority *auth)
+<span class="lineNum">     825 </span>            : {
+<span class="lineNum">     826 </span><span class="lineCov">         61 :     return uri_do_parse_authority(parser, auth, TRUE);</span>
+<a name="827"><span class="lineNum">     827 </span>            : }</a>
+<span class="lineNum">     828 </span>            : 
+<span class="lineNum">     829 </span><span class="lineCov">        149 : int uri_parse_slashslash_host_authority(struct uri_parser *parser,</span>
+<span class="lineNum">     830 </span>            :     struct uri_authority *auth)
+<span class="lineNum">     831 </span>            : {
+<span class="lineNum">     832 </span><span class="lineCov">        149 :     return uri_do_parse_slashslash_authority(parser, auth, TRUE);</span>
+<a name="833"><span class="lineNum">     833 </span>            : }</a>
+<span class="lineNum">     834 </span>            : 
+<span class="lineNum">     835 </span><span class="lineCov">        905 : int uri_parse_path_segment(struct uri_parser *parser, const char **segment_r)</span>
+<span class="lineNum">     836 </span>            : {
+<span class="lineNum">     837 </span><span class="lineCov">        905 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     838 </span>            :     int ret;
+<span class="lineNum">     839 </span>            : 
+<span class="lineNum">     840 </span><span class="lineCov">      11618 :     while (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     841 </span><span class="lineCov">      10267 :         if (*parser-&gt;cur == '%') {</span>
+<span class="lineNum">     842 </span><span class="lineCov">        213 :             unsigned char ch = 0;</span>
+<span class="lineNum">     843 </span><span class="lineCov">        213 :             if ((ret=uri_parse_pct_encoded(parser, &amp;ch)) &lt; 0)</span>
+<span class="lineNum">     844 </span><span class="lineCov">          7 :                 return -1;</span>
+<span class="lineNum">     845 </span><span class="lineCov">        206 :             if (ret &gt; 0)</span>
+<span class="lineNum">     846 </span><span class="lineCov">        206 :                 continue;</span>
+<span class="lineNum">     847 </span>            :         }
+<span class="lineNum">     848 </span>            : 
+<span class="lineNum">     849 </span><span class="lineCov">      20108 :         if ((*parser-&gt;cur &amp; 0x80) != 0 ||</span>
+<span class="lineNum">     850 </span><span class="lineCov">      10054 :             (_uri_char_lookup[*parser-&gt;cur] &amp; CHAR_MASK_PCHAR) == 0)</span>
+<span class="lineNum">     851 </span>            :             break;
+<span class="lineNum">     852 </span>            : 
+<span class="lineNum">     853 </span><span class="lineCov">       9602 :         parser-&gt;cur++;</span>
+<span class="lineNum">     854 </span>            :     }
+<span class="lineNum">     855 </span>            : 
+<span class="lineNum">     856 </span><span class="lineCov">       1350 :     if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp;</span>
+<span class="lineNum">     857 </span><span class="lineCov">        537 :         *parser-&gt;cur != '/' &amp;&amp; *parser-&gt;cur != '?' &amp;&amp; *parser-&gt;cur != '#' ) {</span>
+<span class="lineNum">     858 </span><span class="lineCov">          4 :         parser-&gt;error =</span>
+<span class="lineNum">     859 </span>            :             &quot;Path component contains invalid character&quot;;
+<span class="lineNum">     860 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">     861 </span>            :     }
+<span class="lineNum">     862 </span>            : 
+<span class="lineNum">     863 </span><span class="lineCov">        894 :     if (first == parser-&gt;cur)</span>
+<span class="lineNum">     864 </span><span class="lineCov">        115 :         return 0;</span>
+<span class="lineNum">     865 </span>            : 
+<span class="lineNum">     866 </span><span class="lineCov">        779 :     if (segment_r != NULL)</span>
+<span class="lineNum">     867 </span><span class="lineCov">        779 :         *segment_r = p_strdup_until(parser-&gt;pool, first, parser-&gt;cur);</span>
+<span class="lineNum">     868 </span><span class="lineCov">        779 :     return 1;</span>
+<a name="869"><span class="lineNum">     869 </span>            : }</a>
+<span class="lineNum">     870 </span>            : 
+<span class="lineNum">     871 </span><span class="lineCov">        538 : int uri_parse_path(struct uri_parser *parser,</span>
+<span class="lineNum">     872 </span>            :            int *relative_r, const char *const **path_r)
+<span class="lineNum">     873 </span>            : {
+<span class="lineNum">     874 </span><span class="lineCov">        538 :     const unsigned char *pbegin = parser-&gt;cur;</span>
+<span class="lineNum">     875 </span>            :     ARRAY_TYPE(const_string) segments;
+<span class="lineNum">     876 </span><span class="lineCov">        538 :     const char *segment = NULL;</span>
+<span class="lineNum">     877 </span>            :     unsigned int count;
+<span class="lineNum">     878 </span><span class="lineCov">        538 :     int relative = 1;</span>
+<span class="lineNum">     879 </span>            :     int ret;
+<span class="lineNum">     880 </span>            : 
+<span class="lineNum">     881 </span><span class="lineCov">        538 :     count = 0;</span>
+<span class="lineNum">     882 </span><span class="lineCov">        538 :     if (path_r != NULL)</span>
+<span class="lineNum">     883 </span><span class="lineCov">        210 :         p_array_init(&amp;segments, parser-&gt;pool, 16);</span>
+<span class="lineNum">     884 </span>            :     else
+<span class="lineNum">     885 </span><span class="lineCov">        328 :         i_zero(&amp;segments);</span>
+<span class="lineNum">     886 </span>            : 
+<span class="lineNum">     887 </span>            :     /* check for a leading '/' and indicate absolute path
+<span class="lineNum">     888 </span>            :        when it is present
+<span class="lineNum">     889 </span>            :      */
+<span class="lineNum">     890 </span><span class="lineCov">        538 :     if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; *parser-&gt;cur == '/') {</span>
+<span class="lineNum">     891 </span><span class="lineCov">        309 :         parser-&gt;cur++;</span>
+<span class="lineNum">     892 </span><span class="lineCov">        309 :         relative = 0;</span>
+<span class="lineNum">     893 </span>            :     }
+<span class="lineNum">     894 </span>            :     
+<span class="lineNum">     895 </span>            :     /* parse first segment */
+<span class="lineNum">     896 </span><span class="lineCov">        538 :     if ((ret = uri_parse_path_segment(parser, &amp;segment)) &lt; 0)</span>
+<span class="lineNum">     897 </span><span class="lineCov">          3 :         return -1;</span>
+<span class="lineNum">     898 </span>            :     
+<span class="lineNum">     899 </span>            :     for (;;) {
+<span class="lineNum">     900 </span><span class="lineCov">        894 :         if (ret &gt; 0) {</span>
+<span class="lineNum">     901 </span>            :             /* strip dot segments */
+<span class="lineNum">     902 </span><span class="lineCov">        779 :             if (segment[0] == '.') {</span>
+<span class="lineNum">     903 </span><span class="lineCov">         55 :                 if (segment[1] == '.') {</span>
+<span class="lineNum">     904 </span><span class="lineCov">         43 :                     if (segment[2] == '\0') {</span>
+<span class="lineNum">     905 </span>            :                         /* '..' -&gt; skip and... */
+<span class="lineNum">     906 </span><span class="lineCov">         42 :                         segment = NULL;</span>
+<span class="lineNum">     907 </span>            : 
+<span class="lineNum">     908 </span>            :                         /* ... pop last segment (if any) */
+<span class="lineNum">     909 </span><span class="lineCov">         42 :                         if (count &gt; 0) {</span>
+<span class="lineNum">     910 </span><span class="lineCov">         12 :                             if (path_r != NULL) {</span>
+<span class="lineNum">     911 </span><span class="lineCov">         12 :                                 i_assert(count == array_count(&amp;segments));</span>
+<span class="lineNum">     912 </span><span class="lineCov">         12 :                                 array_delete(&amp;segments, count-1, 1);</span>
+<span class="lineNum">     913 </span>            :                             }
+<span class="lineNum">     914 </span><span class="lineCov">         12 :                             count--;</span>
+<span class="lineNum">     915 </span><span class="lineCov">         30 :                         } else if ( relative &gt; 0 ) {</span>
+<span class="lineNum">     916 </span><span class="lineCov">         29 :                             relative++;</span>
+<span class="lineNum">     917 </span>            :                         }
+<span class="lineNum">     918 </span>            :                     }
+<span class="lineNum">     919 </span><span class="lineCov">         12 :                 } else if (segment[1] == '\0') {</span>
+<span class="lineNum">     920 </span>            :                     /* '.' -&gt; skip */
+<span class="lineNum">     921 </span><span class="lineCov">         10 :                     segment = NULL;</span>
+<span class="lineNum">     922 </span>            :                 }
+<span class="lineNum">     923 </span>            :             }
+<span class="lineNum">     924 </span>            :         } else {
+<span class="lineNum">     925 </span><span class="lineCov">        115 :             segment = &quot;&quot;;</span>
+<span class="lineNum">     926 </span>            :         }
+<span class="lineNum">     927 </span>            : 
+<span class="lineNum">     928 </span><span class="lineCov">        894 :         if (segment != NULL) {</span>
+<span class="lineNum">     929 </span><span class="lineCov">        842 :             if (path_r != NULL)</span>
+<span class="lineNum">     930 </span><span class="lineCov">        350 :                 array_append(&amp;segments, &amp;segment, 1);</span>
+<span class="lineNum">     931 </span><span class="lineCov">        842 :             count++;</span>
+<span class="lineNum">     932 </span>            :         }
+<span class="lineNum">     933 </span>            : 
+<span class="lineNum">     934 </span><span class="lineCov">        894 :         if (parser-&gt;cur &gt;= parser-&gt;end || *parser-&gt;cur != '/')</span>
+<span class="lineNum">     935 </span>            :             break;
+<span class="lineNum">     936 </span><span class="lineCov">        367 :         parser-&gt;cur++;</span>
+<span class="lineNum">     937 </span>            : 
+<span class="lineNum">     938 </span>            :         /* parse next path segment */
+<span class="lineNum">     939 </span><span class="lineCov">        367 :         if ((ret = uri_parse_path_segment(parser, &amp;segment)) &lt; 0)</span>
+<span class="lineNum">     940 </span><span class="lineCov">          8 :             return -1;</span>
+<span class="lineNum">     941 </span><span class="lineCov">        359 :     }</span>
+<span class="lineNum">     942 </span>            : 
+<span class="lineNum">     943 </span><span class="lineCov">        527 :     if (relative_r != NULL)</span>
+<span class="lineNum">     944 </span><span class="lineCov">        527 :         *relative_r = relative;</span>
+<span class="lineNum">     945 </span><span class="lineCov">        527 :     if (path_r != NULL)</span>
+<span class="lineNum">     946 </span><span class="lineCov">        201 :         *path_r = NULL;</span>
+<span class="lineNum">     947 </span>            : 
+<span class="lineNum">     948 </span><span class="lineCov">        527 :     if (parser-&gt;cur == pbegin) {</span>
+<span class="lineNum">     949 </span>            :         /* path part of URI is empty */
+<span class="lineNum">     950 </span><span class="lineCov">         33 :         return 0;</span>
+<span class="lineNum">     951 </span>            :     }
+<span class="lineNum">     952 </span>            : 
+<span class="lineNum">     953 </span><span class="lineCov">        494 :     if (path_r != NULL) {</span>
+<span class="lineNum">     954 </span>            :         /* special treatment for a trailing '..' or '.' */
+<span class="lineNum">     955 </span><span class="lineCov">        171 :         if (segment == NULL) {</span>
+<span class="lineNum">     956 </span><span class="lineCov">         11 :             segment = &quot;&quot;;</span>
+<span class="lineNum">     957 </span><span class="lineCov">         11 :             array_append(&amp;segments, &amp;segment, 1);</span>
+<span class="lineNum">     958 </span>            :         }
+<span class="lineNum">     959 </span><span class="lineCov">        171 :         array_append_zero(&amp;segments);</span>
+<span class="lineNum">     960 </span><span class="lineCov">        171 :         *path_r = array_get(&amp;segments, &amp;count);</span>
+<span class="lineNum">     961 </span>            :     }
+<span class="lineNum">     962 </span><span class="lineCov">        572 :     if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp;</span>
+<span class="lineNum">     963 </span><span class="lineCov">         87 :         *parser-&gt;cur != '?' &amp;&amp; *parser-&gt;cur != '#') {</span>
+<span class="lineNum">     964 </span><span class="lineNoCov">          0 :         parser-&gt;error = &quot;Path component contains invalid character&quot;;</span>
+<span class="lineNum">     965 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     966 </span>            :     }
+<span class="lineNum">     967 </span><span class="lineCov">        494 :     return 1;</span>
+<a name="968"><span class="lineNum">     968 </span>            : }</a>
+<span class="lineNum">     969 </span>            : 
+<span class="lineNum">     970 </span><span class="lineCov">        519 : int uri_parse_query(struct uri_parser *parser, const char **query_r)</span>
+<span class="lineNum">     971 </span>            : {
+<span class="lineNum">     972 </span><span class="lineCov">        519 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">     973 </span>            :     int ret;
+<span class="lineNum">     974 </span>            : 
+<span class="lineNum">     975 </span>            :     /* RFC 3986:
+<span class="lineNum">     976 </span>            :      *
+<span class="lineNum">     977 </span>            :      * URI           = { ... } [ &quot;?&quot; query ] { ... }
+<span class="lineNum">     978 </span>            :      * query         = *( pchar / &quot;/&quot; / &quot;?&quot; )
+<span class="lineNum">     979 </span>            :      * pchar         = unreserved / pct-encoded / sub-delims / &quot;:&quot; / &quot;@&quot;
+<span class="lineNum">     980 </span>            :      */
+<span class="lineNum">     981 </span><span class="lineCov">        519 :     if (parser-&gt;cur &gt;= parser-&gt;end || *parser-&gt;cur != '?')</span>
+<span class="lineNum">     982 </span><span class="lineCov">        442 :         return 0;</span>
+<span class="lineNum">     983 </span><span class="lineCov">         77 :     parser-&gt;cur++;</span>
+<span class="lineNum">     984 </span>            : 
+<span class="lineNum">     985 </span><span class="lineCov">       1532 :     while (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">     986 </span><span class="lineCov">       1381 :         if (*parser-&gt;cur == '%') {</span>
+<span class="lineNum">     987 </span><span class="lineCov">         83 :             unsigned char ch = 0;</span>
+<span class="lineNum">     988 </span><span class="lineCov">         83 :             if ((ret=uri_parse_pct_encoded(parser, &amp;ch)) &lt; 0)</span>
+<span class="lineNum">     989 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     990 </span><span class="lineCov">         82 :             if (ret &gt; 0)</span>
+<span class="lineNum">     991 </span><span class="lineCov">         82 :                 continue;</span>
+<span class="lineNum">     992 </span>            :         }
+<span class="lineNum">     993 </span>            : 
+<span class="lineNum">     994 </span><span class="lineCov">       2596 :         if ((*parser-&gt;cur &amp; 0x80) != 0 ||</span>
+<span class="lineNum">     995 </span><span class="lineCov">       1298 :             (_uri_char_lookup[*parser-&gt;cur] &amp; CHAR_MASK_QCHAR) == 0)</span>
+<span class="lineNum">     996 </span>            :             break;
+<span class="lineNum">     997 </span><span class="lineCov">       1296 :         parser-&gt;cur++;</span>
+<span class="lineNum">     998 </span>            :     }
+<span class="lineNum">     999 </span>            : 
+<span class="lineNum">    1000 </span><span class="lineCov">         76 :     if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; *parser-&gt;cur != '#') {</span>
+<span class="lineNum">    1001 </span><span class="lineNoCov">          0 :         parser-&gt;error = &quot;Query component contains invalid character&quot;;</span>
+<span class="lineNum">    1002 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1003 </span>            :     }
+<span class="lineNum">    1004 </span>            : 
+<span class="lineNum">    1005 </span><span class="lineCov">         76 :     if (query_r != NULL)</span>
+<span class="lineNum">    1006 </span><span class="lineCov">         14 :         *query_r = p_strdup_until(parser-&gt;pool, first+1, parser-&gt;cur);</span>
+<span class="lineNum">    1007 </span><span class="lineCov">         76 :     return 1;</span>
+<a name="1008"><span class="lineNum">    1008 </span>            : }</a>
+<span class="lineNum">    1009 </span>            : 
+<span class="lineNum">    1010 </span><span class="lineCov">        516 : int uri_parse_fragment(struct uri_parser *parser, const char **fragment_r)</span>
+<span class="lineNum">    1011 </span>            : {
+<span class="lineNum">    1012 </span><span class="lineCov">        516 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">    1013 </span>            :     int ret;
+<span class="lineNum">    1014 </span>            : 
+<span class="lineNum">    1015 </span>            :     /* RFC 3986:
+<span class="lineNum">    1016 </span>            :      *
+<span class="lineNum">    1017 </span>            :      * URI           = { ... } [ &quot;#&quot; fragment ]
+<span class="lineNum">    1018 </span>            :      * fragment      = *( pchar / &quot;/&quot; / &quot;?&quot; )
+<span class="lineNum">    1019 </span>            :      * pchar         = unreserved / pct-encoded / sub-delims / &quot;:&quot; / &quot;@&quot;
+<span class="lineNum">    1020 </span>            :      */
+<span class="lineNum">    1021 </span>            : 
+<span class="lineNum">    1022 </span><span class="lineCov">        516 :     if (parser-&gt;cur &gt;= parser-&gt;end || *parser-&gt;cur != '#')</span>
+<span class="lineNum">    1023 </span><span class="lineCov">        504 :         return 0;</span>
+<span class="lineNum">    1024 </span><span class="lineCov">         12 :     parser-&gt;cur++;</span>
+<span class="lineNum">    1025 </span>            : 
+<span class="lineNum">    1026 </span><span class="lineCov">         97 :     while (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">    1027 </span><span class="lineCov">         74 :         if (*parser-&gt;cur == '%') {</span>
+<span class="lineNum">    1028 </span><span class="lineCov">          4 :             unsigned char ch = 0;</span>
+<span class="lineNum">    1029 </span><span class="lineCov">          4 :             if ((ret=uri_parse_pct_encoded(parser, &amp;ch)) &lt; 0)</span>
+<span class="lineNum">    1030 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">    1031 </span><span class="lineCov">          3 :             if (ret &gt; 0)</span>
+<span class="lineNum">    1032 </span><span class="lineCov">          3 :                 continue;</span>
+<span class="lineNum">    1033 </span>            :         }
+<span class="lineNum">    1034 </span>            : 
+<span class="lineNum">    1035 </span><span class="lineCov">        140 :         if ((*parser-&gt;cur &amp; 0x80) != 0 ||</span>
+<span class="lineNum">    1036 </span><span class="lineCov">         70 :             (_uri_char_lookup[*parser-&gt;cur] &amp; CHAR_MASK_QCHAR) == 0)</span>
+<span class="lineNum">    1037 </span>            :             break;
+<span class="lineNum">    1038 </span><span class="lineCov">         70 :         parser-&gt;cur++;</span>
+<span class="lineNum">    1039 </span>            :     }
+<span class="lineNum">    1040 </span>            : 
+<span class="lineNum">    1041 </span><span class="lineCov">         11 :     if (parser-&gt;cur &lt; parser-&gt;end) {</span>
+<span class="lineNum">    1042 </span><span class="lineNoCov">          0 :         parser-&gt;error = &quot;Fragment component contains invalid character&quot;;</span>
+<span class="lineNum">    1043 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1044 </span>            :     }
+<span class="lineNum">    1045 </span>            : 
+<span class="lineNum">    1046 </span><span class="lineCov">         11 :     if (fragment_r != NULL)</span>
+<span class="lineNum">    1047 </span><span class="lineCov">         10 :         *fragment_r = p_strdup_until(parser-&gt;pool, first+1, parser-&gt;cur);</span>
+<span class="lineNum">    1048 </span><span class="lineCov">         11 :     return 1;</span>
+<a name="1049"><span class="lineNum">    1049 </span>            : }</a>
+<span class="lineNum">    1050 </span>            : 
+<span class="lineNum">    1051 </span><span class="lineCov">        260 : void uri_parser_init_data(struct uri_parser *parser,</span>
+<span class="lineNum">    1052 </span>            :     pool_t pool, const unsigned char *data, size_t size)
+<span class="lineNum">    1053 </span>            : {
+<span class="lineNum">    1054 </span><span class="lineCov">        260 :     i_zero(parser);</span>
+<span class="lineNum">    1055 </span><span class="lineCov">        260 :     parser-&gt;pool = pool;</span>
+<span class="lineNum">    1056 </span><span class="lineCov">        260 :     parser-&gt;begin = parser-&gt;cur = data;</span>
+<span class="lineNum">    1057 </span><span class="lineCov">        260 :     parser-&gt;end = data + size;</span>
+<a name="1058"><span class="lineNum">    1058 </span><span class="lineCov">        260 : }</span></a>
+<span class="lineNum">    1059 </span>            : 
+<span class="lineNum">    1060 </span><span class="lineCov">        260 : void uri_parser_init(struct uri_parser *parser,</span>
+<span class="lineNum">    1061 </span>            :     pool_t pool, const char *uri)
+<span class="lineNum">    1062 </span>            : {
+<span class="lineNum">    1063 </span>            :     uri_parser_init_data
+<span class="lineNum">    1064 </span><span class="lineCov">        260 :         (parser, pool, (const unsigned char *)uri, strlen(uri));</span>
+<a name="1065"><span class="lineNum">    1065 </span><span class="lineCov">        260 : }</span></a>
+<span class="lineNum">    1066 </span>            : 
+<span class="lineNum">    1067 </span><span class="lineCov">        666 : string_t *uri_parser_get_tmpbuf(struct uri_parser *parser, size_t size)</span>
+<span class="lineNum">    1068 </span>            : {
+<span class="lineNum">    1069 </span><span class="lineCov">        666 :     if (parser-&gt;tmpbuf == NULL)</span>
+<span class="lineNum">    1070 </span><span class="lineCov">        440 :         parser-&gt;tmpbuf = str_new(parser-&gt;pool, size);</span>
+<span class="lineNum">    1071 </span>            :     else
+<span class="lineNum">    1072 </span><span class="lineCov">        226 :         str_truncate(parser-&gt;tmpbuf, 0);</span>
+<span class="lineNum">    1073 </span><span class="lineCov">        666 :     return parser-&gt;tmpbuf;</span>
+<a name="1074"><span class="lineNum">    1074 </span>            : }</a>
+<span class="lineNum">    1075 </span>            : 
+<span class="lineNum">    1076 </span><span class="lineCov">        365 : int uri_parse_absolute_generic(struct uri_parser *parser,</span>
+<span class="lineNum">    1077 </span>            :     enum uri_parse_flags flags)
+<span class="lineNum">    1078 </span>            : {
+<span class="lineNum">    1079 </span><span class="lineCov">        365 :     int relative, aret, ret = 0;</span>
+<span class="lineNum">    1080 </span>            : 
+<span class="lineNum">    1081 </span>            :     /*
+<span class="lineNum">    1082 </span>            :        URI           = scheme &quot;:&quot; hier-part [ &quot;?&quot; query ] [ &quot;#&quot; fragment ]
+<span class="lineNum">    1083 </span>            : 
+<span class="lineNum">    1084 </span>            :        hier-part     = &quot;//&quot; authority path-abempty
+<span class="lineNum">    1085 </span>            :                        / path-absolute
+<span class="lineNum">    1086 </span>            :                        / path-rootless
+<span class="lineNum">    1087 </span>            :                        / path-empty
+<span class="lineNum">    1088 </span>            :        path-abempty  = *( &quot;/&quot; segment )
+<span class="lineNum">    1089 </span>            :        path-absolute = &quot;/&quot; [ segment-nz *( &quot;/&quot; segment ) ]
+<span class="lineNum">    1090 </span>            :        path-rootless = segment-nz *( &quot;/&quot; segment )
+<span class="lineNum">    1091 </span>            :        path-empty    = 0&lt;pchar&gt;
+<span class="lineNum">    1092 </span>            : 
+<span class="lineNum">    1093 </span>            :        segment       = *pchar
+<span class="lineNum">    1094 </span>            :        segment-nz    = 1*pchar
+<span class="lineNum">    1095 </span>            :      */
+<span class="lineNum">    1096 </span>            : 
+<span class="lineNum">    1097 </span>            :     /* scheme &quot;:&quot; */
+<span class="lineNum">    1098 </span><span class="lineCov">        365 :     if ((flags &amp; URI_PARSE_SCHEME_EXTERNAL) == 0 &amp;&amp;</span>
+<span class="lineNum">    1099 </span>            :         (ret=uri_parse_scheme(parser, NULL)) &lt;= 0) {
+<span class="lineNum">    1100 </span><span class="lineCov">          3 :         if (ret == 0)</span>
+<span class="lineNum">    1101 </span><span class="lineCov">          1 :             parser-&gt;error = &quot;Missing scheme&quot;;</span>
+<span class="lineNum">    1102 </span><span class="lineCov">          3 :         return -1;</span>
+<span class="lineNum">    1103 </span>            :     }
+<span class="lineNum">    1104 </span>            : 
+<span class="lineNum">    1105 </span>            :     /* &quot;//&quot; authority */
+<span class="lineNum">    1106 </span><span class="lineCov">        362 :     if ((aret=uri_parse_slashslash_authority</span>
+<span class="lineNum">    1107 </span>            :         (parser, NULL)) &lt; 0)
+<span class="lineNum">    1108 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">    1109 </span>            : 
+<span class="lineNum">    1110 </span>            :     /* path-absolute / path-rootless / path-empty */
+<span class="lineNum">    1111 </span><span class="lineCov">        358 :     if (aret == 0) {</span>
+<span class="lineNum">    1112 </span><span class="lineCov">        149 :         ret = uri_parse_path(parser, &amp;relative, NULL);</span>
+<span class="lineNum">    1113 </span>            :     /* path-abempty */
+<span class="lineNum">    1114 </span><span class="lineCov">        209 :     } else if (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; *parser-&gt;cur == '/') {</span>
+<span class="lineNum">    1115 </span><span class="lineCov">        179 :         ret = uri_parse_path(parser,    &amp;relative, NULL);</span>
+<span class="lineNum">    1116 </span><span class="lineCov">        179 :         i_assert(ret &lt;= 0 || relative == 0);</span>
+<span class="lineNum">    1117 </span>            :     }
+<span class="lineNum">    1118 </span><span class="lineCov">        358 :     if (ret &lt; 0)</span>
+<span class="lineNum">    1119 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">    1120 </span>            : 
+<span class="lineNum">    1121 </span>            :     /* [ &quot;?&quot; query ] */
+<span class="lineNum">    1122 </span><span class="lineCov">        356 :     if (uri_parse_query(parser, NULL) &lt; 0)</span>
+<span class="lineNum">    1123 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1124 </span>            : 
+<span class="lineNum">    1125 </span>            :     /* [ &quot;#&quot; fragment ] */
+<span class="lineNum">    1126 </span><span class="lineCov">        356 :     if ((ret=uri_parse_fragment(parser, NULL)) &lt; 0)</span>
+<span class="lineNum">    1127 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">    1128 </span><span class="lineCov">        356 :     if (ret &gt; 0 &amp;&amp; (flags &amp; URI_PARSE_ALLOW_FRAGMENT_PART) == 0) {</span>
+<span class="lineNum">    1129 </span><span class="lineNoCov">          0 :         parser-&gt;error = &quot;Fragment part not allowed&quot;;</span>
+<span class="lineNum">    1130 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1131 </span>            :     }
+<span class="lineNum">    1132 </span>            : 
+<span class="lineNum">    1133 </span><span class="lineCov">        356 :     i_assert(parser-&gt;cur == parser-&gt;end);</span>
+<span class="lineNum">    1134 </span><span class="lineCov">        356 :     return 0;</span>
+<span class="lineNum">    1135 </span>            : }
+<span class="lineNum">    1136 </span>            : 
+<span class="lineNum">    1137 </span>            : /*
+<span class="lineNum">    1138 </span>            :  * Generic URI manipulation
+<a name="1139"><span class="lineNum">    1139 </span>            :  */</a>
+<span class="lineNum">    1140 </span>            : 
+<span class="lineNum">    1141 </span><span class="lineCov">        103 : void uri_host_copy(pool_t pool, struct uri_host *dest,</span>
+<span class="lineNum">    1142 </span>            :     const struct uri_host *src)
+<span class="lineNum">    1143 </span>            : {
+<span class="lineNum">    1144 </span><span class="lineCov">        103 :     const char *host_name = src-&gt;name;</span>
+<span class="lineNum">    1145 </span>            : 
+<span class="lineNum">    1146 </span>            :     /* create host name literal if caller is lazy */
+<span class="lineNum">    1147 </span><span class="lineCov">        103 :     if (host_name == NULL &amp;&amp; src-&gt;ip.family != 0) {</span>
+<span class="lineNum">    1148 </span><span class="lineNoCov">          0 :         host_name = net_ip2addr(&amp;src-&gt;ip);</span>
+<span class="lineNum">    1149 </span><span class="lineNoCov">          0 :         i_assert(*host_name != '\0');</span>
+<span class="lineNum">    1150 </span>            :     }
+<span class="lineNum">    1151 </span>            : 
+<span class="lineNum">    1152 </span><span class="lineCov">        103 :     *dest = *src;</span>
+<span class="lineNum">    1153 </span><span class="lineCov">        103 :     dest-&gt;name = p_strdup(pool, host_name);</span>
+<span class="lineNum">    1154 </span><span class="lineCov">        103 : }</span>
+<span class="lineNum">    1155 </span>            : 
+<span class="lineNum">    1156 </span>            : /*
+<span class="lineNum">    1157 </span>            :  * Check generic URI
+<a name="1158"><span class="lineNum">    1158 </span>            :  */</a>
+<span class="lineNum">    1159 </span>            : 
+<span class="lineNum">    1160 </span><span class="lineCov">        365 : int uri_check_data(const unsigned char *data, size_t size,</span>
+<span class="lineNum">    1161 </span>            :     enum uri_parse_flags flags, const char **error_r)
+<span class="lineNum">    1162 </span>            : {
+<span class="lineNum">    1163 </span>            :     struct uri_parser parser;
+<span class="lineNum">    1164 </span>            :     int ret;
+<span class="lineNum">    1165 </span>            : 
+<span class="lineNum">    1166 </span><span class="lineCov">        365 :     i_zero(&amp;parser);</span>
+<span class="lineNum">    1167 </span><span class="lineCov">        365 :     parser.pool = pool_datastack_create();</span>
+<span class="lineNum">    1168 </span><span class="lineCov">        365 :     parser.begin = parser.cur = data;</span>
+<span class="lineNum">    1169 </span><span class="lineCov">        365 :     parser.end = data + size;</span>
+<span class="lineNum">    1170 </span>            : 
+<span class="lineNum">    1171 </span><span class="lineCov">        365 :     ret = uri_parse_absolute_generic(&amp;parser, flags);</span>
+<span class="lineNum">    1172 </span><span class="lineCov">        365 :     *error_r = parser.error;</span>
+<span class="lineNum">    1173 </span><span class="lineCov">        365 :     return ret;</span>
+<a name="1174"><span class="lineNum">    1174 </span>            : }</a>
+<span class="lineNum">    1175 </span>            : 
+<span class="lineNum">    1176 </span><span class="lineCov">        365 : int uri_check(const char *uri, enum uri_parse_flags flags,</span>
+<span class="lineNum">    1177 </span>            :     const char **error_r)
+<span class="lineNum">    1178 </span>            : {
+<span class="lineNum">    1179 </span><span class="lineCov">        365 :     return uri_check_data</span>
+<span class="lineNum">    1180 </span><span class="lineCov">        365 :         ((unsigned char *)uri, strlen(uri), flags, error_r);</span>
+<span class="lineNum">    1181 </span>            : }
+<span class="lineNum">    1182 </span>            : 
+<span class="lineNum">    1183 </span>            : /*
+<span class="lineNum">    1184 </span>            :  * Generic URI construction
+<a name="1185"><span class="lineNum">    1185 </span>            :  */</a>
+<span class="lineNum">    1186 </span>            : 
+<span class="lineNum">    1187 </span><span class="lineCov">         94 : void uri_data_encode(string_t *out,</span>
+<span class="lineNum">    1188 </span>            :     const unsigned char esc_table[256],
+<span class="lineNum">    1189 </span>            :     unsigned char esc_mask, const char *esc_extra,
+<span class="lineNum">    1190 </span>            :     const char *data)
+<span class="lineNum">    1191 </span>            : {
+<span class="lineNum">    1192 </span>            :     const unsigned char *pbegin, *p;
+<span class="lineNum">    1193 </span>            : 
+<span class="lineNum">    1194 </span><span class="lineCov">         94 :     pbegin = p = (const unsigned char *)data;</span>
+<span class="lineNum">    1195 </span><span class="lineCov">       1056 :     while (*p != '\0') {</span>
+<span class="lineNum">    1196 </span><span class="lineCov">        868 :         if ((*p &amp; 0x80) != 0 || (esc_table[*p] &amp; esc_mask) == 0 ||</span>
+<span class="lineNum">    1197 </span><span class="lineCov">        401 :             (esc_extra != NULL &amp;&amp; strchr(esc_extra, (char)*p) != NULL)) {</span>
+<span class="lineNum">    1198 </span><span class="lineCov">         14 :             if ((p - pbegin) &gt; 0)</span>
+<span class="lineNum">    1199 </span><span class="lineCov">         12 :                 str_append_n(out, pbegin, p - pbegin);</span>
+<span class="lineNum">    1200 </span><span class="lineCov">         14 :             str_printfa(out, &quot;%%%02x&quot;, *p);</span>
+<span class="lineNum">    1201 </span><span class="lineCov">         14 :             p++;</span>
+<span class="lineNum">    1202 </span><span class="lineCov">         14 :             pbegin = p;</span>
+<span class="lineNum">    1203 </span>            :         } else {
+<span class="lineNum">    1204 </span><span class="lineCov">        854 :             p++;</span>
+<span class="lineNum">    1205 </span>            :         }
+<span class="lineNum">    1206 </span>            :     }
+<span class="lineNum">    1207 </span><span class="lineCov">         94 :     if ((p - pbegin) &gt; 0)</span>
+<span class="lineNum">    1208 </span><span class="lineCov">         93 :         str_append_n(out, pbegin, p - pbegin);</span>
+<a name="1209"><span class="lineNum">    1209 </span><span class="lineCov">         94 : }</span></a>
+<span class="lineNum">    1210 </span>            : 
+<span class="lineNum">    1211 </span><span class="lineCov">         32 : void uri_append_scheme(string_t *out, const char *scheme)</span>
+<span class="lineNum">    1212 </span>            : {
+<span class="lineNum">    1213 </span><span class="lineCov">         32 :     str_append(out, scheme);</span>
+<span class="lineNum">    1214 </span><span class="lineCov">         32 :     str_append_c(out, ':');</span>
+<a name="1215"><span class="lineNum">    1215 </span><span class="lineCov">         32 : }</span></a>
+<span class="lineNum">    1216 </span>            : 
+<span class="lineNum">    1217 </span><span class="lineCov">         34 : void uri_append_user_data(string_t *out, const char *esc,</span>
+<span class="lineNum">    1218 </span>            :     const char *data)
+<span class="lineNum">    1219 </span>            : {
+<span class="lineNum">    1220 </span><span class="lineCov">         34 :     uri_data_encode(out, _uri_char_lookup, CHAR_MASK_UCHAR, esc, data);</span>
+<a name="1221"><span class="lineNum">    1221 </span><span class="lineCov">         34 : }</span></a>
+<span class="lineNum">    1222 </span>            : 
+<span class="lineNum">    1223 </span><span class="lineNoCov">          0 : void uri_append_userinfo(string_t *out, const char *userinfo)</span>
+<span class="lineNum">    1224 </span>            : {
+<span class="lineNum">    1225 </span><span class="lineNoCov">          0 :     uri_append_user_data(out, NULL, userinfo);</span>
+<span class="lineNum">    1226 </span><span class="lineNoCov">          0 :     str_append_c(out, '@');</span>
+<a name="1227"><span class="lineNum">    1227 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1228 </span>            : 
+<span class="lineNum">    1229 </span><span class="lineCov">         30 : void uri_append_host_name(string_t *out, const char *name)</span>
+<span class="lineNum">    1230 </span>            : {
+<span class="lineNum">    1231 </span><span class="lineCov">         30 :     uri_data_encode(out, _uri_char_lookup,</span>
+<span class="lineNum">    1232 </span>            :             CHAR_MASK_UNRESERVED | CHAR_MASK_SUB_DELIMS, NULL, name);
+<a name="1233"><span class="lineNum">    1233 </span><span class="lineCov">         30 : }</span></a>
+<span class="lineNum">    1234 </span>            : 
+<span class="lineNum">    1235 </span><span class="lineNoCov">          0 : void uri_append_host_ip(string_t *out, const struct ip_addr *host_ip)</span>
+<span class="lineNum">    1236 </span>            : {
+<span class="lineNum">    1237 </span><span class="lineNoCov">          0 :     const char *addr = net_ip2addr(host_ip);</span>
+<span class="lineNum">    1238 </span>            : 
+<span class="lineNum">    1239 </span><span class="lineNoCov">          0 :     i_assert(host_ip-&gt;family != 0);</span>
+<span class="lineNum">    1240 </span>            : 
+<span class="lineNum">    1241 </span><span class="lineNoCov">          0 :     if (host_ip-&gt;family == AF_INET) {</span>
+<span class="lineNum">    1242 </span><span class="lineNoCov">          0 :         str_append(out, addr);</span>
+<span class="lineNum">    1243 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1244 </span>            :     }
+<span class="lineNum">    1245 </span>            : 
+<span class="lineNum">    1246 </span><span class="lineNoCov">          0 :     i_assert(host_ip-&gt;family == AF_INET6);</span>
+<span class="lineNum">    1247 </span><span class="lineNoCov">          0 :     str_append_c(out, '[');</span>
+<span class="lineNum">    1248 </span><span class="lineNoCov">          0 :     str_append(out, addr);</span>
+<span class="lineNum">    1249 </span><span class="lineNoCov">          0 :     str_append_c(out, ']');</span>
+<a name="1250"><span class="lineNum">    1250 </span>            : }</a>
+<span class="lineNum">    1251 </span>            : 
+<span class="lineNum">    1252 </span><span class="lineCov">         32 : void uri_append_host(string_t *out, const struct uri_host *host)</span>
+<span class="lineNum">    1253 </span>            : {
+<span class="lineNum">    1254 </span><span class="lineCov">         32 :     if (host-&gt;name != NULL) {</span>
+<span class="lineNum">    1255 </span>            :         /* assume IPv6 literal if starts with '['; avoid encoding */
+<span class="lineNum">    1256 </span><span class="lineCov">         32 :         if (*host-&gt;name == '[')</span>
+<span class="lineNum">    1257 </span><span class="lineCov">          2 :             str_append(out, host-&gt;name);</span>
+<span class="lineNum">    1258 </span>            :         else
+<span class="lineNum">    1259 </span><span class="lineCov">         30 :             uri_append_host_name(out, host-&gt;name);</span>
+<span class="lineNum">    1260 </span>            :     } else
+<span class="lineNum">    1261 </span><span class="lineNoCov">          0 :         uri_append_host_ip(out, &amp;host-&gt;ip);</span>
+<a name="1262"><span class="lineNum">    1262 </span><span class="lineCov">         32 : }</span></a>
+<span class="lineNum">    1263 </span>            : 
+<span class="lineNum">    1264 </span><span class="lineCov">         32 : void uri_append_port(string_t *out, in_port_t port)</span>
+<span class="lineNum">    1265 </span>            : {
+<span class="lineNum">    1266 </span><span class="lineCov">         32 :     if (port != 0)</span>
+<span class="lineNum">    1267 </span><span class="lineCov">          2 :         str_printfa(out, &quot;:%u&quot;, port);</span>
+<a name="1268"><span class="lineNum">    1268 </span><span class="lineCov">         32 : }</span></a>
+<span class="lineNum">    1269 </span>            : 
+<span class="lineNum">    1270 </span><span class="lineNoCov">          0 : void uri_append_path_segment_data(string_t *out, const char *esc,</span>
+<span class="lineNum">    1271 </span>            :                   const char *data)
+<span class="lineNum">    1272 </span>            : {
+<span class="lineNum">    1273 </span><span class="lineNoCov">          0 :     uri_data_encode(out, _uri_char_lookup, CHAR_MASK_PCHAR, esc, data);</span>
+<a name="1274"><span class="lineNum">    1274 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1275 </span>            : 
+<span class="lineNum">    1276 </span><span class="lineNoCov">          0 : void uri_append_path_segment(string_t *out, const char *segment)</span>
+<span class="lineNum">    1277 </span>            : {
+<span class="lineNum">    1278 </span><span class="lineNoCov">          0 :     str_append_c(out, '/');</span>
+<span class="lineNum">    1279 </span><span class="lineNoCov">          0 :     if (*segment != '\0')</span>
+<span class="lineNum">    1280 </span><span class="lineNoCov">          0 :         uri_append_path_data(out, NULL, segment);</span>
+<a name="1281"><span class="lineNum">    1281 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1282 </span>            : 
+<span class="lineNum">    1283 </span><span class="lineCov">         29 : void uri_append_path_data(string_t *out, const char *esc,</span>
+<span class="lineNum">    1284 </span>            :               const char *data)
+<span class="lineNum">    1285 </span>            : {
+<span class="lineNum">    1286 </span><span class="lineCov">         29 :     uri_data_encode(out, _uri_char_lookup, CHAR_MASK_PFCHAR, esc, data);</span>
+<a name="1287"><span class="lineNum">    1287 </span><span class="lineCov">         29 : }</span></a>
+<span class="lineNum">    1288 </span>            : 
+<span class="lineNum">    1289 </span><span class="lineNoCov">          0 : void uri_append_path(string_t *out, const char *path)</span>
+<span class="lineNum">    1290 </span>            : {
+<span class="lineNum">    1291 </span><span class="lineNoCov">          0 :     str_append_c(out, '/');</span>
+<span class="lineNum">    1292 </span><span class="lineNoCov">          0 :     if (*path != '\0')</span>
+<span class="lineNum">    1293 </span><span class="lineNoCov">          0 :         uri_append_path_data(out, NULL, path);</span>
+<a name="1294"><span class="lineNum">    1294 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1295 </span>            : 
+<span class="lineNum">    1296 </span><span class="lineCov">          1 : void uri_append_query_data(string_t *out, const char *esc,</span>
+<span class="lineNum">    1297 </span>            :                const char *data)
+<span class="lineNum">    1298 </span>            : {
+<span class="lineNum">    1299 </span><span class="lineCov">          1 :     uri_data_encode(out, _uri_char_lookup, CHAR_MASK_QCHAR, esc, data);</span>
+<a name="1300"><span class="lineNum">    1300 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">    1301 </span>            : 
+<span class="lineNum">    1302 </span><span class="lineNoCov">          0 : void uri_append_query(string_t *out, const char *query)</span>
+<span class="lineNum">    1303 </span>            : {
+<span class="lineNum">    1304 </span><span class="lineNoCov">          0 :     str_append_c(out, '?');</span>
+<span class="lineNum">    1305 </span><span class="lineNoCov">          0 :     if (*query != '\0')</span>
+<span class="lineNum">    1306 </span><span class="lineNoCov">          0 :         uri_append_query_data(out, NULL, query);</span>
+<a name="1307"><span class="lineNum">    1307 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1308 </span>            : 
+<span class="lineNum">    1309 </span><span class="lineNoCov">          0 : void uri_append_fragment_data(string_t *out, const char *esc,</span>
+<span class="lineNum">    1310 </span>            :                   const char *data)
+<span class="lineNum">    1311 </span>            : {
+<span class="lineNum">    1312 </span><span class="lineNoCov">          0 :     uri_data_encode(out, _uri_char_lookup, CHAR_MASK_QCHAR, esc, data);</span>
+<a name="1313"><span class="lineNum">    1313 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1314 </span>            : 
+<span class="lineNum">    1315 </span><span class="lineNoCov">          0 : void uri_append_fragment(string_t *out, const char *fragment)</span>
+<span class="lineNum">    1316 </span>            : {
+<span class="lineNum">    1317 </span><span class="lineNoCov">          0 :     str_append_c(out, '#');</span>
+<span class="lineNum">    1318 </span><span class="lineNoCov">          0 :     if (*fragment != '\0')</span>
+<span class="lineNum">    1319 </span><span class="lineNoCov">          0 :         uri_append_fragment_data(out, NULL, fragment);</span>
+<span class="lineNum">    1320 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

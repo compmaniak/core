@@ -1,0 +1,1443 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-index/mail-index-transaction-update.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-index</a> - mail-index-transaction-update.c<span style="font-size: 80%;"> (source / <a href="mail-index-transaction-update.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">408</td>
+            <td class="headerCovTableEntry">726</td>
+            <td class="headerCovTableEntryLo">56.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">22</td>
+            <td class="headerCovTableEntry">50</td>
+            <td class="headerCovTableEntryLo">44.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /* Inside transaction we keep messages stored in sequences in uid fields.
+<span class="lineNum">       4 </span>            :    Before they're written to transaction log the sequences are changed to
+<span class="lineNum">       5 </span>            :    UIDs. */
+<span class="lineNum">       6 </span>            : 
+<span class="lineNum">       7 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;time-util.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;mail-index-private.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;mail-index-transaction-private.h&quot;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : static bool
+<span class="lineNum">      14 </span>            : mail_index_transaction_has_ext_changes(struct mail_index_transaction *t);
+<a name="15"><span class="lineNum">      15 </span>            : </a>
+<span class="lineNum">      16 </span>            : struct mail_index_record *
+<span class="lineNum">      17 </span><span class="lineCov">         13 : mail_index_transaction_lookup(struct mail_index_transaction *t, uint32_t seq)</span>
+<span class="lineNum">      18 </span>            : {
+<span class="lineNum">      19 </span><span class="lineCov">         13 :     i_assert(seq &gt;= t-&gt;first_new_seq &amp;&amp; seq &lt;= t-&gt;last_new_seq);</span>
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span><span class="lineCov">         13 :     return array_idx_modifiable(&amp;t-&gt;appends, seq - t-&gt;first_new_seq);</span>
+<a name="22"><span class="lineNum">      22 </span>            : }</a>
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span><span class="lineCov">         45 : void mail_index_transaction_reset_v(struct mail_index_transaction *t)</span>
+<span class="lineNum">      25 </span>            : {
+<span class="lineNum">      26 </span>            :     ARRAY_TYPE(seq_array) *rec;
+<span class="lineNum">      27 </span>            :     struct mail_index_transaction_ext_hdr_update *ext_hdr;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_rec_updates)) {</span>
+<span class="lineNum">      30 </span><span class="lineCov">          4 :         array_foreach_modifiable(&amp;t-&gt;ext_rec_updates, rec) {</span>
+<span class="lineNum">      31 </span><span class="lineCov">          3 :             if (array_is_created(rec))</span>
+<span class="lineNum">      32 </span><span class="lineCov">          1 :                 array_free(rec);</span>
+<span class="lineNum">      33 </span>            :         }
+<span class="lineNum">      34 </span><span class="lineCov">          1 :         array_free(&amp;t-&gt;ext_rec_updates);</span>
+<span class="lineNum">      35 </span>            :     }
+<span class="lineNum">      36 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_rec_atomics)) {</span>
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :         array_foreach_modifiable(&amp;t-&gt;ext_rec_atomics, rec) {</span>
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :             if (array_is_created(rec))</span>
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 :                 array_free(rec);</span>
+<span class="lineNum">      40 </span>            :         }
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;ext_rec_atomics);</span>
+<span class="lineNum">      42 </span>            :     }
+<span class="lineNum">      43 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_hdr_updates)) {</span>
+<span class="lineNum">      44 </span><span class="lineCov">         17 :         array_foreach_modifiable(&amp;t-&gt;ext_hdr_updates, ext_hdr) {</span>
+<span class="lineNum">      45 </span><span class="lineCov">         13 :             i_free(ext_hdr-&gt;data);</span>
+<span class="lineNum">      46 </span><span class="lineCov">         13 :             i_free(ext_hdr-&gt;mask);</span>
+<span class="lineNum">      47 </span>            :         }
+<span class="lineNum">      48 </span><span class="lineCov">          4 :         array_free(&amp;t-&gt;ext_hdr_updates);</span>
+<span class="lineNum">      49 </span>            :     }
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;keyword_updates)) {</span>
+<span class="lineNum">      52 </span>            :         struct mail_index_transaction_keyword_update *u;
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :         array_foreach_modifiable(&amp;t-&gt;keyword_updates, u) {</span>
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :             if (array_is_created(&amp;u-&gt;add_seq))</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :                 array_free(&amp;u-&gt;add_seq);</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :             if (array_is_created(&amp;u-&gt;remove_seq))</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :                 array_free(&amp;u-&gt;remove_seq);</span>
+<span class="lineNum">      59 </span>            :         }
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;keyword_updates);</span>
+<span class="lineNum">      61 </span>            :     }
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;appends))</span>
+<span class="lineNum">      64 </span><span class="lineCov">         19 :         array_free(&amp;t-&gt;appends);</span>
+<span class="lineNum">      65 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;modseq_updates))</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;modseq_updates);</span>
+<span class="lineNum">      67 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;expunges))</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;expunges);</span>
+<span class="lineNum">      69 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;updates))</span>
+<span class="lineNum">      70 </span><span class="lineCov">         11 :         array_free(&amp;t-&gt;updates);</span>
+<span class="lineNum">      71 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_resizes))</span>
+<span class="lineNum">      72 </span><span class="lineCov">          1 :         array_free(&amp;t-&gt;ext_resizes);</span>
+<span class="lineNum">      73 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_resets))</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;ext_resets);</span>
+<span class="lineNum">      75 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_reset_ids))</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;ext_reset_ids);</span>
+<span class="lineNum">      77 </span><span class="lineCov">         45 :     if (array_is_created(&amp;t-&gt;ext_reset_atomic))</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;ext_reset_atomic);</span>
+<span class="lineNum">      79 </span><span class="lineCov">         45 :     buffer_free(&amp;t-&gt;attribute_updates);</span>
+<span class="lineNum">      80 </span><span class="lineCov">         45 :     buffer_free(&amp;t-&gt;attribute_updates_suffix);</span>
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineCov">         45 :     t-&gt;first_new_seq = mail_index_view_get_messages_count(t-&gt;view)+1;</span>
+<span class="lineNum">      83 </span><span class="lineCov">         45 :     t-&gt;last_new_seq = 0;</span>
+<span class="lineNum">      84 </span><span class="lineCov">         45 :     t-&gt;last_update_idx = 0;</span>
+<span class="lineNum">      85 </span><span class="lineCov">         45 :     t-&gt;min_flagupdate_seq = 0;</span>
+<span class="lineNum">      86 </span><span class="lineCov">         45 :     t-&gt;max_flagupdate_seq = 0;</span>
+<span class="lineNum">      87 </span><span class="lineCov">         45 :     t-&gt;min_highest_modseq = 0;</span>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">         45 :     memset(t-&gt;pre_hdr_mask, 0, sizeof(t-&gt;pre_hdr_mask));</span>
+<span class="lineNum">      90 </span><span class="lineCov">         45 :     memset(t-&gt;post_hdr_mask, 0, sizeof(t-&gt;post_hdr_mask));</span>
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineCov">         45 :     t-&gt;appends_nonsorted = FALSE;</span>
+<span class="lineNum">      93 </span><span class="lineCov">         45 :     t-&gt;expunges_nonsorted = FALSE;</span>
+<span class="lineNum">      94 </span><span class="lineCov">         45 :     t-&gt;drop_unnecessary_flag_updates = FALSE;</span>
+<span class="lineNum">      95 </span><span class="lineCov">         45 :     t-&gt;pre_hdr_changed = FALSE;</span>
+<span class="lineNum">      96 </span><span class="lineCov">         45 :     t-&gt;post_hdr_changed = FALSE;</span>
+<span class="lineNum">      97 </span><span class="lineCov">         45 :     t-&gt;reset = FALSE;</span>
+<span class="lineNum">      98 </span><span class="lineCov">         45 :     t-&gt;index_deleted = FALSE;</span>
+<span class="lineNum">      99 </span><span class="lineCov">         45 :     t-&gt;index_undeleted = FALSE;</span>
+<span class="lineNum">     100 </span><span class="lineCov">         45 :     t-&gt;log_updates = FALSE;</span>
+<span class="lineNum">     101 </span><span class="lineCov">         45 :     t-&gt;log_ext_updates = FALSE;</span>
+<span class="lineNum">     102 </span><span class="lineCov">         45 :     t-&gt;tail_offset_changed = FALSE;</span>
+<a name="103"><span class="lineNum">     103 </span><span class="lineCov">         45 : }</span></a>
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 : void mail_index_transaction_set_log_updates(struct mail_index_transaction *t)</span>
+<span class="lineNum">     106 </span>            : {
+<span class="lineNum">     107 </span>            :     /* flag updates aren't included in log_updates */
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     t-&gt;log_updates = array_is_created(&amp;t-&gt;appends) ||</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         array_is_created(&amp;t-&gt;modseq_updates) ||</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :         array_is_created(&amp;t-&gt;expunges) ||</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         array_is_created(&amp;t-&gt;keyword_updates) ||</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         t-&gt;attribute_updates != NULL ||</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :         t-&gt;pre_hdr_changed || t-&gt;post_hdr_changed ||</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         t-&gt;min_highest_modseq != 0;</span>
+<a name="115"><span class="lineNum">     115 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span><span class="lineCov">         32 : void mail_index_update_day_headers(struct mail_index_transaction *t,</span>
+<span class="lineNum">     118 </span>            :                    time_t day_stamp)
+<span class="lineNum">     119 </span>            : {
+<span class="lineNum">     120 </span>            :     struct mail_index_header hdr;
+<span class="lineNum">     121 </span>            :     const struct mail_index_record *rec;
+<span class="lineNum">     122 </span><span class="lineCov">         32 :     const int max_days = N_ELEMENTS(hdr.day_first_uid);</span>
+<span class="lineNum">     123 </span>            :     time_t stamp;
+<span class="lineNum">     124 </span>            :     int i, days;
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">         32 :     hdr = *mail_index_get_header(t-&gt;view);</span>
+<span class="lineNum">     127 </span><span class="lineCov">         32 :     rec = array_idx(&amp;t-&gt;appends, 0);</span>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">         32 :     stamp = time_to_local_day_start(day_stamp);</span>
+<span class="lineNum">     130 </span><span class="lineCov">         32 :     if ((time_t)hdr.day_stamp &gt;= stamp)</span>
+<span class="lineNum">     131 </span><span class="lineCov">         53 :         return;</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span>            :     /* get number of days since last message */
+<span class="lineNum">     134 </span><span class="lineCov">         11 :     days = (stamp - hdr.day_stamp) / (3600*24);</span>
+<span class="lineNum">     135 </span><span class="lineCov">         11 :     if (days &gt; max_days)</span>
+<span class="lineNum">     136 </span><span class="lineCov">          2 :         days = max_days;</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span>            :     /* @UNSAFE: move days forward and fill the missing days with old
+<span class="lineNum">     139 </span>            :        day_first_uid[0]. */
+<span class="lineNum">     140 </span><span class="lineCov">         11 :     if (days &gt; 0 &amp;&amp; days &lt; max_days)</span>
+<span class="lineNum">     141 </span><span class="lineCov">          8 :         memmove(hdr.day_first_uid + days, hdr.day_first_uid,</span>
+<span class="lineNum">     142 </span><span class="lineCov">          8 :             (max_days - days) * sizeof(hdr.day_first_uid[0]));</span>
+<span class="lineNum">     143 </span><span class="lineCov">         53 :     for (i = 1; i &lt; days; i++)</span>
+<span class="lineNum">     144 </span><span class="lineCov">         42 :         hdr.day_first_uid[i] = hdr.day_first_uid[0];</span>
+<span class="lineNum">     145 </span>            : 
+<span class="lineNum">     146 </span><span class="lineCov">         11 :     hdr.day_stamp = stamp;</span>
+<span class="lineNum">     147 </span><span class="lineCov">         11 :     hdr.day_first_uid[0] = rec-&gt;uid;</span>
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineCov">         11 :     mail_index_update_header(t,</span>
+<span class="lineNum">     150 </span>            :         offsetof(struct mail_index_header, day_stamp),
+<span class="lineNum">     151 </span>            :         &amp;hdr.day_stamp, sizeof(hdr.day_stamp), FALSE);
+<span class="lineNum">     152 </span><span class="lineCov">         11 :     mail_index_update_header(t,</span>
+<span class="lineNum">     153 </span>            :         offsetof(struct mail_index_header, day_first_uid),
+<span class="lineNum">     154 </span>            :         hdr.day_first_uid, sizeof(hdr.day_first_uid), FALSE);
+<a name="155"><span class="lineNum">     155 </span>            : }</a>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineCov">         29 : void mail_index_append(struct mail_index_transaction *t, uint32_t uid,</span>
+<span class="lineNum">     158 </span>            :                uint32_t *seq_r)
+<span class="lineNum">     159 </span>            : {
+<span class="lineNum">     160 </span>            :         struct mail_index_record *rec;
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineCov">         29 :     i_assert(!t-&gt;no_appends);</span>
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span><span class="lineCov">         29 :     t-&gt;log_updates = TRUE;</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineCov">         29 :     if (!array_is_created(&amp;t-&gt;appends))</span>
+<span class="lineNum">     167 </span><span class="lineCov">         22 :         i_array_init(&amp;t-&gt;appends, 32);</span>
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span>            :     /* sequence number is visible only inside given view,
+<span class="lineNum">     170 </span>            :        so let it generate it */
+<span class="lineNum">     171 </span><span class="lineCov">         29 :     if (t-&gt;last_new_seq != 0)</span>
+<span class="lineNum">     172 </span><span class="lineCov">          7 :         *seq_r = ++t-&gt;last_new_seq;</span>
+<span class="lineNum">     173 </span>            :     else
+<span class="lineNum">     174 </span><span class="lineCov">         22 :         *seq_r = t-&gt;last_new_seq = t-&gt;first_new_seq;</span>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span><span class="lineCov">         29 :     rec = array_append_space(&amp;t-&gt;appends);</span>
+<span class="lineNum">     177 </span><span class="lineCov">         29 :     if (uid != 0) {</span>
+<span class="lineNum">     178 </span><span class="lineCov">         22 :         rec-&gt;uid = uid;</span>
+<span class="lineNum">     179 </span><span class="lineCov">         43 :         if (!t-&gt;appends_nonsorted &amp;&amp;</span>
+<span class="lineNum">     180 </span><span class="lineCov">         21 :             t-&gt;last_new_seq != t-&gt;first_new_seq) {</span>
+<span class="lineNum">     181 </span>            :             /* if previous record's UID is larger than this one,
+<span class="lineNum">     182 </span>            :                we'll have to sort the appends later */
+<span class="lineNum">     183 </span><span class="lineCov">          2 :             rec = mail_index_transaction_lookup(t, *seq_r - 1);</span>
+<span class="lineNum">     184 </span><span class="lineCov">          2 :             if (rec-&gt;uid &gt; uid)</span>
+<span class="lineNum">     185 </span><span class="lineCov">          1 :                 t-&gt;appends_nonsorted = TRUE;</span>
+<span class="lineNum">     186 </span><span class="lineCov">          1 :             else if (rec-&gt;uid == uid)</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :                 i_panic(&quot;Duplicate UIDs added in transaction&quot;);</span>
+<span class="lineNum">     188 </span>            :         }
+<span class="lineNum">     189 </span><span class="lineCov">         22 :         if (t-&gt;highest_append_uid &lt; uid)</span>
+<span class="lineNum">     190 </span><span class="lineCov">         21 :             t-&gt;highest_append_uid = uid;</span>
+<span class="lineNum">     191 </span>            :     }
+<a name="192"><span class="lineNum">     192 </span><span class="lineCov">         29 : }</span></a>
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span><span class="lineCov">          2 : void mail_index_append_finish_uids(struct mail_index_transaction *t,</span>
+<span class="lineNum">     195 </span>            :                    uint32_t first_uid,
+<span class="lineNum">     196 </span>            :                    ARRAY_TYPE(seq_range) *uids_r)
+<span class="lineNum">     197 </span>            : {
+<span class="lineNum">     198 </span>            :     struct mail_index_record *recs;
+<span class="lineNum">     199 </span>            :     unsigned int i, count;
+<span class="lineNum">     200 </span>            :     struct seq_range *range;
+<span class="lineNum">     201 </span>            :     uint32_t next_uid;
+<span class="lineNum">     202 </span>            :     
+<span class="lineNum">     203 </span><span class="lineCov">          2 :     if (!array_is_created(&amp;t-&gt;appends))</span>
+<span class="lineNum">     204 </span><span class="lineCov">          2 :         return;</span>
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span><span class="lineCov">          2 :     i_assert(first_uid &lt; (uint32_t)-1);</span>
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span>            :     /* first find the highest assigned uid */
+<span class="lineNum">     209 </span><span class="lineCov">          2 :     recs = array_get_modifiable(&amp;t-&gt;appends, &amp;count);</span>
+<span class="lineNum">     210 </span><span class="lineCov">          2 :     i_assert(count &gt; 0);</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineCov">          2 :     next_uid = first_uid;</span>
+<span class="lineNum">     213 </span><span class="lineCov">          9 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     214 </span><span class="lineCov">          7 :         if (next_uid &lt;= recs[i].uid)</span>
+<span class="lineNum">     215 </span><span class="lineCov">          2 :             next_uid = recs[i].uid + 1;</span>
+<span class="lineNum">     216 </span>            :     }
+<span class="lineNum">     217 </span><span class="lineCov">          2 :     i_assert(next_uid &gt; 0 &amp;&amp; next_uid &lt; (uint32_t)-1);</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span>            :     /* assign missing uids */
+<span class="lineNum">     220 </span><span class="lineCov">          9 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     221 </span><span class="lineCov">          7 :         if (recs[i].uid == 0 || recs[i].uid &lt; first_uid) {</span>
+<span class="lineNum">     222 </span><span class="lineCov">          5 :             i_assert(next_uid &lt; (uint32_t)-1);</span>
+<span class="lineNum">     223 </span><span class="lineCov">          5 :             recs[i].uid = next_uid++;</span>
+<span class="lineNum">     224 </span><span class="lineCov">         10 :             if (t-&gt;highest_append_uid &lt; recs[i].uid)</span>
+<span class="lineNum">     225 </span><span class="lineCov">          5 :                 t-&gt;highest_append_uid = recs[i].uid;</span>
+<span class="lineNum">     226 </span>            :         } else {
+<span class="lineNum">     227 </span><span class="lineCov">          2 :             if (next_uid != first_uid)</span>
+<span class="lineNum">     228 </span><span class="lineCov">          2 :                 t-&gt;appends_nonsorted = TRUE;</span>
+<span class="lineNum">     229 </span>            :         }
+<span class="lineNum">     230 </span>            :     }
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span>            :     /* write the saved uids range */
+<span class="lineNum">     233 </span><span class="lineCov">          2 :     array_clear(uids_r);</span>
+<span class="lineNum">     234 </span><span class="lineCov">          2 :     range = array_append_space(uids_r);</span>
+<span class="lineNum">     235 </span><span class="lineCov">          2 :     range-&gt;seq1 = range-&gt;seq2 = recs[0].uid;</span>
+<span class="lineNum">     236 </span><span class="lineCov">          7 :     for (i = 1; i &lt; count; i++) {</span>
+<span class="lineNum">     237 </span><span class="lineCov">          5 :         if (range-&gt;seq2 + 1 == recs[i].uid)</span>
+<span class="lineNum">     238 </span><span class="lineCov">          2 :             range-&gt;seq2++;</span>
+<span class="lineNum">     239 </span>            :         else {
+<span class="lineNum">     240 </span><span class="lineCov">          3 :             range = array_append_space(uids_r);</span>
+<span class="lineNum">     241 </span><span class="lineCov">          3 :             range-&gt;seq1 = range-&gt;seq2 = recs[i].uid;</span>
+<span class="lineNum">     242 </span>            :         }
+<span class="lineNum">     243 </span>            :     }
+<a name="244"><span class="lineNum">     244 </span>            : }</a>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span><span class="lineCov">          6 : void mail_index_update_modseq(struct mail_index_transaction *t, uint32_t seq,</span>
+<span class="lineNum">     247 </span>            :                   uint64_t min_modseq)
+<span class="lineNum">     248 </span>            : {
+<span class="lineNum">     249 </span>            :     struct mail_transaction_modseq_update *u;
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span>            :     /* modseq=1 is the minimum always and it's only for mails that were
+<span class="lineNum">     252 </span>            :        created/modified before modseqs were enabled. */
+<span class="lineNum">     253 </span><span class="lineCov">          6 :     if (min_modseq &lt;= 1)</span>
+<span class="lineNum">     254 </span><span class="lineCov">          8 :         return;</span>
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineCov">          4 :     if (!array_is_created(&amp;t-&gt;modseq_updates))</span>
+<span class="lineNum">     257 </span><span class="lineCov">          1 :         i_array_init(&amp;t-&gt;modseq_updates, 32);</span>
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span><span class="lineCov">          4 :     u = array_append_space(&amp;t-&gt;modseq_updates);</span>
+<span class="lineNum">     260 </span><span class="lineCov">          4 :     u-&gt;uid = seq;</span>
+<span class="lineNum">     261 </span><span class="lineCov">          4 :     u-&gt;modseq_low32 = min_modseq &amp; 0xffffffff;</span>
+<span class="lineNum">     262 </span><span class="lineCov">          4 :     u-&gt;modseq_high32 = min_modseq &gt;&gt; 32;</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">          4 :     t-&gt;log_updates = TRUE;</span>
+<a name="265"><span class="lineNum">     265 </span>            : }</a>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 : void mail_index_update_highest_modseq(struct mail_index_transaction *t,</span>
+<span class="lineNum">     268 </span>            :                       uint64_t min_modseq)
+<span class="lineNum">     269 </span>            : {
+<span class="lineNum">     270 </span>            :     /* modseq=1 is the minimum always and it's only for mails that were
+<span class="lineNum">     271 </span>            :        created/modified before modseqs were enabled. */
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     if (min_modseq &lt;= 1)</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     if (t-&gt;min_highest_modseq &lt; min_modseq)</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         t-&gt;min_highest_modseq = min_modseq;</span>
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     t-&gt;log_updates = TRUE;</span>
+<span class="lineNum">     279 </span>            : }
+<a name="280"><span class="lineNum">     280 </span>            : </a>
+<span class="lineNum">     281 </span>            : static void
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 : mail_index_revert_ext(ARRAY_TYPE(seq_array_array) *ext_updates,</span>
+<span class="lineNum">     283 </span>            :               uint32_t seq)
+<span class="lineNum">     284 </span>            : {
+<span class="lineNum">     285 </span>            :     ARRAY_TYPE(seq_array) *seqs;
+<span class="lineNum">     286 </span>            :     unsigned int idx;
+<span class="lineNum">     287 </span>            : 
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     if (!array_is_created(ext_updates))</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(ext_updates, seqs) {</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         if (array_is_created(seqs) &amp;&amp;</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :             mail_index_seq_array_lookup(seqs, seq, &amp;idx))</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             array_delete(seqs, idx, 1);</span>
+<span class="lineNum">     295 </span>            :     }
+<span class="lineNum">     296 </span>            : }
+<a name="297"><span class="lineNum">     297 </span>            : </a>
+<span class="lineNum">     298 </span>            : static void
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 : mail_index_revert_changes_common(struct mail_index_transaction *t, uint32_t seq)</span>
+<span class="lineNum">     300 </span>            : {
+<span class="lineNum">     301 </span>            :     struct mail_index_transaction_keyword_update *kw_update;
+<span class="lineNum">     302 </span>            :     unsigned int i;
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span>            :     /* remove extension updates */
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     mail_index_revert_ext(&amp;t-&gt;ext_rec_updates, seq);</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     mail_index_revert_ext(&amp;t-&gt;ext_rec_atomics, seq);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     t-&gt;log_ext_updates = mail_index_transaction_has_ext_changes(t);</span>
+<span class="lineNum">     308 </span>            : 
+<span class="lineNum">     309 </span>            :     /* remove keywords */
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;keyword_updates)) {</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         array_foreach_modifiable(&amp;t-&gt;keyword_updates, kw_update) {</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :             if (array_is_created(&amp;kw_update-&gt;add_seq)) {</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :                 seq_range_array_remove(&amp;kw_update-&gt;add_seq,</span>
+<span class="lineNum">     314 </span>            :                                seq);
+<span class="lineNum">     315 </span>            :             }
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :             if (array_is_created(&amp;kw_update-&gt;remove_seq)) {</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :                 seq_range_array_remove(&amp;kw_update-&gt;remove_seq,</span>
+<span class="lineNum">     318 </span>            :                                seq);
+<span class="lineNum">     319 </span>            :             }
+<span class="lineNum">     320 </span>            :         }
+<span class="lineNum">     321 </span>            :     }
+<span class="lineNum">     322 </span>            :     /* remove modseqs */
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;modseq_updates) &amp;&amp;</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :         mail_index_seq_array_lookup((void *)&amp;t-&gt;modseq_updates, seq, &amp;i))</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :         array_delete(&amp;t-&gt;modseq_updates, i, 1);</span>
+<a name="326"><span class="lineNum">     326 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 : void mail_index_revert_changes(struct mail_index_transaction *t, uint32_t seq)</span>
+<span class="lineNum">     329 </span>            : {
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     mail_index_revert_changes_common(t, seq);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     mail_index_cancel_flag_updates(t, seq);</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 : }</span>
+<a name="333"><span class="lineNum">     333 </span>            : </a>
+<span class="lineNum">     334 </span>            : static void
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 : mail_index_expunge_last_append(struct mail_index_transaction *t, uint32_t seq)</span>
+<span class="lineNum">     336 </span>            : {
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :     i_assert(seq == t-&gt;last_new_seq);</span>
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     mail_index_revert_changes_common(t, seq);</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span>            :     /* and finally remove the append itself */
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     array_delete(&amp;t-&gt;appends, seq - t-&gt;first_new_seq, 1);</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :     t-&gt;last_new_seq--;</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     if (t-&gt;first_new_seq &gt; t-&gt;last_new_seq) {</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         t-&gt;last_new_seq = 0;</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :         t-&gt;appends_nonsorted = FALSE;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;appends);</span>
+<span class="lineNum">     348 </span>            :     }
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     mail_index_transaction_set_log_updates(t);</span>
+<a name="350"><span class="lineNum">     350 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span><span class="lineCov">          2 : void mail_index_expunge(struct mail_index_transaction *t, uint32_t seq)</span>
+<span class="lineNum">     353 </span>            : {
+<span class="lineNum">     354 </span>            :     static guid_128_t null_guid =
+<span class="lineNum">     355 </span>            :         { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+<span class="lineNum">     356 </span><span class="lineCov">          2 :     mail_index_expunge_guid(t, seq, null_guid);</span>
+<a name="357"><span class="lineNum">     357 </span><span class="lineCov">          2 : }</span></a>
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineCov">          5 : void mail_index_expunge_guid(struct mail_index_transaction *t, uint32_t seq,</span>
+<span class="lineNum">     360 </span>            :                  const guid_128_t guid_128)
+<span class="lineNum">     361 </span>            : {
+<span class="lineNum">     362 </span>            :     const struct mail_transaction_expunge_guid *expunges;
+<span class="lineNum">     363 </span>            :     struct mail_transaction_expunge_guid *expunge;
+<span class="lineNum">     364 </span>            :     unsigned int count;
+<span class="lineNum">     365 </span>            : 
+<span class="lineNum">     366 </span><span class="lineCov">          5 :     i_assert(seq &gt; 0);</span>
+<span class="lineNum">     367 </span><span class="lineCov">          5 :     if (seq &gt;= t-&gt;first_new_seq) {</span>
+<span class="lineNum">     368 </span>            :         /* we can handle only the last append. otherwise we'd have to
+<span class="lineNum">     369 </span>            :            renumber sequences and that gets tricky. for now this is
+<span class="lineNum">     370 </span>            :            enough, since we typically want to expunge all the
+<span class="lineNum">     371 </span>            :            appends. */
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :         mail_index_expunge_last_append(t, seq);</span>
+<span class="lineNum">     373 </span>            :     } else {
+<span class="lineNum">     374 </span><span class="lineCov">          5 :         t-&gt;log_updates = TRUE;</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span>            :         /* ignore duplicates here. drop them when committing. */
+<span class="lineNum">     377 </span><span class="lineCov">          5 :         if (!array_is_created(&amp;t-&gt;expunges))</span>
+<span class="lineNum">     378 </span><span class="lineCov">          1 :             i_array_init(&amp;t-&gt;expunges, 64);</span>
+<span class="lineNum">     379 </span><span class="lineCov">          4 :         else if (!t-&gt;expunges_nonsorted) {</span>
+<span class="lineNum">     380 </span>            :             /* usually expunges are added in increasing order. */
+<span class="lineNum">     381 </span><span class="lineCov">          1 :             expunges = array_get(&amp;t-&gt;expunges, &amp;count);</span>
+<span class="lineNum">     382 </span><span class="lineCov">          1 :             if (count &gt; 0 &amp;&amp; seq &lt; expunges[count-1].uid)</span>
+<span class="lineNum">     383 </span><span class="lineCov">          1 :                 t-&gt;expunges_nonsorted = TRUE;</span>
+<span class="lineNum">     384 </span>            :         }
+<span class="lineNum">     385 </span><span class="lineCov">          5 :         expunge = array_append_space(&amp;t-&gt;expunges);</span>
+<span class="lineNum">     386 </span><span class="lineCov">          5 :         expunge-&gt;uid = seq;</span>
+<span class="lineNum">     387 </span><span class="lineCov">          5 :         memcpy(expunge-&gt;guid_128, guid_128, sizeof(expunge-&gt;guid_128));</span>
+<span class="lineNum">     388 </span>            :     }
+<a name="389"><span class="lineNum">     389 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineCov">       1039 : static void update_minmax_flagupdate_seq(struct mail_index_transaction *t,</span>
+<span class="lineNum">     392 </span>            :                      uint32_t seq1, uint32_t seq2)
+<span class="lineNum">     393 </span>            : {
+<span class="lineNum">     394 </span><span class="lineCov">       1039 :     if (t-&gt;min_flagupdate_seq == 0) {</span>
+<span class="lineNum">     395 </span><span class="lineCov">         19 :         t-&gt;min_flagupdate_seq = seq1;</span>
+<span class="lineNum">     396 </span><span class="lineCov">         19 :         t-&gt;max_flagupdate_seq = seq2;</span>
+<span class="lineNum">     397 </span>            :     } else {
+<span class="lineNum">     398 </span><span class="lineCov">       1020 :         if (t-&gt;min_flagupdate_seq &gt; seq1)</span>
+<span class="lineNum">     399 </span><span class="lineCov">          5 :             t-&gt;min_flagupdate_seq = seq1;</span>
+<span class="lineNum">     400 </span><span class="lineCov">       1020 :         if (t-&gt;max_flagupdate_seq &lt; seq2)</span>
+<span class="lineNum">     401 </span><span class="lineCov">         13 :             t-&gt;max_flagupdate_seq = seq2;</span>
+<span class="lineNum">     402 </span>            :     }
+<span class="lineNum">     403 </span><span class="lineCov">       1039 : }</span>
+<a name="404"><span class="lineNum">     404 </span>            : </a>
+<span class="lineNum">     405 </span>            : unsigned int
+<span class="lineNum">     406 </span><span class="lineCov">       1027 : mail_index_transaction_get_flag_update_pos(struct mail_index_transaction *t,</span>
+<span class="lineNum">     407 </span>            :                        unsigned int left_idx,
+<span class="lineNum">     408 </span>            :                        unsigned int right_idx,
+<span class="lineNum">     409 </span>            :                        uint32_t seq)
+<span class="lineNum">     410 </span>            : {
+<span class="lineNum">     411 </span>            :     const struct mail_index_flag_update *updates;
+<span class="lineNum">     412 </span>            :     unsigned int idx, count;
+<span class="lineNum">     413 </span>            : 
+<span class="lineNum">     414 </span><span class="lineCov">       1027 :     updates = array_get(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     415 </span><span class="lineCov">       1027 :     i_assert(left_idx &lt;= right_idx &amp;&amp; right_idx &lt;= count);</span>
+<span class="lineNum">     416 </span><span class="lineCov">       1027 :     i_assert(count &lt; INT_MAX);</span>
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span>            :     /* find the first update with either overlapping range,
+<span class="lineNum">     419 </span>            :        or the update which will come after our insert */
+<span class="lineNum">     420 </span><span class="lineCov">       1027 :     idx = left_idx;</span>
+<span class="lineNum">     421 </span><span class="lineCov">       3281 :     while (left_idx &lt; right_idx) {</span>
+<span class="lineNum">     422 </span><span class="lineCov">       2237 :         idx = (left_idx + right_idx) / 2;</span>
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineCov">       2237 :         if (updates[idx].uid2 &lt; seq)</span>
+<span class="lineNum">     425 </span><span class="lineCov">        533 :             left_idx = idx+1;</span>
+<span class="lineNum">     426 </span><span class="lineCov">       1704 :         else if (updates[idx].uid1 &gt; seq)</span>
+<span class="lineNum">     427 </span><span class="lineCov">        694 :             right_idx = idx;</span>
+<span class="lineNum">     428 </span>            :         else
+<span class="lineNum">     429 </span><span class="lineCov">       1010 :             break;</span>
+<span class="lineNum">     430 </span>            :     }
+<span class="lineNum">     431 </span><span class="lineCov">       1027 :     if (left_idx &gt; idx)</span>
+<span class="lineNum">     432 </span><span class="lineCov">          9 :         idx++;</span>
+<span class="lineNum">     433 </span><span class="lineCov">       1027 :     return idx;</span>
+<span class="lineNum">     434 </span>            : }
+<a name="435"><span class="lineNum">     435 </span>            : </a>
+<span class="lineNum">     436 </span>            : static void
+<span class="lineNum">     437 </span><span class="lineCov">        993 : mail_index_insert_flag_update(struct mail_index_transaction *t,</span>
+<span class="lineNum">     438 </span>            :                   struct mail_index_flag_update u,
+<span class="lineNum">     439 </span>            :                   unsigned int idx)
+<span class="lineNum">     440 </span>            : {
+<span class="lineNum">     441 </span>            :     struct mail_index_flag_update *updates, tmp_update;
+<span class="lineNum">     442 </span>            :     unsigned int count, first_idx, max;
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineCov">        993 :     updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span>            :     /* overlapping ranges, split/merge them */
+<span class="lineNum">     447 </span><span class="lineCov">        993 :     i_assert(idx == 0 || updates[idx-1].uid2 &lt; u.uid1);</span>
+<span class="lineNum">     448 </span><span class="lineCov">        993 :     i_assert(idx == count || updates[idx].uid2 &gt;= u.uid1);</span>
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span>            :     /* first we'll just add the changes without trying to merge anything */
+<span class="lineNum">     451 </span><span class="lineCov">        993 :     first_idx = idx;</span>
+<span class="lineNum">     452 </span><span class="lineCov">       2579 :     for (; idx &lt; count &amp;&amp; u.uid2 &gt;= updates[idx].uid1; idx++) {</span>
+<span class="lineNum">     453 </span><span class="lineCov">       2569 :         i_assert(u.uid1 &lt;= updates[idx].uid2);</span>
+<span class="lineNum">     454 </span><span class="lineCov">       3156 :         if (u.uid1 != updates[idx].uid1 &amp;&amp;</span>
+<span class="lineNum">     455 </span><span class="lineCov">        624 :             (updates[idx].add_flags != u.add_flags ||</span>
+<span class="lineNum">     456 </span><span class="lineCov">         37 :              updates[idx].remove_flags != u.remove_flags)) {</span>
+<span class="lineNum">     457 </span><span class="lineCov">        575 :             if (u.uid1 &lt; updates[idx].uid1) {</span>
+<span class="lineNum">     458 </span>            :                 /* insert new update */
+<span class="lineNum">     459 </span><span class="lineCov">          2 :                 tmp_update = u;</span>
+<span class="lineNum">     460 </span><span class="lineCov">          2 :                 tmp_update.uid2 = updates[idx].uid1 - 1;</span>
+<span class="lineNum">     461 </span>            :             } else {
+<span class="lineNum">     462 </span>            :                 /* split existing update from beginning */
+<span class="lineNum">     463 </span><span class="lineCov">        573 :                 tmp_update = updates[idx];</span>
+<span class="lineNum">     464 </span><span class="lineCov">        573 :                 tmp_update.uid2 = u.uid1 - 1;</span>
+<span class="lineNum">     465 </span><span class="lineCov">        573 :                 updates[idx].uid1 = u.uid1;</span>
+<span class="lineNum">     466 </span>            :             }
+<span class="lineNum">     467 </span>            : 
+<span class="lineNum">     468 </span><span class="lineCov">        575 :             i_assert(tmp_update.uid1 &lt;= tmp_update.uid2);</span>
+<span class="lineNum">     469 </span><span class="lineCov">        575 :             i_assert(updates[idx].uid1 &lt;= updates[idx].uid2);</span>
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span><span class="lineCov">        575 :             array_insert(&amp;t-&gt;updates, idx, &amp;tmp_update, 1);</span>
+<span class="lineNum">     472 </span><span class="lineCov">        575 :             updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     473 </span><span class="lineCov">        575 :             idx++;</span>
+<span class="lineNum">     474 </span><span class="lineCov">       1994 :         } else if (u.uid1 &lt; updates[idx].uid1) {</span>
+<span class="lineNum">     475 </span><span class="lineCov">          1 :             updates[idx].uid1 = u.uid1;</span>
+<span class="lineNum">     476 </span>            :         }
+<span class="lineNum">     477 </span>            : 
+<span class="lineNum">     478 </span><span class="lineCov">       3046 :         if (u.uid2 &lt; updates[idx].uid2 &amp;&amp;</span>
+<span class="lineNum">     479 </span><span class="lineCov">        497 :             (updates[idx].add_flags != u.add_flags ||</span>
+<span class="lineNum">     480 </span><span class="lineCov">         20 :              updates[idx].remove_flags != u.remove_flags)) {</span>
+<span class="lineNum">     481 </span>            :             /* split existing update from end */
+<span class="lineNum">     482 </span><span class="lineCov">        471 :             tmp_update = updates[idx];</span>
+<span class="lineNum">     483 </span><span class="lineCov">        471 :             tmp_update.uid2 = u.uid2;</span>
+<span class="lineNum">     484 </span><span class="lineCov">        471 :             updates[idx].uid1 = u.uid2 + 1;</span>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineCov">        471 :             i_assert(tmp_update.uid1 &lt;= tmp_update.uid2);</span>
+<span class="lineNum">     487 </span><span class="lineCov">        471 :             i_assert(updates[idx].uid1 &lt;= updates[idx].uid2);</span>
+<span class="lineNum">     488 </span>            : 
+<span class="lineNum">     489 </span><span class="lineCov">        471 :             array_insert(&amp;t-&gt;updates, idx, &amp;tmp_update, 1);</span>
+<span class="lineNum">     490 </span><span class="lineCov">        471 :             updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     491 </span>            :         }
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineCov">       7707 :         updates[idx].add_flags =</span>
+<span class="lineNum">     494 </span><span class="lineCov">       2569 :             (updates[idx].add_flags | u.add_flags) &amp;</span>
+<span class="lineNum">     495 </span><span class="lineCov">       2569 :             ~u.remove_flags;</span>
+<span class="lineNum">     496 </span><span class="lineCov">       7707 :         updates[idx].remove_flags =</span>
+<span class="lineNum">     497 </span><span class="lineCov">       2569 :             (updates[idx].remove_flags | u.remove_flags) &amp;</span>
+<span class="lineNum">     498 </span><span class="lineCov">       2569 :             ~u.add_flags;</span>
+<span class="lineNum">     499 </span><span class="lineCov">       2569 :         u.uid1 = updates[idx].uid2 + 1;</span>
+<span class="lineNum">     500 </span>            : 
+<span class="lineNum">     501 </span><span class="lineCov">       2817 :         if (updates[idx].add_flags == 0 &amp;&amp;</span>
+<span class="lineNum">     502 </span><span class="lineCov">        248 :             updates[idx].remove_flags == 0) {</span>
+<span class="lineNum">     503 </span>            :             /* we can remove this update completely */
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :             array_delete(&amp;t-&gt;updates, idx, 1);</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :             updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     506 </span>            :         }
+<span class="lineNum">     507 </span>            : 
+<span class="lineNum">     508 </span><span class="lineCov">       2569 :         if (u.uid1 &gt; u.uid2) {</span>
+<span class="lineNum">     509 </span>            :             /* break here before idx++ so last_update_idx is set
+<span class="lineNum">     510 </span>            :                correctly */
+<span class="lineNum">     511 </span><span class="lineCov">        983 :             break;</span>
+<span class="lineNum">     512 </span>            :         }
+<span class="lineNum">     513 </span>            :     }
+<span class="lineNum">     514 </span><span class="lineCov">        993 :     i_assert(idx &lt;= count);</span>
+<span class="lineNum">     515 </span>            : 
+<span class="lineNum">     516 </span><span class="lineCov">        993 :     if (u.uid1 &lt;= u.uid2) {</span>
+<span class="lineNum">     517 </span><span class="lineCov">         10 :         i_assert(idx == 0 || updates[idx-1].uid2 &lt; u.uid1);</span>
+<span class="lineNum">     518 </span><span class="lineCov">         10 :         i_assert(idx == count || updates[idx].uid1 &gt; u.uid2);</span>
+<span class="lineNum">     519 </span><span class="lineCov">         10 :         array_insert(&amp;t-&gt;updates, idx, &amp;u, 1);</span>
+<span class="lineNum">     520 </span>            :     }
+<span class="lineNum">     521 </span><span class="lineCov">        993 :     updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     522 </span><span class="lineCov">        993 :     t-&gt;last_update_idx = idx == count ? count-1 : idx;</span>
+<span class="lineNum">     523 </span>            : 
+<span class="lineNum">     524 </span>            :     /* merge everything */
+<span class="lineNum">     525 </span><span class="lineCov">        993 :     idx = first_idx == 0 ? 0 : first_idx - 1;</span>
+<span class="lineNum">     526 </span><span class="lineCov">        993 :     max = count == 0 ? 0 : I_MIN(t-&gt;last_update_idx + 1, count-1);</span>
+<span class="lineNum">     527 </span><span class="lineCov">       5847 :     for (; idx &lt; max; ) {</span>
+<span class="lineNum">     528 </span><span class="lineCov">       7720 :         if (updates[idx].uid2 + 1 == updates[idx+1].uid1 &amp;&amp;</span>
+<span class="lineNum">     529 </span><span class="lineCov">       4911 :             updates[idx].add_flags == updates[idx+1].add_flags &amp;&amp;</span>
+<span class="lineNum">     530 </span><span class="lineCov">       1052 :             updates[idx].remove_flags == updates[idx+1].remove_flags) {</span>
+<span class="lineNum">     531 </span>            :             /* merge */
+<span class="lineNum">     532 </span><span class="lineCov">       1044 :             updates[idx].uid2 = updates[idx+1].uid2;</span>
+<span class="lineNum">     533 </span><span class="lineCov">       1044 :             array_delete(&amp;t-&gt;updates, idx + 1, 1);</span>
+<span class="lineNum">     534 </span><span class="lineCov">       1044 :             max--;</span>
+<span class="lineNum">     535 </span><span class="lineCov">       1044 :             if (t-&gt;last_update_idx &gt; idx)</span>
+<span class="lineNum">     536 </span><span class="lineCov">        951 :                 t-&gt;last_update_idx--;</span>
+<span class="lineNum">     537 </span><span class="lineCov">       1044 :             updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     538 </span>            :         } else {
+<span class="lineNum">     539 </span><span class="lineCov">       2817 :             idx++;</span>
+<span class="lineNum">     540 </span>            :         }
+<span class="lineNum">     541 </span>            :     }
+<a name="542"><span class="lineNum">     542 </span><span class="lineCov">        993 : }</span></a>
+<span class="lineNum">     543 </span>            : 
+<span class="lineNum">     544 </span><span class="lineCov">         10 : static void mail_index_record_modify_flags(struct mail_index_record *rec,</span>
+<span class="lineNum">     545 </span>            :                        enum modify_type modify_type,
+<span class="lineNum">     546 </span>            :                        enum mail_flags flags)
+<span class="lineNum">     547 </span>            : {
+<span class="lineNum">     548 </span><span class="lineCov">         10 :     switch (modify_type) {</span>
+<span class="lineNum">     549 </span>            :     case MODIFY_REPLACE:
+<span class="lineNum">     550 </span><span class="lineCov">          4 :         rec-&gt;flags = flags;</span>
+<span class="lineNum">     551 </span><span class="lineCov">          4 :         break;</span>
+<span class="lineNum">     552 </span>            :     case MODIFY_ADD:
+<span class="lineNum">     553 </span><span class="lineCov">          3 :         rec-&gt;flags |= flags;</span>
+<span class="lineNum">     554 </span><span class="lineCov">          3 :         break;</span>
+<span class="lineNum">     555 </span>            :     case MODIFY_REMOVE:
+<span class="lineNum">     556 </span><span class="lineCov">          3 :         rec-&gt;flags &amp;= ~flags;</span>
+<span class="lineNum">     557 </span><span class="lineCov">          3 :         break;</span>
+<span class="lineNum">     558 </span>            :     }
+<a name="559"><span class="lineNum">     559 </span><span class="lineCov">         10 : }</span></a>
+<span class="lineNum">     560 </span>            : 
+<span class="lineNum">     561 </span><span class="lineCov">       1039 : void mail_index_update_flags_range(struct mail_index_transaction *t,</span>
+<span class="lineNum">     562 </span>            :                    uint32_t seq1, uint32_t seq2,
+<span class="lineNum">     563 </span>            :                    enum modify_type modify_type,
+<span class="lineNum">     564 </span>            :                    enum mail_flags flags)
+<span class="lineNum">     565 </span>            : {
+<span class="lineNum">     566 </span>            :     struct mail_index_record *rec;
+<span class="lineNum">     567 </span>            :     struct mail_index_flag_update u, *last_update;
+<span class="lineNum">     568 </span>            :     unsigned int idx, first_idx, count;
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span><span class="lineCov">       1039 :     update_minmax_flagupdate_seq(t, seq1, seq2);</span>
+<span class="lineNum">     571 </span><span class="lineCov">       1039 :     if (seq2 &gt;= t-&gt;first_new_seq) {</span>
+<span class="lineNum">     572 </span>            :         /* updates for appended messages, modify them directly */
+<span class="lineNum">     573 </span>            :         uint32_t seq;
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineCov">         16 :         for (seq = I_MAX(t-&gt;first_new_seq, seq1); seq &lt;= seq2; seq++) {</span>
+<span class="lineNum">     576 </span><span class="lineCov">         10 :             rec = mail_index_transaction_lookup(t, seq);</span>
+<span class="lineNum">     577 </span><span class="lineCov">         10 :             mail_index_record_modify_flags(rec, modify_type, flags);</span>
+<span class="lineNum">     578 </span>            :         }
+<span class="lineNum">     579 </span><span class="lineCov">          6 :         if (seq1 &gt;= t-&gt;first_new_seq)</span>
+<span class="lineNum">     580 </span><span class="lineCov">         47 :             return;</span>
+<span class="lineNum">     581 </span>            : 
+<span class="lineNum">     582 </span>            :         /* range contains also existing messages. update them next. */
+<span class="lineNum">     583 </span><span class="lineCov">          1 :         seq2 = t-&gt;first_new_seq - 1;</span>
+<span class="lineNum">     584 </span>            :     }
+<span class="lineNum">     585 </span>            : 
+<span class="lineNum">     586 </span><span class="lineCov">       1034 :     i_assert(seq1 &lt;= seq2 &amp;&amp; seq1 &gt; 0);</span>
+<span class="lineNum">     587 </span><span class="lineCov">       1034 :     i_assert(seq2 &lt;= mail_index_view_get_messages_count(t-&gt;view));</span>
+<span class="lineNum">     588 </span>            : 
+<span class="lineNum">     589 </span><span class="lineCov">       1034 :     if ((t-&gt;flags &amp; MAIL_INDEX_TRANSACTION_FLAG_AVOID_FLAG_UPDATES) != 0)</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         t-&gt;drop_unnecessary_flag_updates = TRUE;</span>
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span><span class="lineCov">       1034 :     i_zero(&amp;u);</span>
+<span class="lineNum">     593 </span><span class="lineCov">       1034 :     u.uid1 = seq1;</span>
+<span class="lineNum">     594 </span><span class="lineCov">       1034 :     u.uid2 = seq2;</span>
+<span class="lineNum">     595 </span>            : 
+<span class="lineNum">     596 </span><span class="lineCov">       1034 :     switch (modify_type) {</span>
+<span class="lineNum">     597 </span>            :     case MODIFY_REPLACE:
+<span class="lineNum">     598 </span><span class="lineCov">        342 :         u.add_flags = flags;</span>
+<span class="lineNum">     599 </span><span class="lineCov">        342 :         u.remove_flags = ~flags &amp; MAIL_INDEX_FLAGS_MASK;</span>
+<span class="lineNum">     600 </span><span class="lineCov">        342 :         break;</span>
+<span class="lineNum">     601 </span>            :     case MODIFY_ADD:
+<span class="lineNum">     602 </span><span class="lineCov">        370 :         if (flags == 0)</span>
+<span class="lineNum">     603 </span><span class="lineCov">         10 :             return;</span>
+<span class="lineNum">     604 </span><span class="lineCov">        360 :         u.add_flags = flags;</span>
+<span class="lineNum">     605 </span><span class="lineCov">        360 :         break;</span>
+<span class="lineNum">     606 </span>            :     case MODIFY_REMOVE:
+<span class="lineNum">     607 </span><span class="lineCov">        322 :         if (flags == 0)</span>
+<span class="lineNum">     608 </span><span class="lineCov">          6 :             return;</span>
+<span class="lineNum">     609 </span><span class="lineCov">        316 :         u.remove_flags = flags;</span>
+<span class="lineNum">     610 </span><span class="lineCov">        316 :         break;</span>
+<span class="lineNum">     611 </span>            :     }
+<span class="lineNum">     612 </span>            : 
+<span class="lineNum">     613 </span><span class="lineCov">       1018 :     if (!array_is_created(&amp;t-&gt;updates)) {</span>
+<span class="lineNum">     614 </span><span class="lineCov">         19 :         i_array_init(&amp;t-&gt;updates, 256);</span>
+<span class="lineNum">     615 </span><span class="lineCov">         19 :         array_append(&amp;t-&gt;updates, &amp;u, 1);</span>
+<span class="lineNum">     616 </span><span class="lineCov">         19 :         return;</span>
+<span class="lineNum">     617 </span>            :     }
+<span class="lineNum">     618 </span>            : 
+<span class="lineNum">     619 </span><span class="lineCov">        999 :     last_update = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">     620 </span><span class="lineCov">        999 :     if (t-&gt;last_update_idx &lt; count) {</span>
+<span class="lineNum">     621 </span>            :         /* fast path - hopefully we're updating the next message,
+<span class="lineNum">     622 </span>            :            or a message that is to be appended as last update */
+<span class="lineNum">     623 </span><span class="lineCov">        999 :         last_update += t-&gt;last_update_idx;</span>
+<span class="lineNum">     624 </span><span class="lineCov">        999 :         if (seq1 - 1 == last_update-&gt;uid2) {</span>
+<span class="lineNum">     625 </span><span class="lineCov">         57 :             if (u.add_flags == last_update-&gt;add_flags &amp;&amp;</span>
+<span class="lineNum">     626 </span><span class="lineCov">          7 :                 u.remove_flags == last_update-&gt;remove_flags &amp;&amp;</span>
+<span class="lineNum">     627 </span><span class="lineCov">          2 :                 (t-&gt;last_update_idx + 1 == count ||</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :                  last_update[1].uid1 &gt; seq2)) {</span>
+<span class="lineNum">     629 </span>            :                 /* we can just update the UID range */
+<span class="lineNum">     630 </span><span class="lineCov">          2 :                 last_update-&gt;uid2 = seq2;</span>
+<span class="lineNum">     631 </span><span class="lineCov">          2 :                 return;</span>
+<span class="lineNum">     632 </span>            :             }
+<span class="lineNum">     633 </span><span class="lineCov">        947 :         } else if (seq1 &gt; last_update-&gt;uid2) {</span>
+<span class="lineNum">     634 </span>            :             /* hopefully we can just append it */
+<span class="lineNum">     635 </span><span class="lineCov">        208 :             t-&gt;last_update_idx++;</span>
+<span class="lineNum">     636 </span><span class="lineCov">        208 :             last_update++;</span>
+<span class="lineNum">     637 </span>            :         }
+<span class="lineNum">     638 </span>            :     }
+<span class="lineNum">     639 </span>            : 
+<span class="lineNum">     640 </span><span class="lineCov">        997 :     if (t-&gt;last_update_idx == count)</span>
+<span class="lineNum">     641 </span><span class="lineCov">          4 :         array_append(&amp;t-&gt;updates, &amp;u, 1);</span>
+<span class="lineNum">     642 </span>            :     else {
+<span class="lineNum">     643 </span><span class="lineCov">        993 :         i_assert(t-&gt;last_update_idx &lt; count);</span>
+<span class="lineNum">     644 </span>            : 
+<span class="lineNum">     645 </span>            :         /* slow path */
+<span class="lineNum">     646 </span><span class="lineCov">        993 :         if (seq1 &gt; last_update-&gt;uid2) {</span>
+<span class="lineNum">     647 </span>            :             /* added after this */
+<span class="lineNum">     648 </span><span class="lineCov">        189 :             first_idx = t-&gt;last_update_idx + 1;</span>
+<span class="lineNum">     649 </span>            :         } else {
+<span class="lineNum">     650 </span>            :             /* added before this or on top of this */
+<span class="lineNum">     651 </span><span class="lineCov">        804 :             first_idx = 0;</span>
+<span class="lineNum">     652 </span><span class="lineCov">        804 :             count = t-&gt;last_update_idx + 1;</span>
+<span class="lineNum">     653 </span>            :         }
+<span class="lineNum">     654 </span><span class="lineCov">        993 :         idx = mail_index_transaction_get_flag_update_pos(t, first_idx,</span>
+<span class="lineNum">     655 </span>            :                                  count, u.uid1);
+<span class="lineNum">     656 </span><span class="lineCov">        993 :         mail_index_insert_flag_update(t, u, idx);</span>
+<span class="lineNum">     657 </span>            :     }
+<a name="658"><span class="lineNum">     658 </span>            : }</a>
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineCov">         13 : void mail_index_update_flags(struct mail_index_transaction *t, uint32_t seq,</span>
+<span class="lineNum">     661 </span>            :                  enum modify_type modify_type,
+<span class="lineNum">     662 </span>            :                  enum mail_flags flags)
+<span class="lineNum">     663 </span>            : {
+<span class="lineNum">     664 </span><span class="lineCov">         13 :     mail_index_update_flags_range(t, seq, seq, modify_type, flags);</span>
+<span class="lineNum">     665 </span><span class="lineCov">         13 : }</span>
+<a name="666"><span class="lineNum">     666 </span>            : </a>
+<span class="lineNum">     667 </span>            : static void
+<span class="lineNum">     668 </span><span class="lineCov">          8 : mail_index_attribute_set_full(struct mail_index_transaction *t,</span>
+<span class="lineNum">     669 </span>            :                   const char *key, bool pvt, char prefix,
+<span class="lineNum">     670 </span>            :                   time_t timestamp, uint32_t value_len)
+<span class="lineNum">     671 </span>            : {
+<span class="lineNum">     672 </span><span class="lineCov">          8 :     uint32_t ts = timestamp;</span>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineCov">          8 :     if (t-&gt;attribute_updates == NULL) {</span>
+<span class="lineNum">     675 </span><span class="lineCov">          5 :         t-&gt;attribute_updates = buffer_create_dynamic(default_pool, 64);</span>
+<span class="lineNum">     676 </span><span class="lineCov">          5 :         t-&gt;attribute_updates_suffix = buffer_create_dynamic(default_pool, 64);</span>
+<span class="lineNum">     677 </span>            :     }
+<span class="lineNum">     678 </span><span class="lineCov">          8 :     buffer_append_c(t-&gt;attribute_updates, prefix);</span>
+<span class="lineNum">     679 </span><span class="lineCov">          8 :     buffer_append_c(t-&gt;attribute_updates, pvt ? 'p' : 's');</span>
+<span class="lineNum">     680 </span><span class="lineCov">          8 :     buffer_append(t-&gt;attribute_updates, key, strlen(key)+1);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineCov">          8 :     buffer_append(t-&gt;attribute_updates_suffix, &amp;ts, sizeof(ts));</span>
+<span class="lineNum">     683 </span><span class="lineCov">          8 :     if (prefix == '+') {</span>
+<span class="lineNum">     684 </span><span class="lineCov">          8 :         buffer_append(t-&gt;attribute_updates_suffix,</span>
+<span class="lineNum">     685 </span>            :                   &amp;value_len, sizeof(value_len));
+<span class="lineNum">     686 </span>            :     }
+<span class="lineNum">     687 </span><span class="lineCov">          8 :     t-&gt;log_updates = TRUE;</span>
+<a name="688"><span class="lineNum">     688 </span><span class="lineCov">          8 : }</span></a>
+<span class="lineNum">     689 </span>            : 
+<span class="lineNum">     690 </span><span class="lineCov">          8 : void mail_index_attribute_set(struct mail_index_transaction *t,</span>
+<span class="lineNum">     691 </span>            :                   bool pvt, const char *key,
+<span class="lineNum">     692 </span>            :                   time_t timestamp, uint32_t value_len)
+<span class="lineNum">     693 </span>            : {
+<span class="lineNum">     694 </span><span class="lineCov">          8 :     mail_index_attribute_set_full(t, key, pvt, '+', timestamp, value_len);</span>
+<a name="695"><span class="lineNum">     695 </span><span class="lineCov">          8 : }</span></a>
+<span class="lineNum">     696 </span>            : 
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 : void mail_index_attribute_unset(struct mail_index_transaction *t,</span>
+<span class="lineNum">     698 </span>            :                 bool pvt, const char *key,
+<span class="lineNum">     699 </span>            :                 time_t timestamp)
+<span class="lineNum">     700 </span>            : {
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :     mail_index_attribute_set_full(t, key, pvt, '-', timestamp, 0);</span>
+<a name="702"><span class="lineNum">     702 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     703 </span>            : 
+<span class="lineNum">     704 </span><span class="lineCov">         27 : void mail_index_update_header(struct mail_index_transaction *t,</span>
+<span class="lineNum">     705 </span>            :                   size_t offset, const void *data, size_t size,
+<span class="lineNum">     706 </span>            :                   bool prepend)
+<span class="lineNum">     707 </span>            : {
+<span class="lineNum">     708 </span><span class="lineCov">         27 :     i_assert(offset &lt; sizeof(t-&gt;pre_hdr_change));</span>
+<span class="lineNum">     709 </span><span class="lineCov">         27 :     i_assert(size &lt;= sizeof(t-&gt;pre_hdr_change) - offset);</span>
+<span class="lineNum">     710 </span>            : 
+<span class="lineNum">     711 </span><span class="lineCov">         27 :     t-&gt;log_updates = TRUE;</span>
+<span class="lineNum">     712 </span>            : 
+<span class="lineNum">     713 </span><span class="lineCov">         27 :     if (prepend) {</span>
+<span class="lineNum">     714 </span><span class="lineCov">          5 :         t-&gt;pre_hdr_changed = TRUE;</span>
+<span class="lineNum">     715 </span><span class="lineCov">          5 :         memcpy(t-&gt;pre_hdr_change + offset, data, size);</span>
+<span class="lineNum">     716 </span><span class="lineCov">         25 :         for (; size &gt; 0; size--)</span>
+<span class="lineNum">     717 </span><span class="lineCov">         20 :             t-&gt;pre_hdr_mask[offset++] = 1;</span>
+<span class="lineNum">     718 </span>            :     } else {
+<span class="lineNum">     719 </span><span class="lineCov">         22 :         t-&gt;post_hdr_changed = TRUE;</span>
+<span class="lineNum">     720 </span><span class="lineCov">         22 :         memcpy(t-&gt;post_hdr_change + offset, data, size);</span>
+<span class="lineNum">     721 </span><span class="lineCov">        418 :         for (; size &gt; 0; size--)</span>
+<span class="lineNum">     722 </span><span class="lineCov">        396 :             t-&gt;post_hdr_mask[offset++] = 1;</span>
+<span class="lineNum">     723 </span>            :     }
+<span class="lineNum">     724 </span><span class="lineCov">         27 : }</span>
+<a name="725"><span class="lineNum">     725 </span>            : </a>
+<span class="lineNum">     726 </span>            : static void
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 : mail_index_ext_rec_updates_resize(struct mail_index_transaction *t,</span>
+<span class="lineNum">     728 </span>            :                   uint32_t ext_id, uint16_t new_record_size)
+<span class="lineNum">     729 </span>            : {
+<span class="lineNum">     730 </span>            :     ARRAY_TYPE(seq_array) *array, old_array;
+<span class="lineNum">     731 </span>            :     unsigned int i;
+<span class="lineNum">     732 </span>            : 
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;ext_rec_updates))</span>
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     array = array_idx_modifiable(&amp;t-&gt;ext_rec_updates, ext_id);</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :     if (!array_is_created(array))</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     738 </span>            : 
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :     old_array = *array;</span>
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :     i_zero(array);</span>
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :     mail_index_seq_array_alloc(array, new_record_size);</span>
+<span class="lineNum">     742 </span>            : 
+<span class="lineNum">     743 </span>            :     /* copy the records' beginnings. leave the end zero-filled. */
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; array_count(&amp;old_array); i++) {</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :         const void *old_record = array_idx(&amp;old_array, i);</span>
+<span class="lineNum">     746 </span>            : 
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 :         memcpy(array_append_space(array), old_record,</span>
+<span class="lineNum">     748 </span>            :                old_array.arr.element_size);
+<span class="lineNum">     749 </span>            :     }
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :     array_free(&amp;old_array);</span>
+<a name="751"><span class="lineNum">     751 </span>            : }</a>
+<span class="lineNum">     752 </span>            : 
+<span class="lineNum">     753 </span><span class="lineCov">          1 : void mail_index_ext_resize(struct mail_index_transaction *t, uint32_t ext_id,</span>
+<span class="lineNum">     754 </span>            :                uint32_t hdr_size, uint16_t record_size,
+<span class="lineNum">     755 </span>            :                uint16_t record_align)
+<span class="lineNum">     756 </span>            : {
+<span class="lineNum">     757 </span>            :     const struct mail_index_registered_ext *rext;
+<span class="lineNum">     758 </span>            :     const struct mail_transaction_ext_intro *resizes;
+<span class="lineNum">     759 </span>            :     unsigned int resizes_count;
+<span class="lineNum">     760 </span>            :     struct mail_transaction_ext_intro intro;
+<span class="lineNum">     761 </span><span class="lineCov">          1 :     uint32_t old_record_size = 0, old_record_align, old_header_size;</span>
+<span class="lineNum">     762 </span>            : 
+<span class="lineNum">     763 </span><span class="lineCov">          1 :     i_zero(&amp;intro);</span>
+<span class="lineNum">     764 </span><span class="lineCov">          1 :     rext = array_idx(&amp;t-&gt;view-&gt;index-&gt;extensions, ext_id);</span>
+<span class="lineNum">     765 </span>            : 
+<span class="lineNum">     766 </span>            :     /* get ext_id from transaction's map if it's there */
+<span class="lineNum">     767 </span><span class="lineCov">          1 :     if (!mail_index_map_get_ext_idx(t-&gt;view-&gt;map, ext_id, &amp;intro.ext_id)) {</span>
+<span class="lineNum">     768 </span>            :         /* have to create it */
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 :         intro.ext_id = (uint32_t)-1;</span>
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :         old_record_align = rext-&gt;record_align;</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :         old_header_size = rext-&gt;hdr_size;</span>
+<span class="lineNum">     772 </span>            :     } else {
+<span class="lineNum">     773 </span>            :         const struct mail_index_ext *ext;
+<span class="lineNum">     774 </span>            : 
+<span class="lineNum">     775 </span><span class="lineCov">          1 :         ext = array_idx(&amp;t-&gt;view-&gt;map-&gt;extensions, intro.ext_id);</span>
+<span class="lineNum">     776 </span><span class="lineCov">          1 :         old_record_align = ext-&gt;record_align;</span>
+<span class="lineNum">     777 </span><span class="lineCov">          1 :         old_header_size = ext-&gt;hdr_size;</span>
+<span class="lineNum">     778 </span>            :     }
+<span class="lineNum">     779 </span>            : 
+<span class="lineNum">     780 </span>            :     /* get the record size. if there are any existing record updates,
+<span class="lineNum">     781 </span>            :        they're using the registered size, not the map's existing
+<span class="lineNum">     782 </span>            :        record_size. */
+<span class="lineNum">     783 </span><span class="lineCov">          1 :     if (array_is_created(&amp;t-&gt;ext_resizes))</span>
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :         resizes = array_get(&amp;t-&gt;ext_resizes, &amp;resizes_count);</span>
+<span class="lineNum">     785 </span>            :     else {
+<span class="lineNum">     786 </span><span class="lineCov">          1 :         resizes = NULL;</span>
+<span class="lineNum">     787 </span><span class="lineCov">          1 :         resizes_count = 0;</span>
+<span class="lineNum">     788 </span>            :     }
+<span class="lineNum">     789 </span><span class="lineCov">          1 :     if (ext_id &lt; resizes_count &amp;&amp; resizes[ext_id].name_size != 0) {</span>
+<span class="lineNum">     790 </span>            :         /* already resized once. use the resized value. */
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :         old_record_size = resizes[ext_id].record_size;</span>
+<span class="lineNum">     792 </span>            :     } else {
+<span class="lineNum">     793 </span>            :         /* use the registered values. */
+<span class="lineNum">     794 </span><span class="lineCov">          1 :         old_record_size = rext-&gt;record_size;</span>
+<span class="lineNum">     795 </span>            :     }
+<span class="lineNum">     796 </span>            : 
+<span class="lineNum">     797 </span><span class="lineCov">          1 :     if (record_size != old_record_size &amp;&amp; record_size != (uint16_t)-1) {</span>
+<span class="lineNum">     798 </span>            :         /* if record_size grows, we'll just resize the existing
+<span class="lineNum">     799 </span>            :            ext_rec_updates array. it's not possible to shrink
+<span class="lineNum">     800 </span>            :            record_size without data loss. */
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :         i_assert(record_size &gt; old_record_size);</span>
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :         mail_index_ext_rec_updates_resize(t, ext_id, record_size);</span>
+<span class="lineNum">     803 </span>            :     }
+<span class="lineNum">     804 </span>            : 
+<span class="lineNum">     805 </span><span class="lineCov">          1 :     t-&gt;log_ext_updates = TRUE;</span>
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span><span class="lineCov">          1 :     if (!array_is_created(&amp;t-&gt;ext_resizes))</span>
+<span class="lineNum">     808 </span><span class="lineCov">          1 :         i_array_init(&amp;t-&gt;ext_resizes, ext_id + 2);</span>
+<span class="lineNum">     809 </span>            : 
+<span class="lineNum">     810 </span><span class="lineCov">          1 :     intro.hdr_size = hdr_size != (uint32_t)-1 ? hdr_size : old_header_size;</span>
+<span class="lineNum">     811 </span><span class="lineCov">          1 :     if (record_size != (uint16_t)-1) {</span>
+<span class="lineNum">     812 </span><span class="lineCov">          1 :         i_assert(record_align != (uint16_t)-1);</span>
+<span class="lineNum">     813 </span><span class="lineCov">          1 :         intro.record_size = record_size;</span>
+<span class="lineNum">     814 </span><span class="lineCov">          1 :         intro.record_align = record_align;</span>
+<span class="lineNum">     815 </span>            :     } else {
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :         i_assert(record_align == (uint16_t)-1);</span>
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :         intro.record_size = old_record_size;</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :         intro.record_align = old_record_align;</span>
+<span class="lineNum">     819 </span>            :     }
+<span class="lineNum">     820 </span><span class="lineCov">          1 :     intro.name_size = 1;</span>
+<span class="lineNum">     821 </span><span class="lineCov">          1 :     array_idx_set(&amp;t-&gt;ext_resizes, ext_id, &amp;intro);</span>
+<a name="822"><span class="lineNum">     822 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     823 </span>            : 
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 : void mail_index_ext_resize_hdr(struct mail_index_transaction *t,</span>
+<span class="lineNum">     825 </span>            :                    uint32_t ext_id, uint32_t hdr_size)
+<span class="lineNum">     826 </span>            : {
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :     mail_index_ext_resize(t, ext_id, hdr_size, (uint16_t)-1, (uint16_t)-1);</span>
+<a name="828"><span class="lineNum">     828 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     829 </span>            : 
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 : void mail_index_ext_reset(struct mail_index_transaction *t, uint32_t ext_id,</span>
+<span class="lineNum">     831 </span>            :               uint32_t reset_id, bool clear_data)
+<span class="lineNum">     832 </span>            : {
+<span class="lineNum">     833 </span>            :     struct mail_transaction_ext_reset reset;
+<span class="lineNum">     834 </span>            : 
+<span class="lineNum">     835 </span><span class="lineNoCov">          0 :     i_assert(reset_id != 0);</span>
+<span class="lineNum">     836 </span>            : 
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :     i_zero(&amp;reset);</span>
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :     reset.new_reset_id = reset_id;</span>
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :     reset.preserve_data = clear_data ? 0 : 1;</span>
+<span class="lineNum">     840 </span>            : 
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :     mail_index_ext_set_reset_id(t, ext_id, reset_id);</span>
+<span class="lineNum">     842 </span>            : 
+<span class="lineNum">     843 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;ext_resets))</span>
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :         i_array_init(&amp;t-&gt;ext_resets, ext_id + 2);</span>
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :     array_idx_set(&amp;t-&gt;ext_resets, ext_id, &amp;reset);</span>
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 :     t-&gt;log_ext_updates = TRUE;</span>
+<a name="847"><span class="lineNum">     847 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     848 </span>            : 
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 : void mail_index_ext_reset_inc(struct mail_index_transaction *t, uint32_t ext_id,</span>
+<span class="lineNum">     850 </span>            :                   uint32_t prev_reset_id, bool clear_data)
+<span class="lineNum">     851 </span>            : {
+<span class="lineNum">     852 </span><span class="lineNoCov">          0 :     uint32_t expected_reset_id = prev_reset_id + 1;</span>
+<span class="lineNum">     853 </span>            : 
+<span class="lineNum">     854 </span><span class="lineNoCov">          0 :     mail_index_ext_reset(t, ext_id, (uint32_t)-1, clear_data);</span>
+<span class="lineNum">     855 </span>            : 
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;ext_reset_atomic))</span>
+<span class="lineNum">     857 </span><span class="lineNoCov">          0 :         i_array_init(&amp;t-&gt;ext_reset_atomic, ext_id + 2);</span>
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :     array_idx_set(&amp;t-&gt;ext_reset_atomic, ext_id, &amp;expected_reset_id);</span>
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 : }</span>
+<a name="860"><span class="lineNum">     860 </span>            : </a>
+<span class="lineNum">     861 </span>            : static bool
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 : mail_index_transaction_has_ext_updates(const ARRAY_TYPE(seq_array_array) *arr)</span>
+<span class="lineNum">     863 </span>            : {
+<span class="lineNum">     864 </span>            :     const ARRAY_TYPE(seq_array) *array;
+<span class="lineNum">     865 </span>            : 
+<span class="lineNum">     866 </span><span class="lineNoCov">          0 :     if (array_is_created(arr)) {</span>
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :         array_foreach(arr, array) {</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :             if (array_is_created(array))</span>
+<span class="lineNum">     869 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">     870 </span>            :         }
+<span class="lineNum">     871 </span>            :     }
+<span class="lineNum">     872 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     873 </span>            : }
+<a name="874"><span class="lineNum">     874 </span>            : </a>
+<span class="lineNum">     875 </span>            : static bool
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 : mail_index_transaction_has_ext_changes(struct mail_index_transaction *t)</span>
+<span class="lineNum">     877 </span>            : {
+<span class="lineNum">     878 </span><span class="lineNoCov">          0 :     if (mail_index_transaction_has_ext_updates(&amp;t-&gt;ext_rec_updates))</span>
+<span class="lineNum">     879 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     880 </span><span class="lineNoCov">          0 :     if (mail_index_transaction_has_ext_updates(&amp;t-&gt;ext_rec_atomics))</span>
+<span class="lineNum">     881 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     882 </span>            : 
+<span class="lineNum">     883 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;ext_hdr_updates)) {</span>
+<span class="lineNum">     884 </span>            :         const struct mail_index_transaction_ext_hdr_update *hdr;
+<span class="lineNum">     885 </span>            : 
+<span class="lineNum">     886 </span><span class="lineNoCov">          0 :         array_foreach(&amp;t-&gt;ext_hdr_updates, hdr) {</span>
+<span class="lineNum">     887 </span><span class="lineNoCov">          0 :             if (hdr-&gt;alloc_size &gt; 0)</span>
+<span class="lineNum">     888 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">     889 </span>            :         }
+<span class="lineNum">     890 </span>            :     }
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;ext_resets)) {</span>
+<span class="lineNum">     892 </span>            :         const struct mail_transaction_ext_reset *reset;
+<span class="lineNum">     893 </span>            : 
+<span class="lineNum">     894 </span><span class="lineNoCov">          0 :         array_foreach(&amp;t-&gt;ext_resets, reset) {</span>
+<span class="lineNum">     895 </span><span class="lineNoCov">          0 :             if (reset-&gt;new_reset_id != 0)</span>
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">     897 </span>            :         }
+<span class="lineNum">     898 </span>            :     }
+<span class="lineNum">     899 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;ext_resizes)) {</span>
+<span class="lineNum">     900 </span>            :         const struct mail_transaction_ext_intro *resize;
+<span class="lineNum">     901 </span>            : 
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :         array_foreach(&amp;t-&gt;ext_resizes, resize) {</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :             if (resize-&gt;name_size &gt; 0)</span>
+<span class="lineNum">     904 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">     905 </span>            :         }
+<span class="lineNum">     906 </span>            :     }
+<span class="lineNum">     907 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     908 </span>            : }
+<a name="909"><span class="lineNum">     909 </span>            : </a>
+<span class="lineNum">     910 </span>            : static void
+<span class="lineNum">     911 </span><span class="lineNoCov">          0 : mail_index_ext_update_reset(ARRAY_TYPE(seq_array_array) *arr, uint32_t ext_id)</span>
+<span class="lineNum">     912 </span>            : {
+<span class="lineNum">     913 </span><span class="lineNoCov">          0 :     if (array_is_created(arr) &amp;&amp; ext_id &lt; array_count(arr)) {</span>
+<span class="lineNum">     914 </span>            :         /* if extension records have been updated, clear them */
+<span class="lineNum">     915 </span>            :         ARRAY_TYPE(seq_array) *array;
+<span class="lineNum">     916 </span>            : 
+<span class="lineNum">     917 </span><span class="lineNoCov">          0 :         array = array_idx_modifiable(arr, ext_id);</span>
+<span class="lineNum">     918 </span><span class="lineNoCov">          0 :         if (array_is_created(array))</span>
+<span class="lineNum">     919 </span><span class="lineNoCov">          0 :             array_clear(array);</span>
+<span class="lineNum">     920 </span>            :     }
+<span class="lineNum">     921 </span><span class="lineNoCov">          0 : }</span>
+<a name="922"><span class="lineNum">     922 </span>            : </a>
+<span class="lineNum">     923 </span>            : static void
+<span class="lineNum">     924 </span><span class="lineNoCov">          0 : mail_index_ext_reset_changes(struct mail_index_transaction *t, uint32_t ext_id)</span>
+<span class="lineNum">     925 </span>            : {
+<span class="lineNum">     926 </span><span class="lineNoCov">          0 :     mail_index_ext_update_reset(&amp;t-&gt;ext_rec_updates, ext_id);</span>
+<span class="lineNum">     927 </span><span class="lineNoCov">          0 :     mail_index_ext_update_reset(&amp;t-&gt;ext_rec_atomics, ext_id);</span>
+<span class="lineNum">     928 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;ext_hdr_updates) &amp;&amp;</span>
+<span class="lineNum">     929 </span><span class="lineNoCov">          0 :         ext_id &lt; array_count(&amp;t-&gt;ext_hdr_updates)) {</span>
+<span class="lineNum">     930 </span>            :         /* if extension headers have been updated, clear them */
+<span class="lineNum">     931 </span>            :         struct mail_index_transaction_ext_hdr_update *hdr;
+<span class="lineNum">     932 </span>            : 
+<span class="lineNum">     933 </span><span class="lineNoCov">          0 :         hdr = array_idx_modifiable(&amp;t-&gt;ext_hdr_updates, ext_id);</span>
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 :         if (hdr-&gt;alloc_size &gt; 0) {</span>
+<span class="lineNum">     935 </span><span class="lineNoCov">          0 :             i_free_and_null(hdr-&gt;mask);</span>
+<span class="lineNum">     936 </span><span class="lineNoCov">          0 :             i_free_and_null(hdr-&gt;data);</span>
+<span class="lineNum">     937 </span>            :         }
+<span class="lineNum">     938 </span><span class="lineNoCov">          0 :         hdr-&gt;alloc_size = 0;</span>
+<span class="lineNum">     939 </span>            :     }
+<span class="lineNum">     940 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;ext_resets) &amp;&amp;</span>
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :         ext_id &lt; array_count(&amp;t-&gt;ext_resets)) {</span>
+<span class="lineNum">     942 </span>            :         /* clear resets */
+<span class="lineNum">     943 </span><span class="lineNoCov">          0 :         array_idx_clear(&amp;t-&gt;ext_resets, ext_id);</span>
+<span class="lineNum">     944 </span>            :     }
+<span class="lineNum">     945 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;t-&gt;ext_resizes) &amp;&amp;</span>
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 :         ext_id &lt; array_count(&amp;t-&gt;ext_resizes)) {</span>
+<span class="lineNum">     947 </span>            :         /* clear resizes */
+<span class="lineNum">     948 </span><span class="lineNoCov">          0 :         array_idx_clear(&amp;t-&gt;ext_resizes, ext_id);</span>
+<span class="lineNum">     949 </span>            :     }
+<span class="lineNum">     950 </span>            : 
+<span class="lineNum">     951 </span><span class="lineNoCov">          0 :     t-&gt;log_ext_updates = mail_index_transaction_has_ext_changes(t);</span>
+<a name="952"><span class="lineNum">     952 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     953 </span>            : 
+<span class="lineNum">     954 </span><span class="lineNoCov">          0 : void mail_index_ext_using_reset_id(struct mail_index_transaction *t,</span>
+<span class="lineNum">     955 </span>            :                    uint32_t ext_id, uint32_t reset_id)
+<span class="lineNum">     956 </span>            : {
+<span class="lineNum">     957 </span>            :     uint32_t *reset_id_p;
+<span class="lineNum">     958 </span>            :     bool changed;
+<span class="lineNum">     959 </span>            : 
+<span class="lineNum">     960 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;ext_reset_ids))</span>
+<span class="lineNum">     961 </span><span class="lineNoCov">          0 :         i_array_init(&amp;t-&gt;ext_reset_ids, ext_id + 2);</span>
+<span class="lineNum">     962 </span><span class="lineNoCov">          0 :     reset_id_p = array_idx_get_space(&amp;t-&gt;ext_reset_ids, ext_id);</span>
+<span class="lineNum">     963 </span><span class="lineNoCov">          0 :     changed = *reset_id_p != reset_id &amp;&amp; *reset_id_p != 0;</span>
+<span class="lineNum">     964 </span><span class="lineNoCov">          0 :     *reset_id_p = reset_id;</span>
+<span class="lineNum">     965 </span><span class="lineNoCov">          0 :     if (changed) {</span>
+<span class="lineNum">     966 </span>            :         /* reset_id changed, clear existing changes */
+<span class="lineNum">     967 </span><span class="lineNoCov">          0 :         mail_index_ext_reset_changes(t, ext_id);</span>
+<span class="lineNum">     968 </span>            :     }
+<a name="969"><span class="lineNum">     969 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     970 </span>            : 
+<span class="lineNum">     971 </span><span class="lineNoCov">          0 : void mail_index_ext_set_reset_id(struct mail_index_transaction *t,</span>
+<span class="lineNum">     972 </span>            :                  uint32_t ext_id, uint32_t reset_id)
+<span class="lineNum">     973 </span>            : {
+<span class="lineNum">     974 </span><span class="lineNoCov">          0 :     mail_index_ext_using_reset_id(t, ext_id, reset_id);</span>
+<span class="lineNum">     975 </span>            :     /* make sure the changes get reset, even if reset_id doesn't change */
+<span class="lineNum">     976 </span><span class="lineNoCov">          0 :     mail_index_ext_reset_changes(t, ext_id);</span>
+<a name="977"><span class="lineNum">     977 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     978 </span>            : 
+<span class="lineNum">     979 </span><span class="lineCov">          4 : void mail_index_update_header_ext(struct mail_index_transaction *t,</span>
+<span class="lineNum">     980 </span>            :                   uint32_t ext_id, size_t offset,
+<span class="lineNum">     981 </span>            :                   const void *data, size_t size)
+<span class="lineNum">     982 </span>            : {
+<span class="lineNum">     983 </span>            :     struct mail_index_transaction_ext_hdr_update *hdr;
+<span class="lineNum">     984 </span>            :     size_t new_size;
+<span class="lineNum">     985 </span>            : 
+<span class="lineNum">     986 </span><span class="lineCov">          4 :     i_assert(offset &lt;= (uint32_t)-1 &amp;&amp; size &lt;= (uint32_t)-1 &amp;&amp;</span>
+<span class="lineNum">     987 </span>            :          offset + size &lt;= (uint32_t)-1);
+<span class="lineNum">     988 </span>            : 
+<span class="lineNum">     989 </span><span class="lineCov">          4 :     if (!array_is_created(&amp;t-&gt;ext_hdr_updates))</span>
+<span class="lineNum">     990 </span><span class="lineCov">          4 :         i_array_init(&amp;t-&gt;ext_hdr_updates, ext_id + 2);</span>
+<span class="lineNum">     991 </span>            : 
+<span class="lineNum">     992 </span><span class="lineCov">          4 :     hdr = array_idx_get_space(&amp;t-&gt;ext_hdr_updates, ext_id);</span>
+<span class="lineNum">     993 </span><span class="lineCov">          4 :     if (hdr-&gt;alloc_size &lt; offset || hdr-&gt;alloc_size - offset &lt; size) {</span>
+<span class="lineNum">     994 </span><span class="lineCov">          4 :         i_assert(size &lt; (size_t)-1 - offset);</span>
+<span class="lineNum">     995 </span><span class="lineCov">          4 :         new_size = nearest_power(offset + size);</span>
+<span class="lineNum">     996 </span><span class="lineCov">          4 :         hdr-&gt;mask = i_realloc(hdr-&gt;mask, hdr-&gt;alloc_size, new_size);</span>
+<span class="lineNum">     997 </span><span class="lineCov">          4 :         hdr-&gt;data = i_realloc(hdr-&gt;data, hdr-&gt;alloc_size, new_size);</span>
+<span class="lineNum">     998 </span><span class="lineCov">          4 :         hdr-&gt;alloc_size = new_size;</span>
+<span class="lineNum">     999 </span>            :     }
+<span class="lineNum">    1000 </span><span class="lineCov">          4 :     memset(hdr-&gt;mask + offset, 1, size);</span>
+<span class="lineNum">    1001 </span><span class="lineCov">          4 :     memcpy(hdr-&gt;data + offset, data, size);</span>
+<span class="lineNum">    1002 </span>            : 
+<span class="lineNum">    1003 </span><span class="lineCov">          4 :     t-&gt;log_ext_updates = TRUE;</span>
+<a name="1004"><span class="lineNum">    1004 </span><span class="lineCov">          4 : }</span></a>
+<span class="lineNum">    1005 </span>            : 
+<span class="lineNum">    1006 </span><span class="lineCov">          1 : void mail_index_update_ext(struct mail_index_transaction *t, uint32_t seq,</span>
+<span class="lineNum">    1007 </span>            :                uint32_t ext_id, const void *data, void *old_data_r)
+<span class="lineNum">    1008 </span>            : {
+<span class="lineNum">    1009 </span><span class="lineCov">          1 :     struct mail_index *index = t-&gt;view-&gt;index;</span>
+<span class="lineNum">    1010 </span>            :         const struct mail_index_registered_ext *rext;
+<span class="lineNum">    1011 </span>            :     const struct mail_transaction_ext_intro *intro;
+<span class="lineNum">    1012 </span>            :     uint16_t record_size;
+<span class="lineNum">    1013 </span>            :     ARRAY_TYPE(seq_array) *array;
+<span class="lineNum">    1014 </span>            :     unsigned int count;
+<span class="lineNum">    1015 </span>            : 
+<span class="lineNum">    1016 </span><span class="lineCov">          1 :     i_assert(seq &gt; 0 &amp;&amp;</span>
+<span class="lineNum">    1017 </span>            :          (seq &lt;= mail_index_view_get_messages_count(t-&gt;view) ||
+<span class="lineNum">    1018 </span>            :           seq &lt;= t-&gt;last_new_seq));
+<span class="lineNum">    1019 </span><span class="lineCov">          1 :     i_assert(ext_id &lt; array_count(&amp;index-&gt;extensions));</span>
+<span class="lineNum">    1020 </span>            : 
+<span class="lineNum">    1021 </span><span class="lineCov">          1 :     t-&gt;log_ext_updates = TRUE;</span>
+<span class="lineNum">    1022 </span>            : 
+<span class="lineNum">    1023 </span><span class="lineCov">          1 :     if (!array_is_created(&amp;t-&gt;ext_resizes)) {</span>
+<span class="lineNum">    1024 </span><span class="lineCov">          1 :         intro = NULL;</span>
+<span class="lineNum">    1025 </span><span class="lineCov">          1 :         count = 0;</span>
+<span class="lineNum">    1026 </span>            :     } else {
+<span class="lineNum">    1027 </span><span class="lineNoCov">          0 :         intro = array_get(&amp;t-&gt;ext_resizes, &amp;count);</span>
+<span class="lineNum">    1028 </span>            :     }
+<span class="lineNum">    1029 </span><span class="lineCov">          1 :     if (ext_id &lt; count &amp;&amp; intro[ext_id].name_size != 0) {</span>
+<span class="lineNum">    1030 </span>            :         /* resized record */
+<span class="lineNum">    1031 </span><span class="lineNoCov">          0 :         record_size = intro[ext_id].record_size;</span>
+<span class="lineNum">    1032 </span>            :     } else {
+<span class="lineNum">    1033 </span><span class="lineCov">          1 :         rext = array_idx(&amp;index-&gt;extensions, ext_id);</span>
+<span class="lineNum">    1034 </span><span class="lineCov">          1 :         record_size = rext-&gt;record_size;</span>
+<span class="lineNum">    1035 </span>            :     }
+<span class="lineNum">    1036 </span><span class="lineCov">          1 :     i_assert(record_size &gt; 0);</span>
+<span class="lineNum">    1037 </span>            : 
+<span class="lineNum">    1038 </span><span class="lineCov">          1 :     if (!array_is_created(&amp;t-&gt;ext_rec_updates))</span>
+<span class="lineNum">    1039 </span><span class="lineCov">          1 :         i_array_init(&amp;t-&gt;ext_rec_updates, ext_id + 2);</span>
+<span class="lineNum">    1040 </span><span class="lineCov">          1 :     array = array_idx_get_space(&amp;t-&gt;ext_rec_updates, ext_id);</span>
+<span class="lineNum">    1041 </span>            : 
+<span class="lineNum">    1042 </span>            :     /* @UNSAFE */
+<span class="lineNum">    1043 </span><span class="lineCov">          1 :     if (!mail_index_seq_array_add(array, seq, data, record_size,</span>
+<span class="lineNum">    1044 </span>            :                       old_data_r)) {
+<span class="lineNum">    1045 </span>            :         /* not found, clear old_data if it was given */
+<span class="lineNum">    1046 </span><span class="lineCov">          1 :         if (old_data_r != NULL)</span>
+<span class="lineNum">    1047 </span><span class="lineNoCov">          0 :             memset(old_data_r, 0, record_size);</span>
+<span class="lineNum">    1048 </span>            :     }
+<a name="1049"><span class="lineNum">    1049 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">    1050 </span>            : 
+<span class="lineNum">    1051 </span><span class="lineNoCov">          0 : int mail_index_atomic_inc_ext(struct mail_index_transaction *t,</span>
+<span class="lineNum">    1052 </span>            :                   uint32_t seq, uint32_t ext_id, int diff)
+<span class="lineNum">    1053 </span>            : {
+<span class="lineNum">    1054 </span>            :     ARRAY_TYPE(seq_array) *array;
+<span class="lineNum">    1055 </span><span class="lineNoCov">          0 :     int32_t old_diff32, diff32 = diff;</span>
+<span class="lineNum">    1056 </span>            : 
+<span class="lineNum">    1057 </span><span class="lineNoCov">          0 :     i_assert(seq &gt; 0 &amp;&amp;</span>
+<span class="lineNum">    1058 </span>            :          (seq &lt;= mail_index_view_get_messages_count(t-&gt;view) ||
+<span class="lineNum">    1059 </span>            :           seq &lt;= t-&gt;last_new_seq));
+<span class="lineNum">    1060 </span><span class="lineNoCov">          0 :     i_assert(ext_id &lt; array_count(&amp;t-&gt;view-&gt;index-&gt;extensions));</span>
+<span class="lineNum">    1061 </span>            :     /* currently non-external transactions can be applied multiple times,
+<span class="lineNum">    1062 </span>            :        causing multiple increments. FIXME: we need this now and it doesn't
+<span class="lineNum">    1063 </span>            :        actually seem to be a real problem at least right now - why? */
+<span class="lineNum">    1064 </span>            :     /*i_assert((t-&gt;flags &amp; MAIL_INDEX_TRANSACTION_FLAG_EXTERNAL) != 0);*/
+<span class="lineNum">    1065 </span>            : 
+<span class="lineNum">    1066 </span><span class="lineNoCov">          0 :     t-&gt;log_ext_updates = TRUE;</span>
+<span class="lineNum">    1067 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;ext_rec_atomics))</span>
+<span class="lineNum">    1068 </span><span class="lineNoCov">          0 :         i_array_init(&amp;t-&gt;ext_rec_atomics, ext_id + 2);</span>
+<span class="lineNum">    1069 </span><span class="lineNoCov">          0 :     array = array_idx_get_space(&amp;t-&gt;ext_rec_atomics, ext_id);</span>
+<span class="lineNum">    1070 </span><span class="lineNoCov">          0 :     if (mail_index_seq_array_add(array, seq, &amp;diff32, sizeof(diff32),</span>
+<span class="lineNum">    1071 </span>            :                      &amp;old_diff32)) {
+<span class="lineNum">    1072 </span>            :         /* already incremented this sequence in this transaction */
+<span class="lineNum">    1073 </span><span class="lineNoCov">          0 :         diff32 += old_diff32;</span>
+<span class="lineNum">    1074 </span><span class="lineNoCov">          0 :         (void)mail_index_seq_array_add(array, seq, &amp;diff32,</span>
+<span class="lineNum">    1075 </span>            :                            sizeof(diff32), NULL);
+<span class="lineNum">    1076 </span>            :     }
+<span class="lineNum">    1077 </span><span class="lineNoCov">          0 :     return diff32;</span>
+<span class="lineNum">    1078 </span>            : }
+<a name="1079"><span class="lineNum">    1079 </span>            : </a>
+<span class="lineNum">    1080 </span>            : static bool
+<span class="lineNum">    1081 </span><span class="lineNoCov">          0 : keyword_update_has_changes(struct mail_index_transaction *t, uint32_t seq,</span>
+<span class="lineNum">    1082 </span>            :                enum modify_type modify_type,
+<span class="lineNum">    1083 </span>            :                struct mail_keywords *keywords)
+<span class="lineNum">    1084 </span>            : {
+<span class="lineNum">    1085 </span>            :     ARRAY_TYPE(keyword_indexes) existing;
+<span class="lineNum">    1086 </span>            :     const unsigned int *existing_idx;
+<span class="lineNum">    1087 </span>            :     unsigned int i, j, existing_count;
+<span class="lineNum">    1088 </span>            :     bool found;
+<span class="lineNum">    1089 </span>            : 
+<span class="lineNum">    1090 </span><span class="lineNoCov">          0 :     t_array_init(&amp;existing, 32);</span>
+<span class="lineNum">    1091 </span><span class="lineNoCov">          0 :     if (seq &lt; t-&gt;first_new_seq)</span>
+<span class="lineNum">    1092 </span><span class="lineNoCov">          0 :         mail_index_transaction_lookup_latest_keywords(t, seq, &amp;existing);</span>
+<span class="lineNum">    1093 </span><span class="lineNoCov">          0 :     existing_idx = array_get(&amp;existing, &amp;existing_count);</span>
+<span class="lineNum">    1094 </span>            : 
+<span class="lineNum">    1095 </span><span class="lineNoCov">          0 :     if (modify_type == MODIFY_REPLACE &amp;&amp; existing_count != keywords-&gt;count)</span>
+<span class="lineNum">    1096 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">    1097 </span>            : 
+<span class="lineNum">    1098 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; keywords-&gt;count; i++) {</span>
+<span class="lineNum">    1099 </span><span class="lineNoCov">          0 :         found = FALSE;</span>
+<span class="lineNum">    1100 </span><span class="lineNoCov">          0 :         for (j = 0; j &lt; existing_count; j++) {</span>
+<span class="lineNum">    1101 </span><span class="lineNoCov">          0 :             if (existing_idx[j] == keywords-&gt;idx[i]) {</span>
+<span class="lineNum">    1102 </span><span class="lineNoCov">          0 :                 found = TRUE;</span>
+<span class="lineNum">    1103 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">    1104 </span>            :             }
+<span class="lineNum">    1105 </span>            :         }
+<span class="lineNum">    1106 </span><span class="lineNoCov">          0 :         switch (modify_type) {</span>
+<span class="lineNum">    1107 </span>            :         case MODIFY_ADD:
+<span class="lineNum">    1108 </span>            :         case MODIFY_REPLACE:
+<span class="lineNum">    1109 </span><span class="lineNoCov">          0 :             if (!found)</span>
+<span class="lineNum">    1110 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">    1111 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">    1112 </span>            :         case MODIFY_REMOVE:
+<span class="lineNum">    1113 </span><span class="lineNoCov">          0 :             if (found)</span>
+<span class="lineNum">    1114 </span><span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">    1115 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">    1116 </span>            :         }
+<span class="lineNum">    1117 </span>            :     }
+<span class="lineNum">    1118 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">    1119 </span>            : }
+<a name="1120"><span class="lineNum">    1120 </span>            : </a>
+<span class="lineNum">    1121 </span>            : static struct mail_keywords *
+<span class="lineNum">    1122 </span><span class="lineNoCov">          0 : keyword_update_remove_existing(struct mail_index_transaction *t, uint32_t seq)</span>
+<span class="lineNum">    1123 </span>            : {
+<span class="lineNum">    1124 </span>            :     ARRAY_TYPE(keyword_indexes) keywords;
+<span class="lineNum">    1125 </span>            :     uint32_t i, keywords_count;
+<span class="lineNum">    1126 </span>            : 
+<span class="lineNum">    1127 </span><span class="lineNoCov">          0 :     t_array_init(&amp;keywords, 32);</span>
+<span class="lineNum">    1128 </span><span class="lineNoCov">          0 :     if (t-&gt;view-&gt;v.lookup_full == NULL) {</span>
+<span class="lineNum">    1129 </span>            :         /* syncing is saving a list of changes into this transaction.
+<span class="lineNum">    1130 </span>            :            the seq is actual an uid, so we can't lookup the existing
+<span class="lineNum">    1131 </span>            :            keywords. we shouldn't get here unless we're reading
+<span class="lineNum">    1132 </span>            :            pre-v2.2 keyword-reset records from .log files. so we don't
+<span class="lineNum">    1133 </span>            :            really care about performance that much here, */
+<span class="lineNum">    1134 </span><span class="lineNoCov">          0 :         keywords_count = array_count(&amp;t-&gt;view-&gt;index-&gt;keywords);</span>
+<span class="lineNum">    1135 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; keywords_count; i++)</span>
+<span class="lineNum">    1136 </span><span class="lineNoCov">          0 :             array_append(&amp;keywords, &amp;i, 1);</span>
+<span class="lineNum">    1137 </span>            :     } else {
+<span class="lineNum">    1138 </span><span class="lineNoCov">          0 :         mail_index_transaction_lookup_latest_keywords(t, seq, &amp;keywords);</span>
+<span class="lineNum">    1139 </span>            :     }
+<span class="lineNum">    1140 </span><span class="lineNoCov">          0 :     if (array_count(&amp;keywords) == 0)</span>
+<span class="lineNum">    1141 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">    1142 </span><span class="lineNoCov">          0 :     return mail_index_keywords_create_from_indexes(t-&gt;view-&gt;index,</span>
+<span class="lineNum">    1143 </span>            :                                &amp;keywords);
+<a name="1144"><span class="lineNum">    1144 </span>            : }</a>
+<span class="lineNum">    1145 </span>            : 
+<span class="lineNum">    1146 </span><span class="lineNoCov">          0 : void mail_index_update_keywords(struct mail_index_transaction *t, uint32_t seq,</span>
+<span class="lineNum">    1147 </span>            :                 enum modify_type modify_type,
+<span class="lineNum">    1148 </span>            :                 struct mail_keywords *keywords)
+<span class="lineNum">    1149 </span>            : {
+<span class="lineNum">    1150 </span>            :     struct mail_index_transaction_keyword_update *u;
+<span class="lineNum">    1151 </span><span class="lineNoCov">          0 :     struct mail_keywords *add_keywords = NULL, *remove_keywords = NULL;</span>
+<span class="lineNum">    1152 </span><span class="lineNoCov">          0 :     struct mail_keywords *unref_keywords = NULL;</span>
+<span class="lineNum">    1153 </span>            :     unsigned int i;
+<span class="lineNum">    1154 </span>            :     bool changed;
+<span class="lineNum">    1155 </span>            : 
+<span class="lineNum">    1156 </span><span class="lineNoCov">          0 :     i_assert(seq &gt; 0 &amp;&amp;</span>
+<span class="lineNum">    1157 </span>            :          (seq &lt;= mail_index_view_get_messages_count(t-&gt;view) ||
+<span class="lineNum">    1158 </span>            :           seq &lt;= t-&gt;last_new_seq));
+<span class="lineNum">    1159 </span><span class="lineNoCov">          0 :     i_assert(keywords-&gt;index == t-&gt;view-&gt;index);</span>
+<span class="lineNum">    1160 </span>            : 
+<span class="lineNum">    1161 </span><span class="lineNoCov">          0 :     if (keywords-&gt;count == 0 &amp;&amp; modify_type != MODIFY_REPLACE)</span>
+<span class="lineNum">    1162 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1163 </span>            : 
+<span class="lineNum">    1164 </span><span class="lineNoCov">          0 :     update_minmax_flagupdate_seq(t, seq, seq);</span>
+<span class="lineNum">    1165 </span>            : 
+<span class="lineNum">    1166 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;keyword_updates)) {</span>
+<span class="lineNum">    1167 </span><span class="lineNoCov">          0 :         uint32_t max_idx = keywords-&gt;count == 0 ? 3 :</span>
+<span class="lineNum">    1168 </span><span class="lineNoCov">          0 :             keywords-&gt;idx[keywords-&gt;count-1];</span>
+<span class="lineNum">    1169 </span>            : 
+<span class="lineNum">    1170 </span><span class="lineNoCov">          0 :         i_array_init(&amp;t-&gt;keyword_updates, max_idx + 1);</span>
+<span class="lineNum">    1171 </span>            :     }
+<span class="lineNum">    1172 </span>            : 
+<span class="lineNum">    1173 </span><span class="lineNoCov">          0 :     if ((t-&gt;flags &amp; MAIL_INDEX_TRANSACTION_FLAG_AVOID_FLAG_UPDATES) != 0) {</span>
+<span class="lineNum">    1174 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">    1175 </span><span class="lineNoCov">          0 :             changed = keyword_update_has_changes(t, seq,</span>
+<span class="lineNum">    1176 </span>            :                                  modify_type,
+<span class="lineNum">    1177 </span>            :                                  keywords);
+<span class="lineNum">    1178 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">    1179 </span><span class="lineNoCov">          0 :         if (!changed)</span>
+<span class="lineNum">    1180 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">    1181 </span>            :     }
+<span class="lineNum">    1182 </span>            : 
+<span class="lineNum">    1183 </span><span class="lineNoCov">          0 :     switch (modify_type) {</span>
+<span class="lineNum">    1184 </span>            :     case MODIFY_REPLACE:
+<span class="lineNum">    1185 </span>            :         /* split this into add+remove. remove all existing keywords not
+<span class="lineNum">    1186 </span>            :            included in the keywords list */
+<span class="lineNum">    1187 </span><span class="lineNoCov">          0 :         if (seq &lt; t-&gt;first_new_seq) {</span>
+<span class="lineNum">    1188 </span>            :             /* remove the ones currently in index */
+<span class="lineNum">    1189 </span><span class="lineNoCov">          0 :             remove_keywords = keyword_update_remove_existing(t, seq);</span>
+<span class="lineNum">    1190 </span><span class="lineNoCov">          0 :             unref_keywords = remove_keywords;</span>
+<span class="lineNum">    1191 </span>            :         }
+<span class="lineNum">    1192 </span>            :         /* remove from all changes we've done in this transaction */
+<span class="lineNum">    1193 </span><span class="lineNoCov">          0 :         array_foreach_modifiable(&amp;t-&gt;keyword_updates, u)</span>
+<span class="lineNum">    1194 </span><span class="lineNoCov">          0 :             seq_range_array_remove(&amp;u-&gt;add_seq, seq);</span>
+<span class="lineNum">    1195 </span><span class="lineNoCov">          0 :         add_keywords = keywords;</span>
+<span class="lineNum">    1196 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1197 </span>            :     case MODIFY_ADD:
+<span class="lineNum">    1198 </span><span class="lineNoCov">          0 :         add_keywords = keywords;</span>
+<span class="lineNum">    1199 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1200 </span>            :     case MODIFY_REMOVE:
+<span class="lineNum">    1201 </span><span class="lineNoCov">          0 :         remove_keywords = keywords;</span>
+<span class="lineNum">    1202 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">    1203 </span>            :     }
+<span class="lineNum">    1204 </span>            : 
+<span class="lineNum">    1205 </span>            :     /* Update add_seq and remove_seq arrays which describe the keyword
+<span class="lineNum">    1206 </span>            :        changes. First do the removes, since replace removes everything
+<span class="lineNum">    1207 </span>            :        first. */
+<span class="lineNum">    1208 </span><span class="lineNoCov">          0 :     if (remove_keywords != NULL) {</span>
+<span class="lineNum">    1209 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; remove_keywords-&gt;count; i++) {</span>
+<span class="lineNum">    1210 </span><span class="lineNoCov">          0 :             u = array_idx_get_space(&amp;t-&gt;keyword_updates,</span>
+<span class="lineNum">    1211 </span>            :                          remove_keywords-&gt;idx[i]);
+<span class="lineNum">    1212 </span><span class="lineNoCov">          0 :             seq_range_array_remove(&amp;u-&gt;add_seq, seq);</span>
+<span class="lineNum">    1213 </span>            :             /* Don't bother updating remove_seq for new messages,
+<span class="lineNum">    1214 </span>            :                since their initial state is &quot;no keyword&quot; anyway */
+<span class="lineNum">    1215 </span><span class="lineNoCov">          0 :             if (seq &lt; t-&gt;first_new_seq) {</span>
+<span class="lineNum">    1216 </span><span class="lineNoCov">          0 :                 seq_range_array_add_with_init(&amp;u-&gt;remove_seq,</span>
+<span class="lineNum">    1217 </span>            :                                   16, seq);
+<span class="lineNum">    1218 </span>            :             }
+<span class="lineNum">    1219 </span>            :         }
+<span class="lineNum">    1220 </span>            :     }
+<span class="lineNum">    1221 </span><span class="lineNoCov">          0 :     if (add_keywords != NULL) {</span>
+<span class="lineNum">    1222 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; add_keywords-&gt;count; i++) {</span>
+<span class="lineNum">    1223 </span><span class="lineNoCov">          0 :             u = array_idx_get_space(&amp;t-&gt;keyword_updates,</span>
+<span class="lineNum">    1224 </span>            :                          add_keywords-&gt;idx[i]);
+<span class="lineNum">    1225 </span><span class="lineNoCov">          0 :             seq_range_array_add_with_init(&amp;u-&gt;add_seq, 16, seq);</span>
+<span class="lineNum">    1226 </span><span class="lineNoCov">          0 :             seq_range_array_remove(&amp;u-&gt;remove_seq, seq);</span>
+<span class="lineNum">    1227 </span>            :         }
+<span class="lineNum">    1228 </span>            :     }
+<span class="lineNum">    1229 </span><span class="lineNoCov">          0 :     if (unref_keywords != NULL)</span>
+<span class="lineNum">    1230 </span><span class="lineNoCov">          0 :         mail_index_keywords_unref(&amp;unref_keywords);</span>
+<span class="lineNum">    1231 </span>            : 
+<span class="lineNum">    1232 </span><span class="lineNoCov">          0 :     t-&gt;log_updates = TRUE;</span>
+<a name="1233"><span class="lineNum">    1233 </span>            : }</a>
+<span class="lineNum">    1234 </span>            : 
+<span class="lineNum">    1235 </span><span class="lineCov">          4 : bool mail_index_cancel_flag_updates(struct mail_index_transaction *t,</span>
+<span class="lineNum">    1236 </span>            :                     uint32_t seq)
+<span class="lineNum">    1237 </span>            : {
+<span class="lineNum">    1238 </span>            :     struct mail_index_flag_update *updates, tmp_update;
+<span class="lineNum">    1239 </span>            :     unsigned int i, count;
+<span class="lineNum">    1240 </span>            : 
+<span class="lineNum">    1241 </span><span class="lineCov">          4 :     if (!array_is_created(&amp;t-&gt;updates))</span>
+<span class="lineNum">    1242 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1243 </span>            : 
+<span class="lineNum">    1244 </span><span class="lineCov">          4 :     updates = array_get_modifiable(&amp;t-&gt;updates, &amp;count);</span>
+<span class="lineNum">    1245 </span><span class="lineCov">          4 :     i = mail_index_transaction_get_flag_update_pos(t, 0, count, seq);</span>
+<span class="lineNum">    1246 </span><span class="lineCov">          4 :     if (i == count)</span>
+<span class="lineNum">    1247 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1248 </span>            :     else {
+<span class="lineNum">    1249 </span><span class="lineCov">          4 :         i_assert(seq &lt;= updates[i].uid2);</span>
+<span class="lineNum">    1250 </span><span class="lineCov">          4 :         if (seq &lt; updates[i].uid1)</span>
+<span class="lineNum">    1251 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">    1252 </span>            :     }
+<span class="lineNum">    1253 </span>            : 
+<span class="lineNum">    1254 </span>            :     /* exists */
+<span class="lineNum">    1255 </span><span class="lineCov">          4 :     if (updates[i].uid1 == seq) {</span>
+<span class="lineNum">    1256 </span><span class="lineCov">          2 :         if (updates[i].uid2 != seq)</span>
+<span class="lineNum">    1257 </span><span class="lineCov">          1 :             updates[i].uid1++;</span>
+<span class="lineNum">    1258 </span><span class="lineCov">          1 :         else if (count &gt; 1)</span>
+<span class="lineNum">    1259 </span><span class="lineNoCov">          0 :             array_delete(&amp;t-&gt;updates, i, 1);</span>
+<span class="lineNum">    1260 </span>            :         else
+<span class="lineNum">    1261 </span><span class="lineCov">          1 :             array_free(&amp;t-&gt;updates);</span>
+<span class="lineNum">    1262 </span><span class="lineCov">          2 :     } else if (updates[i].uid2 == seq) {</span>
+<span class="lineNum">    1263 </span><span class="lineCov">          1 :         updates[i].uid2--;</span>
+<span class="lineNum">    1264 </span>            :     } else {
+<span class="lineNum">    1265 </span>            :         /* need to split it in two */
+<span class="lineNum">    1266 </span><span class="lineCov">          1 :         tmp_update = updates[i];</span>
+<span class="lineNum">    1267 </span><span class="lineCov">          1 :         tmp_update.uid1 = seq+1;</span>
+<span class="lineNum">    1268 </span><span class="lineCov">          1 :         updates[i].uid2 = seq-1;</span>
+<span class="lineNum">    1269 </span><span class="lineCov">          1 :         array_insert(&amp;t-&gt;updates, i + 1, &amp;tmp_update, 1);</span>
+<span class="lineNum">    1270 </span>            :     }
+<span class="lineNum">    1271 </span><span class="lineCov">          4 :     return TRUE;</span>
+<a name="1272"><span class="lineNum">    1272 </span>            : }</a>
+<span class="lineNum">    1273 </span>            : 
+<span class="lineNum">    1274 </span><span class="lineNoCov">          0 : static bool mail_index_cancel_array(ARRAY_TYPE(seq_range) *array, uint32_t seq)</span>
+<span class="lineNum">    1275 </span>            : {
+<span class="lineNum">    1276 </span><span class="lineNoCov">          0 :     if (array_is_created(array)) {</span>
+<span class="lineNum">    1277 </span><span class="lineNoCov">          0 :         if (seq_range_array_remove(array, seq)) {</span>
+<span class="lineNum">    1278 </span><span class="lineNoCov">          0 :             if (array_count(array) == 0)</span>
+<span class="lineNum">    1279 </span><span class="lineNoCov">          0 :                 array_free(array);</span>
+<span class="lineNum">    1280 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">    1281 </span>            :         }
+<span class="lineNum">    1282 </span>            :     }
+<span class="lineNum">    1283 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="1284"><span class="lineNum">    1284 </span>            : }</a>
+<span class="lineNum">    1285 </span>            : 
+<span class="lineNum">    1286 </span><span class="lineNoCov">          0 : bool mail_index_cancel_keyword_updates(struct mail_index_transaction *t,</span>
+<span class="lineNum">    1287 </span>            :                        uint32_t seq)
+<span class="lineNum">    1288 </span>            : {
+<span class="lineNum">    1289 </span>            :     struct mail_index_transaction_keyword_update *kw;
+<span class="lineNum">    1290 </span><span class="lineNoCov">          0 :     bool ret = FALSE, have_kw_changes = FALSE;</span>
+<span class="lineNum">    1291 </span>            : 
+<span class="lineNum">    1292 </span><span class="lineNoCov">          0 :     if (!array_is_created(&amp;t-&gt;keyword_updates))</span>
+<span class="lineNum">    1293 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">    1294 </span>            : 
+<span class="lineNum">    1295 </span><span class="lineNoCov">          0 :     array_foreach_modifiable(&amp;t-&gt;keyword_updates, kw) {</span>
+<span class="lineNum">    1296 </span><span class="lineNoCov">          0 :         if (mail_index_cancel_array(&amp;kw-&gt;add_seq, seq))</span>
+<span class="lineNum">    1297 </span><span class="lineNoCov">          0 :             ret = TRUE;</span>
+<span class="lineNum">    1298 </span><span class="lineNoCov">          0 :         if (mail_index_cancel_array(&amp;kw-&gt;remove_seq, seq))</span>
+<span class="lineNum">    1299 </span><span class="lineNoCov">          0 :             ret = TRUE;</span>
+<span class="lineNum">    1300 </span><span class="lineNoCov">          0 :         if (array_is_created(&amp;kw-&gt;add_seq) ||</span>
+<span class="lineNum">    1301 </span><span class="lineNoCov">          0 :             array_is_created(&amp;kw-&gt;remove_seq))</span>
+<span class="lineNum">    1302 </span><span class="lineNoCov">          0 :             have_kw_changes = TRUE;</span>
+<span class="lineNum">    1303 </span>            :     }
+<span class="lineNum">    1304 </span><span class="lineNoCov">          0 :     if (!have_kw_changes)</span>
+<span class="lineNum">    1305 </span><span class="lineNoCov">          0 :         array_free(&amp;t-&gt;keyword_updates);</span>
+<span class="lineNum">    1306 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="1307"><span class="lineNum">    1307 </span>            : }</a>
+<span class="lineNum">    1308 </span>            : 
+<span class="lineNum">    1309 </span><span class="lineNoCov">          0 : void mail_index_transaction_reset(struct mail_index_transaction *t)</span>
+<span class="lineNum">    1310 </span>            : {
+<span class="lineNum">    1311 </span><span class="lineNoCov">          0 :     t-&gt;v.reset(t);</span>
+<a name="1312"><span class="lineNum">    1312 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1313 </span>            : 
+<span class="lineNum">    1314 </span><span class="lineNoCov">          0 : void mail_index_reset(struct mail_index_transaction *t)</span>
+<span class="lineNum">    1315 </span>            : {
+<span class="lineNum">    1316 </span><span class="lineNoCov">          0 :     mail_index_transaction_reset(t);</span>
+<span class="lineNum">    1317 </span>            : 
+<span class="lineNum">    1318 </span><span class="lineNoCov">          0 :     t-&gt;reset = TRUE;</span>
+<a name="1319"><span class="lineNum">    1319 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1320 </span>            : 
+<span class="lineNum">    1321 </span><span class="lineCov">          1 : void mail_index_unset_fscked(struct mail_index_transaction *t)</span>
+<span class="lineNum">    1322 </span>            : {
+<span class="lineNum">    1323 </span><span class="lineCov">          1 :     struct mail_index_header new_hdr =</span>
+<span class="lineNum">    1324 </span><span class="lineCov">          1 :         *mail_index_get_header(t-&gt;view);</span>
+<span class="lineNum">    1325 </span>            : 
+<span class="lineNum">    1326 </span><span class="lineCov">          1 :     i_assert(t-&gt;view-&gt;index-&gt;log_sync_locked);</span>
+<span class="lineNum">    1327 </span>            : 
+<span class="lineNum">    1328 </span>            :     /* remove fsck'd-flag if it exists. */
+<span class="lineNum">    1329 </span><span class="lineCov">          1 :     if ((new_hdr.flags &amp; MAIL_INDEX_HDR_FLAG_FSCKD) != 0) {</span>
+<span class="lineNum">    1330 </span><span class="lineNoCov">          0 :         new_hdr.flags &amp;= ~MAIL_INDEX_HDR_FLAG_FSCKD;</span>
+<span class="lineNum">    1331 </span><span class="lineNoCov">          0 :         mail_index_update_header(t,</span>
+<span class="lineNum">    1332 </span>            :             offsetof(struct mail_index_header, flags),
+<span class="lineNum">    1333 </span>            :             &amp;new_hdr.flags, sizeof(new_hdr.flags), FALSE);
+<span class="lineNum">    1334 </span>            :     }
+<a name="1335"><span class="lineNum">    1335 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">    1336 </span>            : 
+<span class="lineNum">    1337 </span><span class="lineNoCov">          0 : void mail_index_set_deleted(struct mail_index_transaction *t)</span>
+<span class="lineNum">    1338 </span>            : {
+<span class="lineNum">    1339 </span><span class="lineNoCov">          0 :     i_assert(!t-&gt;index_undeleted);</span>
+<span class="lineNum">    1340 </span>            : 
+<span class="lineNum">    1341 </span><span class="lineNoCov">          0 :     t-&gt;index_deleted = TRUE;</span>
+<a name="1342"><span class="lineNum">    1342 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1343 </span>            : 
+<span class="lineNum">    1344 </span><span class="lineNoCov">          0 : void mail_index_set_undeleted(struct mail_index_transaction *t)</span>
+<span class="lineNum">    1345 </span>            : {
+<span class="lineNum">    1346 </span><span class="lineNoCov">          0 :     i_assert(!t-&gt;index_deleted);</span>
+<span class="lineNum">    1347 </span>            : 
+<span class="lineNum">    1348 </span><span class="lineNoCov">          0 :     t-&gt;index_undeleted = TRUE;</span>
+<a name="1349"><span class="lineNum">    1349 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">    1350 </span>            : 
+<span class="lineNum">    1351 </span><span class="lineNoCov">          0 : void mail_index_transaction_set_max_modseq(struct mail_index_transaction *t,</span>
+<span class="lineNum">    1352 </span>            :                        uint64_t max_modseq,
+<span class="lineNum">    1353 </span>            :                        ARRAY_TYPE(seq_range) *seqs)
+<span class="lineNum">    1354 </span>            : {
+<span class="lineNum">    1355 </span><span class="lineNoCov">          0 :     i_assert(array_is_created(seqs));</span>
+<span class="lineNum">    1356 </span>            : 
+<span class="lineNum">    1357 </span><span class="lineNoCov">          0 :     t-&gt;max_modseq = max_modseq;</span>
+<span class="lineNum">    1358 </span><span class="lineNoCov">          0 :     t-&gt;conflict_seqs = seqs;</span>
+<span class="lineNum">    1359 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

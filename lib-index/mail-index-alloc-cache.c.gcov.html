@@ -1,0 +1,373 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-index/mail-index-alloc-cache.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-index</a> - mail-index-alloc-cache.c<span style="font-size: 80%;"> (source / <a href="mail-index-alloc-cache.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">103</td>
+            <td class="headerCovTableEntry">137</td>
+            <td class="headerCovTableEntryMed">75.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryHi">90.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;module-context.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mail-index-private.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mail-index-alloc-cache.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : #define MAIL_INDEX_ALLOC_CACHE_CONTEXT(obj) \
+<span class="lineNum">      11 </span>            :     MODULE_CONTEXT(obj, mail_index_alloc_cache_index_module)
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : /* How many seconds to keep index opened for reuse after it's been closed */
+<span class="lineNum">      14 </span>            : #define INDEX_CACHE_TIMEOUT 10
+<span class="lineNum">      15 </span>            : /* How many closed indexes to keep */
+<span class="lineNum">      16 </span>            : #define INDEX_CACHE_MAX 3
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : struct mail_index_alloc_cache_list {
+<span class="lineNum">      19 </span>            :     union mail_index_module_context module_ctx;
+<span class="lineNum">      20 </span>            :     struct mail_index_alloc_cache_list *next;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            :     struct mail_index *index;
+<span class="lineNum">      23 </span>            :     char *mailbox_path;
+<span class="lineNum">      24 </span>            :     int refcount;
+<span class="lineNum">      25 </span>            :     bool referenced;
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            :     dev_t index_dir_dev;
+<span class="lineNum">      28 </span>            :     ino_t index_dir_ino;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            :     time_t destroy_time;
+<span class="lineNum">      31 </span>            : };
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : static MODULE_CONTEXT_DEFINE_INIT(mail_index_alloc_cache_index_module,
+<span class="lineNum">      34 </span>            :                   &amp;mail_index_module_register);
+<span class="lineNum">      35 </span>            : static struct mail_index_alloc_cache_list *indexes = NULL;
+<span class="lineNum">      36 </span>            : static unsigned int indexes_cache_references_count = 0;
+<span class="lineNum">      37 </span>            : static struct timeout *to_index = NULL;
+<a name="38"><span class="lineNum">      38 </span>            : </a>
+<span class="lineNum">      39 </span>            : static struct mail_index_alloc_cache_list *
+<span class="lineNum">      40 </span><span class="lineCov">          1 : mail_index_alloc_cache_add(struct mail_index *index,</span>
+<span class="lineNum">      41 </span>            :                const char *mailbox_path, struct stat *st)
+<span class="lineNum">      42 </span>            : {
+<span class="lineNum">      43 </span>            :     struct mail_index_alloc_cache_list *list;
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span><span class="lineCov">          1 :     list = i_new(struct mail_index_alloc_cache_list, 1);</span>
+<span class="lineNum">      46 </span><span class="lineCov">          1 :     list-&gt;refcount = 1;</span>
+<span class="lineNum">      47 </span><span class="lineCov">          1 :     list-&gt;index = index;</span>
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span><span class="lineCov">          1 :     list-&gt;mailbox_path = i_strdup(mailbox_path);</span>
+<span class="lineNum">      50 </span><span class="lineCov">          1 :     list-&gt;index_dir_dev = st-&gt;st_dev;</span>
+<span class="lineNum">      51 </span><span class="lineCov">          1 :     list-&gt;index_dir_ino = st-&gt;st_ino;</span>
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span><span class="lineCov">          1 :     list-&gt;next = indexes;</span>
+<span class="lineNum">      54 </span><span class="lineCov">          1 :     indexes = list;</span>
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineCov">          1 :     MODULE_CONTEXT_SET(index, mail_index_alloc_cache_index_module, list);</span>
+<span class="lineNum">      57 </span><span class="lineCov">          1 :     return list;</span>
+<span class="lineNum">      58 </span>            : }
+<a name="59"><span class="lineNum">      59 </span>            : </a>
+<span class="lineNum">      60 </span>            : static void
+<span class="lineNum">      61 </span><span class="lineCov">          1 : mail_index_alloc_cache_list_unref(struct mail_index_alloc_cache_list *list)</span>
+<span class="lineNum">      62 </span>            : {
+<span class="lineNum">      63 </span><span class="lineCov">          1 :     i_assert(list-&gt;referenced);</span>
+<span class="lineNum">      64 </span><span class="lineCov">          1 :     i_assert(indexes_cache_references_count &gt; 0);</span>
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span><span class="lineCov">          1 :     indexes_cache_references_count--;</span>
+<span class="lineNum">      67 </span><span class="lineCov">          1 :     mail_index_close(list-&gt;index);</span>
+<span class="lineNum">      68 </span><span class="lineCov">          1 :     list-&gt;referenced = FALSE;</span>
+<span class="lineNum">      69 </span><span class="lineCov">          1 : }</span>
+<a name="70"><span class="lineNum">      70 </span>            : </a>
+<span class="lineNum">      71 </span>            : static void
+<span class="lineNum">      72 </span><span class="lineCov">          1 : mail_index_alloc_cache_list_free(struct mail_index_alloc_cache_list *list)</span>
+<span class="lineNum">      73 </span>            : {
+<span class="lineNum">      74 </span><span class="lineCov">          1 :     i_assert(list-&gt;refcount == 0);</span>
+<span class="lineNum">      75 </span>            : 
+<span class="lineNum">      76 </span><span class="lineCov">          1 :     if (list-&gt;referenced)</span>
+<span class="lineNum">      77 </span><span class="lineCov">          1 :         mail_index_alloc_cache_list_unref(list);</span>
+<span class="lineNum">      78 </span><span class="lineCov">          1 :     mail_index_free(&amp;list-&gt;index);</span>
+<span class="lineNum">      79 </span><span class="lineCov">          1 :     i_free(list-&gt;mailbox_path);</span>
+<span class="lineNum">      80 </span><span class="lineCov">          1 :     i_free(list);</span>
+<span class="lineNum">      81 </span><span class="lineCov">          1 : }</span>
+<a name="82"><span class="lineNum">      82 </span>            : </a>
+<span class="lineNum">      83 </span>            : static struct mail_index_alloc_cache_list *
+<span class="lineNum">      84 </span><span class="lineCov">         11 : mail_index_alloc_cache_find(const char *mailbox_path, const char *index_dir,</span>
+<span class="lineNum">      85 </span>            :                 const struct stat *index_st)
+<span class="lineNum">      86 </span>            : {
+<span class="lineNum">      87 </span>            :     struct mail_index_alloc_cache_list **indexp, *rec, *match;
+<span class="lineNum">      88 </span>            :     unsigned int destroy_count;
+<span class="lineNum">      89 </span>            :     struct stat st;
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineCov">         11 :     destroy_count = 0; match = NULL;</span>
+<span class="lineNum">      92 </span><span class="lineCov">         32 :     for (indexp = &amp;indexes; *indexp != NULL;) {</span>
+<span class="lineNum">      93 </span><span class="lineCov">         10 :         rec = *indexp;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineCov">         10 :         if (match != NULL) {</span>
+<span class="lineNum">      96 </span>            :             /* already found the index. we're just going through
+<span class="lineNum">      97 </span>            :                the rest of them to drop 0 refcounts */
+<span class="lineNum">      98 </span><span class="lineCov">         10 :         } else if (rec-&gt;refcount == 0 &amp;&amp; rec-&gt;index-&gt;open_count == 0) {</span>
+<span class="lineNum">      99 </span>            :             /* index is already closed. don't even try to
+<span class="lineNum">     100 </span>            :                reuse it. */
+<span class="lineNum">     101 </span><span class="lineCov">         10 :         } else if (index_dir != NULL &amp;&amp; rec-&gt;index_dir_ino != 0) {</span>
+<span class="lineNum">     102 </span><span class="lineCov">         30 :             if (index_st-&gt;st_ino == rec-&gt;index_dir_ino &amp;&amp;</span>
+<span class="lineNum">     103 </span><span class="lineCov">         20 :                 CMP_DEV_T(index_st-&gt;st_dev, rec-&gt;index_dir_dev)) {</span>
+<span class="lineNum">     104 </span>            :                 /* make sure the directory still exists.
+<span class="lineNum">     105 </span>            :                    it might have been renamed and we're trying
+<span class="lineNum">     106 </span>            :                    to access it via its new path now. */
+<span class="lineNum">     107 </span><span class="lineCov">         20 :                 if (stat(rec-&gt;index-&gt;dir, &amp;st) &lt; 0 ||</span>
+<span class="lineNum">     108 </span><span class="lineCov">         20 :                     st.st_ino != index_st-&gt;st_ino ||</span>
+<span class="lineNum">     109 </span><span class="lineCov">         20 :                     !CMP_DEV_T(st.st_dev, index_st-&gt;st_dev))</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :                     rec-&gt;destroy_time = 0;</span>
+<span class="lineNum">     111 </span>            :                 else
+<span class="lineNum">     112 </span><span class="lineCov">         10 :                     match = rec;</span>
+<span class="lineNum">     113 </span>            :             }
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         } else if (mailbox_path != NULL &amp;&amp; rec-&gt;mailbox_path != NULL &amp;&amp;</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :                index_dir == NULL &amp;&amp; rec-&gt;index_dir_ino == 0) {</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :             if (strcmp(mailbox_path, rec-&gt;mailbox_path) == 0)</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :                 match = rec;</span>
+<span class="lineNum">     118 </span>            :         }
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineCov">         10 :         if (rec-&gt;refcount == 0 &amp;&amp; rec != match) {</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :             if (rec-&gt;destroy_time &lt;= ioloop_time ||</span>
+<span class="lineNum">     122 </span>            :                 destroy_count &gt;= INDEX_CACHE_MAX) {
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :                 *indexp = rec-&gt;next;</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :                 mail_index_alloc_cache_list_free(rec);</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     126 </span>            :             } else {
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :                 destroy_count++;</span>
+<span class="lineNum">     128 </span>            :             }
+<span class="lineNum">     129 </span>            :         }
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineCov">         10 :                 indexp = &amp;(*indexp)-&gt;next;</span>
+<span class="lineNum">     132 </span>            :     }
+<span class="lineNum">     133 </span><span class="lineCov">         11 :     return match;</span>
+<span class="lineNum">     134 </span>            : }
+<a name="135"><span class="lineNum">     135 </span>            : </a>
+<span class="lineNum">     136 </span>            : struct mail_index *
+<span class="lineNum">     137 </span><span class="lineCov">         11 : mail_index_alloc_cache_get(struct event *parent_event, const char *mailbox_path,</span>
+<span class="lineNum">     138 </span>            :                const char *index_dir, const char *prefix)
+<span class="lineNum">     139 </span>            : {
+<span class="lineNum">     140 </span>            :     struct mail_index_alloc_cache_list *match;
+<span class="lineNum">     141 </span>            :     struct stat st;
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span>            :     /* compare index_dir inodes so we don't break even with symlinks.
+<span class="lineNum">     144 </span>            :        if index_dir doesn't exist yet or if using in-memory indexes, just
+<span class="lineNum">     145 </span>            :        compare mailbox paths */
+<span class="lineNum">     146 </span><span class="lineCov">         11 :     i_zero(&amp;st);</span>
+<span class="lineNum">     147 </span><span class="lineCov">         11 :     if (index_dir == NULL) {</span>
+<span class="lineNum">     148 </span>            :         /* in-memory indexes */
+<span class="lineNum">     149 </span><span class="lineCov">         11 :     } else if (stat(index_dir, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         if (errno == ENOENT) {</span>
+<span class="lineNum">     151 </span>            :             /* it'll be created later */
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         } else if (errno == EACCES) {</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :             i_error(&quot;%s&quot;, eacces_error_get(&quot;stat&quot;, index_dir));</span>
+<span class="lineNum">     154 </span>            :         } else {
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :             i_error(&quot;stat(%s) failed: %m&quot;, index_dir);</span>
+<span class="lineNum">     156 </span>            :         }
+<span class="lineNum">     157 </span>            :     }
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineCov">         11 :     match = mail_index_alloc_cache_find(mailbox_path, index_dir, &amp;st);</span>
+<span class="lineNum">     160 </span><span class="lineCov">         11 :     if (match == NULL) {</span>
+<span class="lineNum">     161 </span><span class="lineCov">          1 :         struct mail_index *index =</span>
+<span class="lineNum">     162 </span>            :             mail_index_alloc(parent_event, index_dir, prefix);
+<span class="lineNum">     163 </span><span class="lineCov">          1 :         match = mail_index_alloc_cache_add(index, mailbox_path, &amp;st);</span>
+<span class="lineNum">     164 </span>            :     } else {
+<span class="lineNum">     165 </span><span class="lineCov">         10 :         match-&gt;refcount++;</span>
+<span class="lineNum">     166 </span>            :     }
+<span class="lineNum">     167 </span><span class="lineCov">         11 :     i_assert(match-&gt;index != NULL);</span>
+<span class="lineNum">     168 </span><span class="lineCov">         11 :     return match-&gt;index;</span>
+<a name="169"><span class="lineNum">     169 </span>            : }</a>
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineCov">          1 : static bool destroy_unrefed(unsigned int min_destroy_count)</span>
+<span class="lineNum">     172 </span>            : {
+<span class="lineNum">     173 </span>            :     struct mail_index_alloc_cache_list **list, *rec;
+<span class="lineNum">     174 </span><span class="lineCov">          1 :     bool destroyed = FALSE;</span>
+<span class="lineNum">     175 </span><span class="lineCov">          1 :     bool seen_ref0 = FALSE;</span>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">          3 :     for (list = &amp;indexes; *list != NULL;) {</span>
+<span class="lineNum">     178 </span><span class="lineCov">          1 :         rec = *list;</span>
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineCov">          1 :         if (rec-&gt;refcount == 0 &amp;&amp;</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             (min_destroy_count &gt; 0 || rec-&gt;destroy_time &lt;= ioloop_time)) {</span>
+<span class="lineNum">     182 </span><span class="lineCov">          1 :             *list = rec-&gt;next;</span>
+<span class="lineNum">     183 </span><span class="lineCov">          1 :             destroyed = TRUE;</span>
+<span class="lineNum">     184 </span><span class="lineCov">          1 :             mail_index_alloc_cache_list_free(rec);</span>
+<span class="lineNum">     185 </span><span class="lineCov">          2 :             if (min_destroy_count &gt; 0)</span>
+<span class="lineNum">     186 </span><span class="lineCov">          1 :                 min_destroy_count--;</span>
+<span class="lineNum">     187 </span>            :         } else {
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :             if (rec-&gt;refcount == 0)</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :                 seen_ref0 = TRUE;</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :             if (min_destroy_count &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :                 rec-&gt;index-&gt;open_count == 1 &amp;&amp;</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :                 rec-&gt;referenced) {</span>
+<span class="lineNum">     193 </span>            :                 /* we're the only one keeping this index open.
+<span class="lineNum">     194 </span>            :                    we might be here, because the caller is
+<span class="lineNum">     195 </span>            :                    deleting this mailbox and wants its indexes
+<span class="lineNum">     196 </span>            :                    to be closed. so close it. */
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :                 destroyed = TRUE;</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :                 mail_index_alloc_cache_list_unref(rec);</span>
+<span class="lineNum">     199 </span>            :             }
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :             list = &amp;(*list)-&gt;next;</span>
+<span class="lineNum">     201 </span>            :         }
+<span class="lineNum">     202 </span>            :     }
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span><span class="lineCov">          1 :     if (!seen_ref0 &amp;&amp; to_index != NULL)</span>
+<span class="lineNum">     205 </span><span class="lineCov">          1 :         timeout_remove(&amp;to_index);</span>
+<span class="lineNum">     206 </span><span class="lineCov">          1 :     return destroyed;</span>
+<span class="lineNum">     207 </span>            : }
+<a name="208"><span class="lineNum">     208 </span>            : </a>
+<span class="lineNum">     209 </span>            : static void ATTR_NULL(1)
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 : index_removal_timeout(void *context ATTR_UNUSED)</span>
+<span class="lineNum">     211 </span>            : {
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     destroy_unrefed(0);</span>
+<a name="213"><span class="lineNum">     213 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineCov">         11 : void mail_index_alloc_cache_unref(struct mail_index **_index)</span>
+<span class="lineNum">     216 </span>            : {
+<span class="lineNum">     217 </span><span class="lineCov">         11 :     struct mail_index *index = *_index;</span>
+<span class="lineNum">     218 </span>            :     struct mail_index_alloc_cache_list *list, **listp;
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineCov">         11 :     *_index = NULL;</span>
+<span class="lineNum">     221 </span><span class="lineCov">         11 :     list = NULL;</span>
+<span class="lineNum">     222 </span><span class="lineCov">         11 :     for (listp = &amp;indexes; *listp != NULL; listp = &amp;(*listp)-&gt;next) {</span>
+<span class="lineNum">     223 </span><span class="lineCov">         11 :         if ((*listp)-&gt;index == index) {</span>
+<span class="lineNum">     224 </span><span class="lineCov">         11 :             list = *listp;</span>
+<span class="lineNum">     225 </span><span class="lineCov">         11 :             break;</span>
+<span class="lineNum">     226 </span>            :         }
+<span class="lineNum">     227 </span>            :     }
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span><span class="lineCov">         11 :     i_assert(list != NULL);</span>
+<span class="lineNum">     230 </span><span class="lineCov">         11 :     i_assert(list-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span><span class="lineCov">         11 :     list-&gt;refcount--;</span>
+<span class="lineNum">     233 </span><span class="lineCov">         11 :     list-&gt;destroy_time = ioloop_time + INDEX_CACHE_TIMEOUT;</span>
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineCov">         11 :     if (list-&gt;refcount == 0 &amp;&amp; index-&gt;open_count == 0) {</span>
+<span class="lineNum">     236 </span>            :         /* index was already closed. don't even try to cache it. */
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         *listp = list-&gt;next;</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :         mail_index_alloc_cache_list_free(list);</span>
+<span class="lineNum">     239 </span><span class="lineCov">         11 :     } else if (to_index == NULL) {</span>
+<span class="lineNum">     240 </span><span class="lineCov">          1 :         to_index = timeout_add(INDEX_CACHE_TIMEOUT*1000/2,</span>
+<span class="lineNum">     241 </span>            :                        index_removal_timeout, NULL);
+<span class="lineNum">     242 </span>            :     }
+<a name="243"><span class="lineNum">     243 </span><span class="lineCov">         11 : }</span></a>
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineCov">          1 : void mail_index_alloc_cache_destroy_unrefed(void)</span>
+<span class="lineNum">     246 </span>            : {
+<span class="lineNum">     247 </span><span class="lineCov">          1 :     destroy_unrefed(UINT_MAX);</span>
+<a name="248"><span class="lineNum">     248 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineCov">          5 : void mail_index_alloc_cache_index_opened(struct mail_index *index)</span>
+<span class="lineNum">     251 </span>            : {
+<span class="lineNum">     252 </span><span class="lineCov">          5 :     struct mail_index_alloc_cache_list *list =</span>
+<span class="lineNum">     253 </span><span class="lineCov">          5 :         MAIL_INDEX_ALLOC_CACHE_CONTEXT(index);</span>
+<span class="lineNum">     254 </span>            :     struct stat st;
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span><span class="lineCov">          5 :     if (list != NULL &amp;&amp; list-&gt;index_dir_ino == 0 &amp;&amp;</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         !MAIL_INDEX_IS_IN_MEMORY(index)) {</span>
+<span class="lineNum">     258 </span>            :         /* newly created index directory. update its stat. */
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         if (stat(index-&gt;dir, &amp;st) == 0) {</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :             list-&gt;index_dir_ino = st.st_ino;</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :             list-&gt;index_dir_dev = st.st_dev;</span>
+<span class="lineNum">     262 </span>            :         }
+<span class="lineNum">     263 </span>            :     }
+<a name="264"><span class="lineNum">     264 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     265 </span>            : 
+<span class="lineNum">     266 </span><span class="lineCov">         16 : void mail_index_alloc_cache_index_closing(struct mail_index *index)</span>
+<span class="lineNum">     267 </span>            : {
+<span class="lineNum">     268 </span><span class="lineCov">         16 :     struct mail_index_alloc_cache_list *list =</span>
+<span class="lineNum">     269 </span><span class="lineCov">         16 :         MAIL_INDEX_ALLOC_CACHE_CONTEXT(index);</span>
+<span class="lineNum">     270 </span>            : 
+<span class="lineNum">     271 </span><span class="lineCov">         16 :     i_assert(index-&gt;open_count &gt; 0);</span>
+<span class="lineNum">     272 </span><span class="lineCov">         16 :     if (index-&gt;open_count &gt; 1 || list == NULL)</span>
+<span class="lineNum">     273 </span><span class="lineCov">         14 :         return;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineCov">          2 :     if (list-&gt;referenced) {</span>
+<span class="lineNum">     276 </span>            :         /* we're closing our referenced index */
+<span class="lineNum">     277 </span><span class="lineCov">          1 :         return;</span>
+<span class="lineNum">     278 </span>            :     }
+<span class="lineNum">     279 </span><span class="lineCov">          2 :     while (indexes_cache_references_count &gt; INDEX_CACHE_MAX) {</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         if (!destroy_unrefed(1)) {</span>
+<span class="lineNum">     281 </span>            :             /* our cache is full already, don't keep more */
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     283 </span>            :         }
+<span class="lineNum">     284 </span>            :     }
+<span class="lineNum">     285 </span>            :     /* keep the index referenced for caching */
+<span class="lineNum">     286 </span><span class="lineCov">          1 :     indexes_cache_references_count++;</span>
+<span class="lineNum">     287 </span><span class="lineCov">          1 :     list-&gt;referenced = TRUE;</span>
+<span class="lineNum">     288 </span><span class="lineCov">          1 :     index-&gt;open_count++;</span>
+<span class="lineNum">     289 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

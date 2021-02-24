@@ -1,0 +1,496 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-response-parser.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-response-parser.c<span style="font-size: 80%;"> (source / <a href="http-response-parser.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">158</td>
+            <td class="headerCovTableEntry">194</td>
+            <td class="headerCovTableEntryMed">81.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryHi">90.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;http-parser.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;http-date.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;http-message-parser.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;http-response-parser.h&quot;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : enum http_response_parser_state {
+<span class="lineNum">      14 </span>            :     HTTP_RESPONSE_PARSE_STATE_INIT = 0,
+<span class="lineNum">      15 </span>            :     HTTP_RESPONSE_PARSE_STATE_VERSION,
+<span class="lineNum">      16 </span>            :     HTTP_RESPONSE_PARSE_STATE_SP1,
+<span class="lineNum">      17 </span>            :     HTTP_RESPONSE_PARSE_STATE_STATUS,
+<span class="lineNum">      18 </span>            :     HTTP_RESPONSE_PARSE_STATE_SP2,
+<span class="lineNum">      19 </span>            :     HTTP_RESPONSE_PARSE_STATE_REASON,
+<span class="lineNum">      20 </span>            :     HTTP_RESPONSE_PARSE_STATE_CR,
+<span class="lineNum">      21 </span>            :     HTTP_RESPONSE_PARSE_STATE_LF,
+<span class="lineNum">      22 </span>            :     HTTP_RESPONSE_PARSE_STATE_HEADER
+<span class="lineNum">      23 </span>            : };
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : struct http_response_parser {
+<span class="lineNum">      26 </span>            :     struct http_message_parser parser;
+<span class="lineNum">      27 </span>            :     enum http_response_parser_state state;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :     unsigned int response_status;
+<span class="lineNum">      30 </span>            :     const char *response_reason;
+<span class="lineNum">      31 </span>            : };
+<a name="32"><span class="lineNum">      32 </span>            : </a>
+<span class="lineNum">      33 </span>            : struct http_response_parser *
+<span class="lineNum">      34 </span><span class="lineCov">         14 : http_response_parser_init(struct istream *input,</span>
+<span class="lineNum">      35 </span>            :     const struct http_header_limits *hdr_limits,
+<span class="lineNum">      36 </span>            :     enum http_response_parse_flags flags)
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span>            :     struct http_response_parser *parser;
+<span class="lineNum">      39 </span><span class="lineCov">         14 :     enum http_message_parse_flags msg_flags = 0;</span>
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :     /* FIXME: implement status line limit */
+<span class="lineNum">      42 </span><span class="lineCov">         14 :     if ((flags &amp; HTTP_RESPONSE_PARSE_FLAG_STRICT) != 0)</span>
+<span class="lineNum">      43 </span><span class="lineCov">          3 :         msg_flags |= HTTP_MESSAGE_PARSE_FLAG_STRICT;</span>
+<span class="lineNum">      44 </span><span class="lineCov">         14 :     parser = i_new(struct http_response_parser, 1);</span>
+<span class="lineNum">      45 </span><span class="lineCov">         14 :     http_message_parser_init(&amp;parser-&gt;parser,</span>
+<span class="lineNum">      46 </span>            :         input, hdr_limits, 0, msg_flags);
+<span class="lineNum">      47 </span><span class="lineCov">         14 :     return parser;</span>
+<a name="48"><span class="lineNum">      48 </span>            : }</a>
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineCov">         14 : void http_response_parser_deinit(struct http_response_parser **_parser)</span>
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span><span class="lineCov">         14 :     struct http_response_parser *parser = *_parser;</span>
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span><span class="lineCov">         14 :     *_parser = NULL;</span>
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineCov">         14 :     http_message_parser_deinit(&amp;parser-&gt;parser);</span>
+<span class="lineNum">      57 </span><span class="lineCov">         14 :     i_free(parser);</span>
+<span class="lineNum">      58 </span><span class="lineCov">         14 : }</span>
+<a name="59"><span class="lineNum">      59 </span>            : </a>
+<span class="lineNum">      60 </span>            : static void
+<span class="lineNum">      61 </span><span class="lineCov">         26 : http_response_parser_restart(struct http_response_parser *parser)</span>
+<span class="lineNum">      62 </span>            : {
+<span class="lineNum">      63 </span><span class="lineCov">         26 :     http_message_parser_restart(&amp;parser-&gt;parser, NULL);</span>
+<span class="lineNum">      64 </span><span class="lineCov">         26 :     parser-&gt;response_status = 0;</span>
+<span class="lineNum">      65 </span><span class="lineCov">         26 :     parser-&gt;response_reason = NULL;</span>
+<a name="66"><span class="lineNum">      66 </span><span class="lineCov">         26 : }</span></a>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineCov">         34 : static int http_response_parse_status(struct http_response_parser *parser)</span>
+<span class="lineNum">      69 </span>            : {
+<span class="lineNum">      70 </span><span class="lineCov">         34 :     const unsigned char *p = parser-&gt;parser.cur;</span>
+<span class="lineNum">      71 </span><span class="lineCov">         34 :     const size_t size = parser-&gt;parser.end - parser-&gt;parser.cur;</span>
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span>            :     /* status-code   = 3DIGIT
+<span class="lineNum">      74 </span>            :      */
+<span class="lineNum">      75 </span><span class="lineCov">         34 :     if (size &lt; 3)</span>
+<span class="lineNum">      76 </span><span class="lineCov">         20 :         return 0;</span>
+<span class="lineNum">      77 </span><span class="lineCov">         14 :     if (!i_isdigit(p[0]) || !i_isdigit(p[1]) || !i_isdigit(p[2]))</span>
+<span class="lineNum">      78 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">      79 </span><span class="lineCov">         12 :     parser-&gt;response_status =</span>
+<span class="lineNum">      80 </span><span class="lineCov">         12 :         (p[0] - '0')*100 + (p[1] - '0')*10 + (p[2] - '0');</span>
+<span class="lineNum">      81 </span><span class="lineCov">         24 :     if (parser-&gt;response_status &lt; 100 ||</span>
+<span class="lineNum">      82 </span><span class="lineCov">         12 :         parser-&gt;response_status &gt;= 600)</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      84 </span><span class="lineCov">         12 :     parser-&gt;parser.cur += 3;</span>
+<span class="lineNum">      85 </span><span class="lineCov">         12 :     return 1;</span>
+<a name="86"><span class="lineNum">      86 </span>            : }</a>
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineCov">         72 : static int http_response_parse_reason(struct http_response_parser *parser)</span>
+<span class="lineNum">      89 </span>            : {
+<span class="lineNum">      90 </span><span class="lineCov">         72 :     const unsigned char *p = parser-&gt;parser.cur;</span>
+<span class="lineNum">      91 </span>            :     pool_t pool;
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span>            :     /* reason-phrase = *( HTAB / SP / VCHAR / obs-text )
+<span class="lineNum">      94 </span>            :      */
+<span class="lineNum">      95 </span>            :     // FIXME: limit length
+<span class="lineNum">      96 </span><span class="lineCov">        719 :     while (p &lt; parser-&gt;parser.end &amp;&amp; http_char_is_text(*p))</span>
+<span class="lineNum">      97 </span><span class="lineCov">        575 :         p++;</span>
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineCov">         72 :     if (p == parser-&gt;parser.end)</span>
+<span class="lineNum">     100 </span><span class="lineCov">         60 :         return 0;</span>
+<span class="lineNum">     101 </span><span class="lineCov">         12 :     pool = http_message_parser_get_pool(&amp;parser-&gt;parser);</span>
+<span class="lineNum">     102 </span><span class="lineCov">         12 :     parser-&gt;response_reason =</span>
+<span class="lineNum">     103 </span><span class="lineCov">         12 :         p_strdup_until(pool, parser-&gt;parser.cur, p);</span>
+<span class="lineNum">     104 </span><span class="lineCov">         12 :     parser-&gt;parser.cur = p;</span>
+<span class="lineNum">     105 </span><span class="lineCov">         12 :     return 1;</span>
+<a name="106"><span class="lineNum">     106 </span>            : }</a>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineCov">          2 : static const char *_reply_sanitize(struct http_message_parser *parser)</span>
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span><span class="lineCov">          2 :     string_t *str = t_str_new(32);</span>
+<span class="lineNum">     111 </span>            :     const unsigned char *p;
+<span class="lineNum">     112 </span>            :     unsigned int i;
+<span class="lineNum">     113 </span><span class="lineCov">          2 :     bool quote_open = FALSE;</span>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineCov">          2 :     i_assert(parser-&gt;cur &lt; parser-&gt;end);</span>
+<span class="lineNum">     116 </span><span class="lineCov">         42 :     for (p = parser-&gt;cur, i = 0; p &lt; parser-&gt;end &amp;&amp; i &lt; 20; p++, i++) {</span>
+<span class="lineNum">     117 </span><span class="lineCov">         40 :         if (*p &gt;= 0x20 &amp;&amp; *p &lt; 0x7F) {</span>
+<span class="lineNum">     118 </span><span class="lineCov">         35 :             if (!quote_open) {</span>
+<span class="lineNum">     119 </span><span class="lineCov">          2 :                 str_append_c(str, '`');</span>
+<span class="lineNum">     120 </span><span class="lineCov">          2 :                 quote_open = TRUE;</span>
+<span class="lineNum">     121 </span>            :             }
+<span class="lineNum">     122 </span><span class="lineCov">         35 :             str_append_c(str, *p);</span>
+<span class="lineNum">     123 </span>            :         } else {
+<span class="lineNum">     124 </span><span class="lineCov">          5 :             if (quote_open) {</span>
+<span class="lineNum">     125 </span><span class="lineCov">          1 :                 str_append_c(str, '\'');</span>
+<span class="lineNum">     126 </span><span class="lineCov">          1 :                 quote_open = FALSE;</span>
+<span class="lineNum">     127 </span>            :             }
+<span class="lineNum">     128 </span><span class="lineCov">          5 :             if (*p == 0x0a)</span>
+<span class="lineNum">     129 </span><span class="lineCov">          2 :                 str_append(str, &quot;&lt;LF&gt;&quot;);</span>
+<span class="lineNum">     130 </span><span class="lineCov">          3 :             else if (*p == 0x0d)</span>
+<span class="lineNum">     131 </span><span class="lineCov">          2 :                 str_append(str, &quot;&lt;CR&gt;&quot;);</span>
+<span class="lineNum">     132 </span>            :             else
+<span class="lineNum">     133 </span><span class="lineCov">          1 :                 str_printfa(str, &quot;&lt;0x%02x&gt;&quot;, *p);</span>
+<span class="lineNum">     134 </span>            :         }
+<span class="lineNum">     135 </span>            :     }
+<span class="lineNum">     136 </span><span class="lineCov">          2 :     if (quote_open)</span>
+<span class="lineNum">     137 </span><span class="lineCov">          1 :         str_append_c(str, '\'');</span>
+<span class="lineNum">     138 </span><span class="lineCov">          2 :     return str_c(str);</span>
+<a name="139"><span class="lineNum">     139 </span>            : }</a>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineCov">        190 : static int http_response_parse(struct http_response_parser *parser)</span>
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span><span class="lineCov">        190 :     struct http_message_parser *_parser = &amp;parser-&gt;parser;</span>
+<span class="lineNum">     144 </span>            :     int ret;
+<span class="lineNum">     145 </span>            : 
+<span class="lineNum">     146 </span>            :     /* RFC 7230, Section 3.1.2: Status Line
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span>            :        status-line   = HTTP-version SP status-code SP reason-phrase CRLF
+<span class="lineNum">     149 </span>            :        status-code   = 3DIGIT
+<span class="lineNum">     150 </span>            :        reason-phrase = *( HTAB / SP / VCHAR / obs-text )
+<span class="lineNum">     151 </span>            :      */
+<span class="lineNum">     152 </span><span class="lineCov">        190 :     switch (parser-&gt;state) {</span>
+<span class="lineNum">     153 </span>            :     case HTTP_RESPONSE_PARSE_STATE_INIT:
+<span class="lineNum">     154 </span><span class="lineCov">         15 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_VERSION;</span>
+<span class="lineNum">     155 </span>            :         /* fall through */
+<span class="lineNum">     156 </span>            :     case HTTP_RESPONSE_PARSE_STATE_VERSION:
+<span class="lineNum">     157 </span><span class="lineCov">         85 :         if ((ret=http_message_parse_version(_parser)) &lt;= 0) {</span>
+<span class="lineNum">     158 </span><span class="lineCov">         71 :             if (ret &lt; 0)</span>
+<span class="lineNum">     159 </span><span class="lineCov">          1 :                 _parser-&gt;error = t_strdup_printf(</span>
+<span class="lineNum">     160 </span>            :                     &quot;Invalid HTTP version in response: %s&quot;,
+<span class="lineNum">     161 </span>            :                     _reply_sanitize(_parser));
+<span class="lineNum">     162 </span><span class="lineCov">         71 :             return ret;</span>
+<span class="lineNum">     163 </span>            :         }
+<span class="lineNum">     164 </span><span class="lineCov">         14 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_SP1;</span>
+<span class="lineNum">     165 </span><span class="lineCov">         14 :         if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     166 </span><span class="lineCov">          5 :             return 0;</span>
+<span class="lineNum">     167 </span>            :         /* fall through */
+<span class="lineNum">     168 </span>            :     case HTTP_RESPONSE_PARSE_STATE_SP1:
+<span class="lineNum">     169 </span><span class="lineCov">         14 :         if (*_parser-&gt;cur != ' ') {</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :             _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :                 (&quot;Expected ' ' after response version, but found %s&quot;,</span>
+<span class="lineNum">     172 </span>            :                     _reply_sanitize(_parser));
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     174 </span>            :         }
+<span class="lineNum">     175 </span><span class="lineCov">         14 :         _parser-&gt;cur++;</span>
+<span class="lineNum">     176 </span><span class="lineCov">         14 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_STATUS;</span>
+<span class="lineNum">     177 </span><span class="lineCov">         14 :         if (_parser-&gt;cur &gt;= _parser-&gt;end)</span>
+<span class="lineNum">     178 </span><span class="lineCov">          5 :             return 0;</span>
+<span class="lineNum">     179 </span>            :         /* fall through */
+<span class="lineNum">     180 </span>            :     case HTTP_RESPONSE_PARSE_STATE_STATUS:
+<span class="lineNum">     181 </span><span class="lineCov">         34 :         if ((ret=http_response_parse_status(parser)) &lt;= 0) {</span>
+<span class="lineNum">     182 </span><span class="lineCov">         22 :             if (ret &lt; 0)</span>
+<span class="lineNum">     183 </span><span class="lineCov">          2 :                 _parser-&gt;error = &quot;Invalid HTTP status code in response&quot;;</span>
+<span class="lineNum">     184 </span><span class="lineCov">         22 :             return ret;</span>
+<span class="lineNum">     185 </span>            :         }
+<span class="lineNum">     186 </span><span class="lineCov">         12 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_SP2;</span>
+<span class="lineNum">     187 </span><span class="lineCov">         12 :         if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     188 </span><span class="lineCov">          5 :             return 0;</span>
+<span class="lineNum">     189 </span>            :         /* fall through */
+<span class="lineNum">     190 </span>            :     case HTTP_RESPONSE_PARSE_STATE_SP2:
+<span class="lineNum">     191 </span><span class="lineCov">         12 :         if (*_parser-&gt;cur != ' ') {</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :             _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :                 (&quot;Expected ' ' after response status code, but found %s&quot;,</span>
+<span class="lineNum">     194 </span>            :                     _reply_sanitize(_parser));
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     196 </span>            :         }
+<span class="lineNum">     197 </span><span class="lineCov">         12 :         _parser-&gt;cur++;</span>
+<span class="lineNum">     198 </span><span class="lineCov">         12 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_REASON;</span>
+<span class="lineNum">     199 </span><span class="lineCov">         12 :         if (_parser-&gt;cur &gt;= _parser-&gt;end)</span>
+<span class="lineNum">     200 </span><span class="lineCov">          5 :             return 0;</span>
+<span class="lineNum">     201 </span>            :         /* fall through */
+<span class="lineNum">     202 </span>            :     case HTTP_RESPONSE_PARSE_STATE_REASON:
+<span class="lineNum">     203 </span><span class="lineCov">         72 :         if ((ret=http_response_parse_reason(parser)) &lt;= 0) {</span>
+<span class="lineNum">     204 </span><span class="lineCov">         60 :             i_assert(ret == 0);</span>
+<span class="lineNum">     205 </span><span class="lineCov">         60 :             return 0;</span>
+<span class="lineNum">     206 </span>            :         }
+<span class="lineNum">     207 </span><span class="lineCov">         12 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_CR;</span>
+<span class="lineNum">     208 </span><span class="lineCov">         12 :         if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     210 </span>            :         /* fall through */
+<span class="lineNum">     211 </span>            :     case HTTP_RESPONSE_PARSE_STATE_CR:
+<span class="lineNum">     212 </span><span class="lineCov">         12 :         if (*_parser-&gt;cur == '\r')</span>
+<span class="lineNum">     213 </span><span class="lineCov">         10 :             _parser-&gt;cur++;</span>
+<span class="lineNum">     214 </span><span class="lineCov">         12 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_LF;</span>
+<span class="lineNum">     215 </span><span class="lineCov">         12 :         if (_parser-&gt;cur == _parser-&gt;end)</span>
+<span class="lineNum">     216 </span><span class="lineCov">          5 :             return 0;</span>
+<span class="lineNum">     217 </span>            :         /* fall through */
+<span class="lineNum">     218 </span>            :     case HTTP_RESPONSE_PARSE_STATE_LF:
+<span class="lineNum">     219 </span><span class="lineCov">         12 :         if (*_parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     220 </span><span class="lineCov">          1 :             _parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     221 </span><span class="lineCov">          1 :                 (&quot;Expected line end after response, but found %s&quot;,</span>
+<span class="lineNum">     222 </span>            :                     _reply_sanitize(_parser));
+<span class="lineNum">     223 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     224 </span>            :         }
+<span class="lineNum">     225 </span><span class="lineCov">         11 :         _parser-&gt;cur++;</span>
+<span class="lineNum">     226 </span><span class="lineCov">         11 :         parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_HEADER;</span>
+<span class="lineNum">     227 </span><span class="lineCov">         11 :         return 1;</span>
+<span class="lineNum">     228 </span>            :     case HTTP_RESPONSE_PARSE_STATE_HEADER:
+<span class="lineNum">     229 </span>            :     default:
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     231 </span>            :     }
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<span class="lineNum">     234 </span>            :     return -1;
+<span class="lineNum">     235 </span>            : }
+<a name="236"><span class="lineNum">     236 </span>            : </a>
+<span class="lineNum">     237 </span>            : static int
+<span class="lineNum">     238 </span><span class="lineCov">        126 : http_response_parse_status_line(struct http_response_parser *parser)</span>
+<span class="lineNum">     239 </span>            : {
+<span class="lineNum">     240 </span><span class="lineCov">        126 :     struct http_message_parser *_parser = &amp;parser-&gt;parser;</span>
+<span class="lineNum">     241 </span>            :     const unsigned char *begin;
+<span class="lineNum">     242 </span><span class="lineCov">        126 :     size_t size, old_bytes = 0;</span>
+<span class="lineNum">     243 </span>            :     int ret;
+<span class="lineNum">     244 </span>            : 
+<span class="lineNum">     245 </span><span class="lineCov">        427 :     while ((ret = i_stream_read_bytes(_parser-&gt;input, &amp;begin, &amp;size,</span>
+<span class="lineNum">     246 </span>            :                       old_bytes + 1)) &gt; 0) {
+<span class="lineNum">     247 </span><span class="lineCov">        190 :         _parser-&gt;cur = begin;</span>
+<span class="lineNum">     248 </span><span class="lineCov">        190 :         _parser-&gt;end = _parser-&gt;cur + size;</span>
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineCov">        190 :         if ((ret = http_response_parse(parser)) &lt; 0)</span>
+<span class="lineNum">     251 </span><span class="lineCov">          4 :             return -1;</span>
+<span class="lineNum">     252 </span>            : 
+<span class="lineNum">     253 </span><span class="lineCov">        186 :         i_stream_skip(_parser-&gt;input, _parser-&gt;cur - begin);</span>
+<span class="lineNum">     254 </span><span class="lineCov">        186 :         if (ret &gt; 0)</span>
+<span class="lineNum">     255 </span><span class="lineCov">         11 :             return 1;</span>
+<span class="lineNum">     256 </span><span class="lineCov">        175 :         old_bytes = i_stream_get_data_size(_parser-&gt;input);</span>
+<span class="lineNum">     257 </span>            :     }
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span><span class="lineCov">        111 :     if (ret == -2) {</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         _parser-&gt;error = &quot;HTTP status line is too long&quot;;</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     262 </span>            :     }
+<span class="lineNum">     263 </span><span class="lineCov">        111 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     264 </span><span class="lineCov">         12 :         if (_parser-&gt;input-&gt;eof &amp;&amp;</span>
+<span class="lineNum">     265 </span><span class="lineCov">          6 :             parser-&gt;state == HTTP_RESPONSE_PARSE_STATE_INIT)</span>
+<span class="lineNum">     266 </span><span class="lineCov">          6 :             return 0;</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         _parser-&gt;error = t_strdup_printf(&quot;Stream error: %s&quot;,</span>
+<span class="lineNum">     268 </span>            :             i_stream_get_error(_parser-&gt;input));
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     270 </span>            :     }
+<span class="lineNum">     271 </span><span class="lineCov">        105 :     return 0;</span>
+<span class="lineNum">     272 </span>            : }
+<a name="273"><span class="lineNum">     273 </span>            : </a>
+<span class="lineNum">     274 </span>            : static int
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 : http_response_parse_retry_after(const char *hdrval, time_t resp_time,</span>
+<span class="lineNum">     276 </span>            :     time_t *retry_after_r)
+<span class="lineNum">     277 </span>            : {
+<span class="lineNum">     278 </span>            :     time_t delta;
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span>            :     /* RFC 7231, Section 7.1.3: Retry-After
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span>            :        The value of this field can be either an HTTP-date or a number of
+<span class="lineNum">     283 </span>            :        seconds to delay after the response is received.
+<span class="lineNum">     284 </span>            : 
+<span class="lineNum">     285 </span>            :          Retry-After = HTTP-date / delta-seconds
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span>            :        A delay-seconds value is a non-negative decimal integer, representing
+<span class="lineNum">     288 </span>            :        time in seconds.
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span>            :        delta-seconds  = 1*DIGIT
+<span class="lineNum">     291 </span>            :      */
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     if (str_to_time(hdrval, &amp;delta) &gt;= 0) {</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         if (resp_time == (time_t)-1) {</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     295 </span>            :         }
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         *retry_after_r = resp_time + delta;</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     298 </span>            :     }
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     return (http_date_parse</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         ((unsigned char *)hdrval, strlen(hdrval), retry_after_r) ? 0 : -1);</span>
+<a name="302"><span class="lineNum">     302 </span>            : }</a>
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span><span class="lineCov">       1388 : int http_response_parse_next(struct http_response_parser *parser,</span>
+<span class="lineNum">     305 </span>            :                  enum http_response_payload_type payload_type,
+<span class="lineNum">     306 </span>            :                  struct http_response *response, const char **error_r)
+<span class="lineNum">     307 </span>            : {
+<span class="lineNum">     308 </span>            :     const char *hdrval;
+<span class="lineNum">     309 </span><span class="lineCov">       1388 :     time_t retry_after = (time_t)-1;</span>
+<span class="lineNum">     310 </span>            :     int ret;
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineCov">       1388 :     i_zero(response);</span>
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span>            :     /* make sure we finished streaming payload from previous response
+<span class="lineNum">     315 </span>            :        before we continue. */
+<span class="lineNum">     316 </span><span class="lineCov">       1388 :     if ((ret = http_message_parse_finish_payload(&amp;parser-&gt;parser)) &lt;= 0) {</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     319 </span>            :     }
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineCov">       1388 :     if (parser-&gt;state == HTTP_RESPONSE_PARSE_STATE_INIT)</span>
+<span class="lineNum">     322 </span><span class="lineCov">         26 :         http_response_parser_restart(parser);</span>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span>            :     /* RFC 7230, Section 3:
+<span class="lineNum">     325 </span>            :         
+<span class="lineNum">     326 </span>            :        HTTP-message   = start-line
+<span class="lineNum">     327 </span>            :                        *( header-field CRLF )
+<span class="lineNum">     328 </span>            :                         CRLF
+<span class="lineNum">     329 </span>            :                         [ message-body ]
+<span class="lineNum">     330 </span>            :      */
+<span class="lineNum">     331 </span><span class="lineCov">       1388 :     if (parser-&gt;state != HTTP_RESPONSE_PARSE_STATE_HEADER) {</span>
+<span class="lineNum">     332 </span><span class="lineCov">        126 :         if ((ret = http_response_parse_status_line(parser)) &lt;= 0) {</span>
+<span class="lineNum">     333 </span><span class="lineCov">        115 :             *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     334 </span><span class="lineCov">        115 :             return ret;</span>
+<span class="lineNum">     335 </span>            :         }
+<span class="lineNum">     336 </span>            :     } 
+<span class="lineNum">     337 </span><span class="lineCov">       1273 :     if ((ret = http_message_parse_headers(&amp;parser-&gt;parser)) &lt;= 0) {</span>
+<span class="lineNum">     338 </span><span class="lineCov">       1266 :         *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     339 </span><span class="lineCov">       1266 :         return ret;</span>
+<span class="lineNum">     340 </span>            :     }
+<span class="lineNum">     341 </span>            : 
+<span class="lineNum">     342 </span>            :     /* RFC 7230, Section 3.3.2: Content-Length
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span>            :        A server MUST NOT send a Content-Length header field in any response
+<span class="lineNum">     345 </span>            :        with a status code of 1xx (Informational) or 204 (No Content).
+<span class="lineNum">     346 </span>            :      */
+<span class="lineNum">     347 </span><span class="lineCov">          7 :     if ((parser-&gt;response_status / 100 == 1 || parser-&gt;response_status == 204) &amp;&amp;</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :         parser-&gt;parser.msg.content_length &gt; 0) {</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(</span>
+<span class="lineNum">     350 </span>            :             &quot;Unexpected Content-Length header field for %u response &quot;
+<span class="lineNum">     351 </span>            :             &quot;(length=%&quot;PRIuUOFF_T&quot;)&quot;, parser-&gt;response_status,
+<span class="lineNum">     352 </span>            :             parser-&gt;parser.msg.content_length);
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     354 </span>            :     }
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span>            :     /* RFC 7230, Section 3.3.3: Message Body Length
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span>            :        1.  Any response to a HEAD request and any response with a 1xx
+<span class="lineNum">     359 </span>            :            (Informational), 204 (No Content), or 304 (Not Modified) status
+<span class="lineNum">     360 </span>            :            code is always terminated by the first empty line after the
+<span class="lineNum">     361 </span>            :            header fields, regardless of the header fields present in the
+<span class="lineNum">     362 </span>            :            message, and thus cannot contain a message body.
+<span class="lineNum">     363 </span>            :      */
+<span class="lineNum">     364 </span><span class="lineCov">          7 :     if (parser-&gt;response_status / 100 == 1 || parser-&gt;response_status == 204</span>
+<span class="lineNum">     365 </span><span class="lineCov">          7 :         || parser-&gt;response_status == 304) { // HEAD is handled in caller</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         payload_type = HTTP_RESPONSE_PAYLOAD_TYPE_NOT_PRESENT;</span>
+<span class="lineNum">     367 </span>            :     }
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineCov">          7 :     if ((payload_type == HTTP_RESPONSE_PAYLOAD_TYPE_ALLOWED) ||</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         (payload_type == HTTP_RESPONSE_PAYLOAD_TYPE_ONLY_UNSUCCESSFUL &amp;&amp;</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :             parser-&gt;response_status / 100 != 2)) {</span>
+<span class="lineNum">     372 </span>            :         /* [ message-body ] */
+<span class="lineNum">     373 </span><span class="lineCov">          7 :         if (http_message_parse_body(&amp;parser-&gt;parser, FALSE) &lt; 0) {</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :             *error_r = parser-&gt;parser.error;</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     376 </span>            :         }
+<span class="lineNum">     377 </span>            :     }
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span>            :     /* RFC 7231, Section 7.1.3: Retry-After
+<span class="lineNum">     380 </span>            :     
+<span class="lineNum">     381 </span>            :        Servers send the &quot;Retry-After&quot; header field to indicate how long the
+<span class="lineNum">     382 </span>            :        user agent ought to wait before making a follow-up request.  When
+<span class="lineNum">     383 </span>            :        sent with a 503 (Service Unavailable) response, Retry-After indicates
+<span class="lineNum">     384 </span>            :        how long the service is expected to be unavailable to the client.
+<span class="lineNum">     385 </span>            :        When sent with any 3xx (Redirection) response, Retry-After indicates
+<span class="lineNum">     386 </span>            :        the minimum time that the user agent is asked to wait before issuing
+<span class="lineNum">     387 </span>            :        the redirected request.
+<span class="lineNum">     388 </span>            :      */
+<span class="lineNum">     389 </span><span class="lineCov">          7 :     if (parser-&gt;response_status == 503 || (parser-&gt;response_status / 100) == 3) {     </span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :         hdrval = http_header_field_get(parser-&gt;parser.msg.header, &quot;Retry-After&quot;);</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         if (hdrval != NULL) {</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :             (void)http_response_parse_retry_after</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :                 (hdrval, parser-&gt;parser.msg.date, &amp;retry_after);</span>
+<span class="lineNum">     394 </span>            :             /* broken Retry-After header is ignored */
+<span class="lineNum">     395 </span>            :         }
+<span class="lineNum">     396 </span>            :     }
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineCov">          7 :     parser-&gt;state = HTTP_RESPONSE_PARSE_STATE_INIT;</span>
+<span class="lineNum">     399 </span>            : 
+<span class="lineNum">     400 </span><span class="lineCov">          7 :     response-&gt;status = parser-&gt;response_status;</span>
+<span class="lineNum">     401 </span><span class="lineCov">          7 :     response-&gt;reason = parser-&gt;response_reason;</span>
+<span class="lineNum">     402 </span><span class="lineCov">          7 :     response-&gt;version_major = parser-&gt;parser.msg.version_major;</span>
+<span class="lineNum">     403 </span><span class="lineCov">          7 :     response-&gt;version_minor = parser-&gt;parser.msg.version_minor;</span>
+<span class="lineNum">     404 </span><span class="lineCov">          7 :     response-&gt;location = parser-&gt;parser.msg.location;</span>
+<span class="lineNum">     405 </span><span class="lineCov">          7 :     response-&gt;date = parser-&gt;parser.msg.date;</span>
+<span class="lineNum">     406 </span><span class="lineCov">          7 :     response-&gt;retry_after = retry_after;</span>
+<span class="lineNum">     407 </span><span class="lineCov">          7 :     response-&gt;payload = parser-&gt;parser.payload;</span>
+<span class="lineNum">     408 </span><span class="lineCov">          7 :     response-&gt;header = parser-&gt;parser.msg.header;</span>
+<span class="lineNum">     409 </span><span class="lineCov">          7 :     response-&gt;connection_options = parser-&gt;parser.msg.connection_options;</span>
+<span class="lineNum">     410 </span><span class="lineCov">          7 :     response-&gt;connection_close = parser-&gt;parser.msg.connection_close;</span>
+<span class="lineNum">     411 </span><span class="lineCov">          7 :     return 1;</span>
+<span class="lineNum">     412 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

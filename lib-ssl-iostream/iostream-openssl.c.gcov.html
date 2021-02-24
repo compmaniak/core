@@ -1,0 +1,981 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-ssl-iostream/iostream-openssl.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-ssl-iostream</a> - iostream-openssl.c<span style="font-size: 80%;"> (source / <a href="iostream-openssl.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">444</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">37</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2009-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ostream-private.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;iostream-openssl.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #include &lt;openssl/rand.h&gt;
+<span class="lineNum">       9 </span>            : #include &lt;openssl/err.h&gt;
+<span class="lineNum">      10 </span>            : 
+<a name="11"><span class="lineNum">      11 </span>            : static void openssl_iostream_free(struct ssl_iostream *ssl_io);</a>
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span><span class="lineNoCov">          0 : void openssl_iostream_set_error(struct ssl_iostream *ssl_io, const char *str)</span>
+<span class="lineNum">      14 </span>            : {
+<span class="lineNum">      15 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;verbose) {</span>
+<span class="lineNum">      16 </span>            :         /* This error should normally be logged by lib-ssl-iostream's
+<span class="lineNum">      17 </span>            :            caller. But if verbose=TRUE, log it here as well to make
+<span class="lineNum">      18 </span>            :            sure that the error is always logged. */
+<span class="lineNum">      19 </span><span class="lineNoCov">          0 :         i_debug(&quot;%sSSL error: %s&quot;, ssl_io-&gt;log_prefix, str);</span>
+<span class="lineNum">      20 </span>            :     }
+<span class="lineNum">      21 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;last_error);</span>
+<span class="lineNum">      22 </span><span class="lineNoCov">          0 :     ssl_io-&gt;last_error = i_strdup(str);</span>
+<a name="23"><span class="lineNum">      23 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 : static void openssl_info_callback(const SSL *ssl, int where, int ret)</span>
+<span class="lineNum">      26 </span>            : {
+<span class="lineNum">      27 </span>            :     struct ssl_iostream *ssl_io;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 :     ssl_io = SSL_get_ex_data(ssl, dovecot_ssl_extdata_index);</span>
+<span class="lineNum">      30 </span><span class="lineNoCov">          0 :     if ((where &amp; SSL_CB_ALERT) != 0) {</span>
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :         switch (ret &amp; 0xff) {</span>
+<span class="lineNum">      32 </span>            :         case SSL_AD_CLOSE_NOTIFY:
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 :             i_debug(&quot;%sSSL alert: %s&quot;,</span>
+<span class="lineNum">      34 </span>            :                 ssl_io-&gt;log_prefix,
+<span class="lineNum">      35 </span>            :                 SSL_alert_desc_string_long(ret));
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">      37 </span>            :         default:
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :             i_debug(&quot;%sSSL alert: where=0x%x, ret=%d: %s %s&quot;,</span>
+<span class="lineNum">      39 </span>            :                 ssl_io-&gt;log_prefix, where, ret,
+<span class="lineNum">      40 </span>            :                 SSL_alert_type_string_long(ret),
+<span class="lineNum">      41 </span>            :                 SSL_alert_desc_string_long(ret));
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">      43 </span>            :         }
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :     } else if (ret == 0) {</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :         i_debug(&quot;%sSSL failed: where=0x%x: %s&quot;,</span>
+<span class="lineNum">      46 </span>            :             ssl_io-&gt;log_prefix, where, SSL_state_string_long(ssl));
+<span class="lineNum">      47 </span>            :     } else {
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :         i_debug(&quot;%sSSL: where=0x%x, ret=%d: %s&quot;,</span>
+<span class="lineNum">      49 </span>            :             ssl_io-&gt;log_prefix, where, ret,
+<span class="lineNum">      50 </span>            :             SSL_state_string_long(ssl));
+<span class="lineNum">      51 </span>            :     }
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 : }</span>
+<a name="53"><span class="lineNum">      53 </span>            : </a>
+<span class="lineNum">      54 </span>            : static int
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 : openssl_iostream_use_certificate(struct ssl_iostream *ssl_io, const char *cert,</span>
+<span class="lineNum">      56 </span>            :                  const char **error_r)
+<span class="lineNum">      57 </span>            : {
+<span class="lineNum">      58 </span>            :     BIO *in;
+<span class="lineNum">      59 </span>            :     X509 *x;
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     in = BIO_new_mem_buf(t_strdup_noconst(cert), strlen(cert));</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     if (in == NULL) {</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;BIO_new_mem_buf() failed: %s&quot;,</span>
+<span class="lineNum">      65 </span>            :                        openssl_iostream_error());
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      67 </span>            :     }
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     x = PEM_read_bio_X509(in, NULL, NULL, NULL);</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     if (x != NULL) {</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         ret = SSL_use_certificate(ssl_io-&gt;ssl, x);</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :         if (ERR_peek_error() != 0)</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :             ret = 0;</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :         X509_free(x);</span>
+<span class="lineNum">      75 </span>            :     }
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     BIO_free(in);</span>
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;Can't load ssl_cert: %s&quot;,</span>
+<span class="lineNum">      80 </span>            :             openssl_iostream_use_certificate_error(cert, NULL));
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      82 </span>            :     }
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">      84 </span>            : }
+<a name="85"><span class="lineNum">      85 </span>            : </a>
+<span class="lineNum">      86 </span>            : static int
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 : openssl_iostream_use_key(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">      88 </span>            :              const struct ssl_iostream_cert *set,
+<span class="lineNum">      89 </span>            :              const char **error_r)
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span>            :     EVP_PKEY *pkey;
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     if (openssl_iostream_load_key(set, &amp;pkey, error_r) &lt; 0)</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     if (SSL_use_PrivateKey(ssl_io-&gt;ssl, pkey) != 1) {</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;Can't load SSL private key: %s&quot;,</span>
+<span class="lineNum">      98 </span>            :                        openssl_iostream_key_load_error());
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     100 </span>            :     }
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     EVP_PKEY_free(pkey);</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     103 </span>            : }
+<a name="104"><span class="lineNum">     104 </span>            : </a>
+<span class="lineNum">     105 </span>            : static int
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 : openssl_iostream_verify_client_cert(int preverify_ok, X509_STORE_CTX *ctx)</span>
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     int ssl_extidx = SSL_get_ex_data_X509_STORE_CTX_idx();</span>
+<span class="lineNum">     109 </span>            :     SSL *ssl;
+<span class="lineNum">     110 </span>            :     struct ssl_iostream *ssl_io;
+<span class="lineNum">     111 </span>            :     char certname[1024];
+<span class="lineNum">     112 </span>            :     X509_NAME *subject;
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     ssl = X509_STORE_CTX_get_ex_data(ctx, ssl_extidx);</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     ssl_io = SSL_get_ex_data(ssl, dovecot_ssl_extdata_index);</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     ssl_io-&gt;cert_received = TRUE;</span>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     subject = X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx));</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     if (subject == NULL ||</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :         X509_NAME_oneline(subject, certname, sizeof(certname)) == NULL)</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         certname[0] = '\0';</span>
+<span class="lineNum">     122 </span>            :     else
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         certname[sizeof(certname)-1] = '\0'; /* just in case.. */</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     if (preverify_ok == 0) {</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         openssl_iostream_set_error(ssl_io, t_strdup_printf(</span>
+<span class="lineNum">     126 </span>            :             &quot;Received invalid SSL certificate: %s: %s&quot;,
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :             X509_verify_cert_error_string(X509_STORE_CTX_get_error(ctx)), certname));</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;verbose_invalid_cert)</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :             i_info(&quot;%s&quot;, ssl_io-&gt;last_error);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     } else if (ssl_io-&gt;verbose) {</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         i_info(&quot;Received valid SSL certificate: %s&quot;, certname);</span>
+<span class="lineNum">     132 </span>            :     }
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     if (preverify_ok == 0) {</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         ssl_io-&gt;cert_broken = TRUE;</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         if (!ssl_io-&gt;allow_invalid_cert) {</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :             ssl_io-&gt;handshake_failed = TRUE;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     138 </span>            :         }
+<span class="lineNum">     139 </span>            :     }
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     141 </span>            : }
+<a name="142"><span class="lineNum">     142 </span>            : </a>
+<span class="lineNum">     143 </span>            : static int
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 : openssl_iostream_set(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     145 </span>            :              const struct ssl_iostream_settings *set,
+<span class="lineNum">     146 </span>            :              const char **error_r)
+<span class="lineNum">     147 </span>            : {
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     const struct ssl_iostream_settings *ctx_set = &amp;ssl_io-&gt;ctx-&gt;set;</span>
+<span class="lineNum">     149 </span>            :     int verify_flags;
+<span class="lineNum">     150 </span>            : 
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     if (set-&gt;verbose)</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         SSL_set_info_callback(ssl_io-&gt;ssl, openssl_info_callback);</span>
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :        if (set-&gt;cipher_list != NULL &amp;&amp;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         strcmp(ctx_set-&gt;cipher_list, set-&gt;cipher_list) != 0) {</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         if (SSL_set_cipher_list(ssl_io-&gt;ssl, set-&gt;cipher_list) == 0) {</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(</span>
+<span class="lineNum">     158 </span>            :                 &quot;Can't set cipher list to '%s': %s&quot;,
+<span class="lineNum">     159 </span>            :                 set-&gt;cipher_list, openssl_iostream_error());
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     161 </span>            :         }
+<span class="lineNum">     162 </span>            :     }
+<span class="lineNum">     163 </span>            : #ifdef HAVE_SSL_CTX_SET1_CURVES_LIST
+<span class="lineNum">     164 </span>            :     if (set-&gt;curve_list != NULL &amp;&amp; strlen(set-&gt;curve_list) &gt; 0 &amp;&amp;
+<span class="lineNum">     165 </span>            :         (ctx_set-&gt;curve_list == NULL || strcmp(ctx_set-&gt;curve_list, set-&gt;curve_list) != 0)) {
+<span class="lineNum">     166 </span>            :         if (SSL_set1_curves_list(ssl_io-&gt;ssl, set-&gt;curve_list) == 0) {
+<span class="lineNum">     167 </span>            :             *error_r = t_strdup_printf(
+<span class="lineNum">     168 </span>            :                     &quot;Failed to set curve list to '%s'&quot;,
+<span class="lineNum">     169 </span>            :                     set-&gt;curve_list);
+<span class="lineNum">     170 </span>            :             return -1;
+<span class="lineNum">     171 </span>            :         }
+<span class="lineNum">     172 </span>            :     }
+<span class="lineNum">     173 </span>            : #endif
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     if (set-&gt;prefer_server_ciphers)</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         SSL_set_options(ssl_io-&gt;ssl, SSL_OP_CIPHER_SERVER_PREFERENCE);</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     if (set-&gt;min_protocol != NULL) {</span>
+<span class="lineNum">     177 </span>            : #if defined(HAVE_SSL_CLEAR_OPTIONS)
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         SSL_clear_options(ssl_io-&gt;ssl, OPENSSL_ALL_PROTOCOL_OPTIONS);</span>
+<span class="lineNum">     179 </span>            : #endif
+<span class="lineNum">     180 </span>            :         long opts;
+<span class="lineNum">     181 </span>            :         int min_protocol;
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :         if (openssl_min_protocol_to_options(set-&gt;min_protocol, &amp;opts,</span>
+<span class="lineNum">     183 </span>            :                             &amp;min_protocol) &lt; 0) {
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(</span>
+<span class="lineNum">     185 </span>            :                     &quot;Unknown ssl_min_protocol setting '%s'&quot;,
+<span class="lineNum">     186 </span>            :                     set-&gt;min_protocol);
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     188 </span>            :         }
+<span class="lineNum">     189 </span>            : #ifdef HAVE_SSL_CTX_SET_MIN_PROTO_VERSION
+<span class="lineNum">     190 </span>            :         SSL_set_min_proto_version(ssl_io-&gt;ssl, min_protocol);
+<span class="lineNum">     191 </span>            : #else
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         SSL_set_options(ssl_io-&gt;ssl, opts);</span>
+<span class="lineNum">     193 </span>            : #endif
+<span class="lineNum">     194 </span>            :     }
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     if (set-&gt;cert.cert != NULL &amp;&amp; strcmp(ctx_set-&gt;cert.cert, set-&gt;cert.cert) != 0) {</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :         if (openssl_iostream_use_certificate(ssl_io, set-&gt;cert.cert, error_r) &lt; 0)</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     199 </span>            :     }
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     if (set-&gt;cert.key != NULL &amp;&amp; strcmp(ctx_set-&gt;cert.key, set-&gt;cert.key) != 0) {</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         if (openssl_iostream_use_key(ssl_io, &amp;set-&gt;cert, error_r) &lt; 0)</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     if (set-&gt;alt_cert.cert != NULL &amp;&amp; strcmp(ctx_set-&gt;alt_cert.cert, set-&gt;alt_cert.cert) != 0) {</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :         if (openssl_iostream_use_certificate(ssl_io, set-&gt;alt_cert.cert, error_r) &lt; 0)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     207 </span>            :     }
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     if (set-&gt;alt_cert.key != NULL &amp;&amp; strcmp(ctx_set-&gt;alt_cert.key, set-&gt;alt_cert.key) != 0) {</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :         if (openssl_iostream_use_key(ssl_io, &amp;set-&gt;alt_cert, error_r) &lt; 0)</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     211 </span>            :     }
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     if (set-&gt;verify_remote_cert) {</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;ctx-&gt;client_ctx)</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :             verify_flags = SSL_VERIFY_NONE;</span>
+<span class="lineNum">     215 </span>            :         else
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :             verify_flags = SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE;</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         SSL_set_verify(ssl_io-&gt;ssl, verify_flags,</span>
+<span class="lineNum">     218 </span>            :                    openssl_iostream_verify_client_cert);
+<span class="lineNum">     219 </span>            :     }
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     if (set-&gt;cert_username_field != NULL) {</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :         ssl_io-&gt;username_nid = OBJ_txt2nid(set-&gt;cert_username_field);</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;username_nid == NID_undef) {</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(</span>
+<span class="lineNum">     225 </span>            :                 &quot;Invalid cert_username_field: %s&quot;,
+<span class="lineNum">     226 </span>            :                 set-&gt;cert_username_field);
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     228 </span>            :         }
+<span class="lineNum">     229 </span>            :     } else {
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         ssl_io-&gt;username_nid = ssl_io-&gt;ctx-&gt;username_nid;</span>
+<span class="lineNum">     231 </span>            :     }
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     ssl_io-&gt;verbose = set-&gt;verbose;</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     ssl_io-&gt;verbose_invalid_cert = set-&gt;verbose_invalid_cert || set-&gt;verbose;</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :     ssl_io-&gt;allow_invalid_cert = set-&gt;allow_invalid_cert;</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     237 </span>            : }
+<a name="238"><span class="lineNum">     238 </span>            : </a>
+<span class="lineNum">     239 </span>            : static int
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 : openssl_iostream_create(struct ssl_iostream_context *ctx, const char *host,</span>
+<span class="lineNum">     241 </span>            :             const struct ssl_iostream_settings *set,
+<span class="lineNum">     242 </span>            :             struct istream **input, struct ostream **output,
+<span class="lineNum">     243 </span>            :             struct ssl_iostream **iostream_r,
+<span class="lineNum">     244 </span>            :             const char **error_r)
+<span class="lineNum">     245 </span>            : {
+<span class="lineNum">     246 </span>            :     struct ssl_iostream *ssl_io;
+<span class="lineNum">     247 </span>            :     SSL *ssl;
+<span class="lineNum">     248 </span>            :     BIO *bio_int, *bio_ext;
+<span class="lineNum">     249 </span>            : 
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     ssl = SSL_new(ctx-&gt;ssl_ctx);</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     if (ssl == NULL) {</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;SSL_new() failed: %s&quot;,</span>
+<span class="lineNum">     253 </span>            :                        openssl_iostream_error());
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     255 </span>            :     }
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span>            :     /* BIO pairs use default buffer sizes (17 kB in OpenSSL 0.9.8e).
+<span class="lineNum">     258 </span>            :        Each of the BIOs have one &quot;write buffer&quot;. BIO_write() copies data
+<span class="lineNum">     259 </span>            :        to them, while BIO_read() reads from the other BIO's write buffer
+<span class="lineNum">     260 </span>            :        into the given buffer. The bio_int is used by OpenSSL and bio_ext
+<span class="lineNum">     261 </span>            :        is used by this library. */
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :     if (BIO_new_bio_pair(&amp;bio_int, 0, &amp;bio_ext, 0) != 1) {</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;BIO_new_bio_pair() failed: %s&quot;,</span>
+<span class="lineNum">     264 </span>            :                        openssl_iostream_error());
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         SSL_free(ssl);</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     267 </span>            :     }
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     ssl_io = i_new(struct ssl_iostream, 1);</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     ssl_io-&gt;refcount = 1;</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     ssl_io-&gt;ctx = ctx;</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     ssl_iostream_context_ref(ssl_io-&gt;ctx);</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     ssl_io-&gt;ssl = ssl;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :     ssl_io-&gt;bio_ext = bio_ext;</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     ssl_io-&gt;plain_input = *input;</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     ssl_io-&gt;plain_output = *output;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     ssl_io-&gt;connected_host = i_strdup(host);</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     ssl_io-&gt;log_prefix = host == NULL ? i_strdup(&quot;&quot;) :</span>
+<span class="lineNum">     279 </span>            :         i_strdup_printf(&quot;%s: &quot;, host);
+<span class="lineNum">     280 </span>            :     /* bio_int will be freed by SSL_free() */
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     SSL_set_bio(ssl_io-&gt;ssl, bio_int, bio_int);</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         SSL_set_ex_data(ssl_io-&gt;ssl, dovecot_ssl_extdata_index, ssl_io);</span>
+<span class="lineNum">     283 </span>            : #ifdef HAVE_SSL_GET_SERVERNAME
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     SSL_set_tlsext_host_name(ssl_io-&gt;ssl, host);</span>
+<span class="lineNum">     285 </span>            : #endif
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     if (openssl_iostream_set(ssl_io, set, error_r) &lt; 0) {</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         openssl_iostream_free(ssl_io);</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     290 </span>            :     }
+<span class="lineNum">     291 </span>            : 
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     o_stream_uncork(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     293 </span>            : 
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     *input = openssl_i_stream_create_ssl(ssl_io);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     *output = openssl_o_stream_create_ssl(ssl_io);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     i_stream_set_name(*input, t_strconcat(&quot;SSL &quot;,</span>
+<span class="lineNum">     297 </span>            :         i_stream_get_name(ssl_io-&gt;plain_input), NULL));
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     o_stream_set_name(*output, t_strconcat(&quot;SSL &quot;,</span>
+<span class="lineNum">     299 </span>            :         o_stream_get_name(ssl_io-&gt;plain_output), NULL));
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;plain_output-&gt;real_stream-&gt;error_handling_disabled)</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :         o_stream_set_no_error_handling(*output, TRUE);</span>
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     ssl_io-&gt;ssl_input = *input;</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     ssl_io-&gt;ssl_output = *output;</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     *iostream_r = ssl_io;</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="308"><span class="lineNum">     308 </span>            : }</a>
+<span class="lineNum">     309 </span>            : 
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 : static void openssl_iostream_free(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     311 </span>            : {
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     ssl_iostream_context_unref(&amp;ssl_io-&gt;ctx);</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;ssl_io-&gt;plain_input);</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     BIO_free(ssl_io-&gt;bio_ext);</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     SSL_free(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;plain_stream_errstr);</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;last_error);</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;connected_host);</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;sni_host);</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;log_prefix);</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     i_free(ssl_io);</span>
+<a name="323"><span class="lineNum">     323 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 : static void openssl_iostream_unref(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     326 </span>            : {
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :     i_assert(ssl_io-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     if (--ssl_io-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     openssl_iostream_free(ssl_io);</span>
+<a name="332"><span class="lineNum">     332 </span>            : }</a>
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 : static void openssl_iostream_destroy(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     335 </span>            : {
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     if (SSL_shutdown(ssl_io-&gt;ssl) != 1) {</span>
+<span class="lineNum">     337 </span>            :         /* if bidirectional shutdown fails we need to clear
+<span class="lineNum">     338 </span>            :            the error queue */
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         openssl_iostream_clear_errors();</span>
+<span class="lineNum">     340 </span>            :     }
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     (void)openssl_iostream_more(ssl_io, OPENSSL_IOSTREAM_SYNC_TYPE_WRITE);</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     (void)o_stream_flush(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     343 </span>            :     /* close the plain i/o streams, because their fd may be closed soon,
+<span class="lineNum">     344 </span>            :        but we may still keep this ssl-iostream referenced until later. */
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :     i_stream_close(ssl_io-&gt;plain_input);</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     o_stream_close(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     ssl_iostream_unref(&amp;ssl_io);</span>
+<a name="349"><span class="lineNum">     349 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     350 </span>            : 
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 : static bool openssl_iostream_bio_output(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     352 </span>            : {
+<span class="lineNum">     353 </span>            :     size_t bytes, max_bytes;
+<span class="lineNum">     354 </span>            :     ssize_t sent;
+<span class="lineNum">     355 </span>            :     unsigned char buffer[IO_BLOCK_SIZE];
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     bool bytes_sent = FALSE;</span>
+<span class="lineNum">     357 </span>            :     int ret;
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     o_stream_cork(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     while ((bytes = BIO_ctrl_pending(ssl_io-&gt;bio_ext)) &gt; 0) {</span>
+<span class="lineNum">     361 </span>            :         /* bytes contains how many SSL encrypted bytes we should be
+<span class="lineNum">     362 </span>            :            sending out */
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :         max_bytes = o_stream_get_buffer_avail_size(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         if (bytes &gt; max_bytes) {</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :             if (max_bytes == 0) {</span>
+<span class="lineNum">     366 </span>            :                 /* wait until output buffer clears */
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :                 o_stream_set_flush_pending(ssl_io-&gt;plain_output,</span>
+<span class="lineNum">     368 </span>            :                                TRUE);
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     370 </span>            :             }
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :             bytes = max_bytes;</span>
+<span class="lineNum">     372 </span>            :         }
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :         if (bytes &gt; sizeof(buffer))</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :             bytes = sizeof(buffer);</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span>            :         /* BIO_read() is guaranteed to return all the bytes that
+<span class="lineNum">     377 </span>            :            BIO_ctrl_pending() returned */
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :         ret = BIO_read(ssl_io-&gt;bio_ext, buffer, bytes);</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :         i_assert(ret == (int)bytes);</span>
+<span class="lineNum">     380 </span>            : 
+<span class="lineNum">     381 </span>            :         /* we limited number of read bytes to plain_output's
+<span class="lineNum">     382 </span>            :            available size. this send() is guaranteed to either
+<span class="lineNum">     383 </span>            :            fully succeed or completely fail due to some error. */
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :         sent = o_stream_send(ssl_io-&gt;plain_output, buffer, bytes);</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :         if (sent &lt; 0) {</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :             i_assert(ssl_io-&gt;plain_output-&gt;closed ||</span>
+<span class="lineNum">     387 </span>            :                  ssl_io-&gt;plain_output-&gt;stream_errno != 0);
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :             i_free(ssl_io-&gt;plain_stream_errstr);</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :             ssl_io-&gt;plain_stream_errstr =</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :                 i_strdup(o_stream_get_error(ssl_io-&gt;plain_output));</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :             ssl_io-&gt;plain_stream_errno =</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :                 ssl_io-&gt;plain_output-&gt;stream_errno;</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :             ssl_io-&gt;closed = TRUE;</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     395 </span>            :         }
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :         i_assert(sent == (ssize_t)bytes);</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :         bytes_sent = TRUE;</span>
+<span class="lineNum">     398 </span>            :     }
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :     o_stream_uncork(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     return bytes_sent;</span>
+<span class="lineNum">     401 </span>            : }
+<a name="402"><span class="lineNum">     402 </span>            : </a>
+<span class="lineNum">     403 </span>            : static ssize_t
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 : openssl_iostream_read_more(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     405 </span>            :                enum openssl_iostream_sync_type type,
+<span class="lineNum">     406 </span>            :                const unsigned char **data_r, size_t *size_r)
+<span class="lineNum">     407 </span>            : {
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     *data_r = i_stream_get_data(ssl_io-&gt;plain_input, size_r);</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     if (*size_r &gt; 0)</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     411 </span>            : 
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     if (type == OPENSSL_IOSTREAM_SYNC_TYPE_CONTINUE_READ) {</span>
+<span class="lineNum">     413 </span>            :         /* only the first i_stream_read() call attempts to read more
+<span class="lineNum">     414 </span>            :            input. the following reads will just process the buffered
+<span class="lineNum">     415 </span>            :            data. */
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     417 </span>            :     }
+<span class="lineNum">     418 </span>            : 
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     if (i_stream_read_more(ssl_io-&gt;plain_input, data_r, size_r) &lt; 0)</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="422"><span class="lineNum">     422 </span>            : }</a>
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 : static bool openssl_iostream_bio_input(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     425 </span>            :                        enum openssl_iostream_sync_type type)
+<span class="lineNum">     426 </span>            : {
+<span class="lineNum">     427 </span>            :     const unsigned char *data;
+<span class="lineNum">     428 </span>            :     size_t bytes, size;
+<span class="lineNum">     429 </span>            :     int ret;
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :     bool bytes_read = FALSE;</span>
+<span class="lineNum">     431 </span>            : 
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     while ((bytes = BIO_ctrl_get_write_guarantee(ssl_io-&gt;bio_ext)) &gt; 0) {</span>
+<span class="lineNum">     433 </span>            :         /* bytes contains how many bytes we can write to bio_ext */
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         ssl_io-&gt;plain_input-&gt;real_stream-&gt;try_alloc_limit = bytes;</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :         ret = openssl_iostream_read_more(ssl_io, type, &amp;data, &amp;size);</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :         ssl_io-&gt;plain_input-&gt;real_stream-&gt;try_alloc_limit = 0;</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         if (ret == -1 &amp;&amp; size == 0 &amp;&amp; !bytes_read) {</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :             if (ssl_io-&gt;plain_input-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :                 i_free(ssl_io-&gt;plain_stream_errstr);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :                 ssl_io-&gt;plain_stream_errstr =</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :                     i_strdup(i_stream_get_error(ssl_io-&gt;plain_input));</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :                 ssl_io-&gt;plain_stream_errno =</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :                     ssl_io-&gt;plain_input-&gt;stream_errno;</span>
+<span class="lineNum">     444 </span>            :             }
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :             ssl_io-&gt;closed = TRUE;</span>
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     447 </span>            :         }
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :         if (size == 0) {</span>
+<span class="lineNum">     449 </span>            :             /* wait for more input */
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     451 </span>            :         }
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :         if (size &gt; bytes)</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :             size = bytes;</span>
+<span class="lineNum">     454 </span>            : 
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         ret = BIO_write(ssl_io-&gt;bio_ext, data, size);</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :         i_assert(ret == (ssize_t)size);</span>
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         i_stream_skip(ssl_io-&gt;plain_input, size);</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         bytes_read = TRUE;</span>
+<span class="lineNum">     460 </span>            :     }
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     if (bytes == 0 &amp;&amp; !bytes_read &amp;&amp; ssl_io-&gt;want_read) {</span>
+<span class="lineNum">     462 </span>            :         /* shouldn't happen */
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :         i_error(&quot;SSL BIO buffer size too small&quot;);</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :         i_free(ssl_io-&gt;plain_stream_errstr);</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :         ssl_io-&gt;plain_stream_errstr =</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :             i_strdup(&quot;SSL BIO buffer size too small&quot;);</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         ssl_io-&gt;plain_stream_errno = EINVAL;</span>
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         ssl_io-&gt;closed = TRUE;</span>
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     470 </span>            :     }
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :     if (i_stream_get_data_size(ssl_io-&gt;plain_input) &gt; 0) {</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :         i_error(&quot;SSL: Too much data in buffered plain input buffer&quot;);</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         i_free(ssl_io-&gt;plain_stream_errstr);</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         ssl_io-&gt;plain_stream_errstr =</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :             i_strdup(&quot;SSL: Too much data in buffered plain input buffer&quot;);</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         ssl_io-&gt;plain_stream_errno = EINVAL;</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         ssl_io-&gt;closed = TRUE;</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     479 </span>            :     }
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :     if (bytes_read) {</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;ostream_flush_waiting_input) {</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :             ssl_io-&gt;ostream_flush_waiting_input = FALSE;</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :             o_stream_set_flush_pending(ssl_io-&gt;plain_output, TRUE);</span>
+<span class="lineNum">     484 </span>            :         }
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         if (type != OPENSSL_IOSTREAM_SYNC_TYPE_FIRST_READ &amp;&amp;</span>
+<span class="lineNum">     486 </span>            :             type != OPENSSL_IOSTREAM_SYNC_TYPE_CONTINUE_READ)
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :             i_stream_set_input_pending(ssl_io-&gt;ssl_input, TRUE);</span>
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :         ssl_io-&gt;want_read = FALSE;</span>
+<span class="lineNum">     489 </span>            :     }
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     return bytes_read;</span>
+<a name="491"><span class="lineNum">     491 </span>            : }</a>
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 : bool openssl_iostream_bio_sync(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     494 </span>            :                    enum openssl_iostream_sync_type type)
+<span class="lineNum">     495 </span>            : {
+<span class="lineNum">     496 </span>            :     bool ret;
+<span class="lineNum">     497 </span>            : 
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :     ret = openssl_iostream_bio_output(ssl_io);</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     if (openssl_iostream_bio_input(ssl_io, type))</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         ret = TRUE;</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="502"><span class="lineNum">     502 </span>            : }</a>
+<span class="lineNum">     503 </span>            : 
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 : int openssl_iostream_more(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     505 </span>            :               enum openssl_iostream_sync_type type)
+<span class="lineNum">     506 </span>            : {
+<span class="lineNum">     507 </span>            :     int ret;
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     if (!ssl_io-&gt;handshaked) {</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         if ((ret = ssl_iostream_handshake(ssl_io)) &lt;= 0)</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     512 </span>            :     }
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     (void)openssl_iostream_bio_sync(ssl_io, type);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="515"><span class="lineNum">     515 </span>            : }</a>
+<span class="lineNum">     516 </span>            : 
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 : static void openssl_iostream_closed(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     518 </span>            : {
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;plain_stream_errno != 0) {</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :         i_assert(ssl_io-&gt;plain_stream_errstr != NULL);</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         openssl_iostream_set_error(ssl_io, ssl_io-&gt;plain_stream_errstr);</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :         errno = ssl_io-&gt;plain_stream_errno;</span>
+<span class="lineNum">     523 </span>            :     } else {
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         openssl_iostream_set_error(ssl_io, &quot;Connection closed&quot;);</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :         errno = EPIPE;</span>
+<span class="lineNum">     526 </span>            :     }
+<a name="527"><span class="lineNum">     527 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     528 </span>            : 
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 : int openssl_iostream_handle_error(struct ssl_iostream *ssl_io, int ret,</span>
+<span class="lineNum">     530 </span>            :                   enum openssl_iostream_sync_type type,
+<span class="lineNum">     531 </span>            :                   const char *func_name)
+<span class="lineNum">     532 </span>            : {
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :     const char *errstr = NULL;</span>
+<span class="lineNum">     534 </span>            :     int err;
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :     err = SSL_get_error(ssl_io-&gt;ssl, ret);</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :     switch (err) {</span>
+<span class="lineNum">     538 </span>            :     case SSL_ERROR_WANT_WRITE:
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :         if (!openssl_iostream_bio_sync(ssl_io, type)) {</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :             if (type != OPENSSL_IOSTREAM_SYNC_TYPE_WRITE)</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :                 i_panic(&quot;SSL ostream buffer size not unlimited&quot;);</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     543 </span>            :         }
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;closed) {</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :             openssl_iostream_closed(ssl_io);</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     547 </span>            :         }
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     549 </span>            :     case SSL_ERROR_WANT_READ:
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :         ssl_io-&gt;want_read = TRUE;</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :         (void)openssl_iostream_bio_sync(ssl_io, type);</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;closed) {</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :             openssl_iostream_closed(ssl_io);</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     555 </span>            :         }
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :         return ssl_io-&gt;want_read ? 0 : 1;</span>
+<span class="lineNum">     557 </span>            :     case SSL_ERROR_SYSCALL:
+<span class="lineNum">     558 </span>            :         /* eat up the error queue */
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :         if (ERR_peek_error() != 0) {</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :             errstr = openssl_iostream_error();</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :             errno = EINVAL;</span>
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :         } else if (ret != 0) {</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :             i_assert(errno != 0);</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :             errstr = strerror(errno);</span>
+<span class="lineNum">     565 </span>            :         } else {
+<span class="lineNum">     566 </span>            :             /* EOF. */
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :             errno = EPIPE;</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :             errstr = &quot;Disconnected&quot;;</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     570 </span>            :         }
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :         errstr = t_strdup_printf(&quot;%s syscall failed: %s&quot;,</span>
+<span class="lineNum">     572 </span>            :                      func_name, errstr);
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     574 </span>            :     case SSL_ERROR_ZERO_RETURN:
+<span class="lineNum">     575 </span>            :         /* clean connection closing */
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         errno = EPIPE;</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;handshaked)</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :             i_free_and_null(ssl_io-&gt;last_error);</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :         else if (ssl_io-&gt;last_error == NULL) {</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :             errstr = &quot;SSL connection closed during handshake&quot;;</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     582 </span>            :         }
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     584 </span>            :     case SSL_ERROR_SSL:
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         errstr = t_strdup_printf(&quot;%s failed: %s&quot;,</span>
+<span class="lineNum">     586 </span>            :                      func_name, openssl_iostream_error());
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         errno = EINVAL;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     589 </span>            :     default:
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         errstr = t_strdup_printf(&quot;%s failed: unknown failure %d (%s)&quot;,</span>
+<span class="lineNum">     591 </span>            :                      func_name, err,
+<span class="lineNum">     592 </span>            :                      openssl_iostream_error());
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :         errno = EINVAL;</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     595 </span>            :     }
+<span class="lineNum">     596 </span>            : 
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :     openssl_iostream_set_error(ssl_io, errstr);</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     599 </span>            : }
+<a name="600"><span class="lineNum">     600 </span>            : </a>
+<span class="lineNum">     601 </span>            : static bool
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 : openssl_iostream_cert_match_name(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     603 </span>            :                  const char *verify_name, const char **reason_r)
+<span class="lineNum">     604 </span>            : {
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;allow_invalid_cert)</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :     if (!ssl_iostream_has_valid_client_cert(ssl_io)) {</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :         *reason_r = &quot;Invalid certificate&quot;;</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     610 </span>            :     }
+<span class="lineNum">     611 </span>            : 
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     return openssl_cert_match_name(ssl_io-&gt;ssl, verify_name, reason_r);</span>
+<a name="613"><span class="lineNum">     613 </span>            : }</a>
+<span class="lineNum">     614 </span>            : 
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 : static int openssl_iostream_handshake(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     616 </span>            : {
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :     const char *reason, *error = NULL;</span>
+<span class="lineNum">     618 </span>            :     int ret;
+<span class="lineNum">     619 </span>            : 
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :     i_assert(!ssl_io-&gt;handshaked);</span>
+<span class="lineNum">     621 </span>            : 
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;ctx-&gt;client_ctx) {</span>
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :         while ((ret = SSL_connect(ssl_io-&gt;ssl)) &lt;= 0) {</span>
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :             ret = openssl_iostream_handle_error(ssl_io, ret,</span>
+<span class="lineNum">     625 </span>            :                 OPENSSL_IOSTREAM_SYNC_TYPE_HANDSHAKE, &quot;SSL_connect()&quot;);
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :             if (ret &lt;= 0)</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :                 return ret;</span>
+<span class="lineNum">     628 </span>            :         }
+<span class="lineNum">     629 </span>            :     } else {
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :         while ((ret = SSL_accept(ssl_io-&gt;ssl)) &lt;= 0) {</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :             ret = openssl_iostream_handle_error(ssl_io, ret,</span>
+<span class="lineNum">     632 </span>            :                 OPENSSL_IOSTREAM_SYNC_TYPE_HANDSHAKE, &quot;SSL_accept()&quot;);
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :             if (ret &lt;= 0)</span>
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :                 return ret;</span>
+<span class="lineNum">     635 </span>            :         }
+<span class="lineNum">     636 </span>            :     }
+<span class="lineNum">     637 </span>            :     /* handshake finished */
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :     (void)openssl_iostream_bio_sync(ssl_io, OPENSSL_IOSTREAM_SYNC_TYPE_HANDSHAKE);</span>
+<span class="lineNum">     639 </span>            : 
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;handshake_callback != NULL) {</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         if (ssl_io-&gt;handshake_callback(&amp;error, ssl_io-&gt;handshake_context) &lt; 0) {</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :             i_assert(error != NULL);</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :             openssl_iostream_set_error(ssl_io, error);</span>
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :             ssl_io-&gt;handshake_failed = TRUE;</span>
+<span class="lineNum">     645 </span>            :         }
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :     } else if (ssl_io-&gt;connected_host != NULL &amp;&amp; !ssl_io-&gt;handshake_failed) {</span>
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :         if (!ssl_iostream_cert_match_name(ssl_io, ssl_io-&gt;connected_host, &amp;reason)) {</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :             openssl_iostream_set_error(ssl_io, t_strdup_printf(</span>
+<span class="lineNum">     649 </span>            :                 &quot;SSL certificate doesn't match expected host name %s: %s&quot;,
+<span class="lineNum">     650 </span>            :                 ssl_io-&gt;connected_host, reason));
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :             ssl_io-&gt;handshake_failed = TRUE;</span>
+<span class="lineNum">     652 </span>            :         }
+<span class="lineNum">     653 </span>            :     }
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;handshake_failed) {</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         i_stream_close(ssl_io-&gt;plain_input);</span>
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :         o_stream_close(ssl_io-&gt;plain_output);</span>
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :         errno = EINVAL;</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     659 </span>            :     }
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     i_free_and_null(ssl_io-&gt;last_error);</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :     ssl_io-&gt;handshaked = TRUE;</span>
+<span class="lineNum">     662 </span>            : 
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     if (ssl_io-&gt;ssl_output != NULL)</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :         (void)o_stream_flush(ssl_io-&gt;ssl_output);</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     666 </span>            : }
+<a name="667"><span class="lineNum">     667 </span>            : </a>
+<span class="lineNum">     668 </span>            : static void
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 : openssl_iostream_set_handshake_callback(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     670 </span>            :                     ssl_iostream_handshake_callback_t *callback,
+<span class="lineNum">     671 </span>            :                     void *context)
+<span class="lineNum">     672 </span>            : {
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :     ssl_io-&gt;handshake_callback = callback;</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :     ssl_io-&gt;handshake_context = context;</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 : }</span>
+<a name="676"><span class="lineNum">     676 </span>            : </a>
+<span class="lineNum">     677 </span>            : static void
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 : openssl_iostream_set_sni_callback(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     679 </span>            :                   ssl_iostream_sni_callback_t *callback,
+<span class="lineNum">     680 </span>            :                   void *context)
+<span class="lineNum">     681 </span>            : {
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :     ssl_io-&gt;sni_callback = callback;</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :     ssl_io-&gt;sni_context = context;</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 : }</span>
+<a name="685"><span class="lineNum">     685 </span>            : </a>
+<span class="lineNum">     686 </span>            : static void
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 : openssl_iostream_change_context(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     688 </span>            :                 struct ssl_iostream_context *ctx)
+<span class="lineNum">     689 </span>            : {
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :     if (ctx != ssl_io-&gt;ctx) {</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :         SSL_set_SSL_CTX(ssl_io-&gt;ssl, ctx-&gt;ssl_ctx);</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :         ssl_iostream_context_ref(ctx);</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :         ssl_iostream_context_unref(&amp;ssl_io-&gt;ctx);</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :         ssl_io-&gt;ctx = ctx;</span>
+<span class="lineNum">     695 </span>            :     }
+<a name="696"><span class="lineNum">     696 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     697 </span>            : 
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 : static void openssl_iostream_set_log_prefix(struct ssl_iostream *ssl_io,</span>
+<span class="lineNum">     699 </span>            :                         const char *prefix)
+<span class="lineNum">     700 </span>            : {
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :     i_free(ssl_io-&gt;log_prefix);</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :     ssl_io-&gt;log_prefix = i_strdup(prefix);</span>
+<a name="703"><span class="lineNum">     703 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     704 </span>            : 
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 : static bool openssl_iostream_is_handshaked(const struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     706 </span>            : {
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :     return ssl_io-&gt;handshaked;</span>
+<span class="lineNum">     708 </span>            : }
+<a name="709"><span class="lineNum">     709 </span>            : </a>
+<span class="lineNum">     710 </span>            : static bool
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 : openssl_iostream_has_handshake_failed(const struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     712 </span>            : {
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     return ssl_io-&gt;handshake_failed;</span>
+<span class="lineNum">     714 </span>            : }
+<a name="715"><span class="lineNum">     715 </span>            : </a>
+<span class="lineNum">     716 </span>            : static bool
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 : openssl_iostream_has_valid_client_cert(const struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     718 </span>            : {
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     return ssl_io-&gt;cert_received &amp;&amp; !ssl_io-&gt;cert_broken;</span>
+<span class="lineNum">     720 </span>            : }
+<a name="721"><span class="lineNum">     721 </span>            : </a>
+<span class="lineNum">     722 </span>            : static bool
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 : openssl_iostream_has_broken_client_cert(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     724 </span>            : {
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     return ssl_io-&gt;cert_received &amp;&amp; ssl_io-&gt;cert_broken;</span>
+<span class="lineNum">     726 </span>            : }
+<a name="727"><span class="lineNum">     727 </span>            : </a>
+<span class="lineNum">     728 </span>            : static const char *
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 : openssl_iostream_get_peer_name(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     730 </span>            : {
+<span class="lineNum">     731 </span>            :     X509 *x509;
+<span class="lineNum">     732 </span>            :     char *name;
+<span class="lineNum">     733 </span>            :     int len;
+<span class="lineNum">     734 </span>            : 
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     if (!ssl_iostream_has_valid_client_cert(ssl_io))</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     737 </span>            : 
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :     x509 = SSL_get_peer_certificate(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :     i_assert(x509 != NULL);</span>
+<span class="lineNum">     740 </span>            : 
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :     len = X509_NAME_get_text_by_NID(X509_get_subject_name(x509),</span>
+<span class="lineNum">     742 </span>            :                     ssl_io-&gt;username_nid, NULL, 0);
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :     if (len &lt; 0)</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :         name = &quot;&quot;;</span>
+<span class="lineNum">     745 </span>            :     else {
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :         name = t_malloc0(len + 1);</span>
+<span class="lineNum">     747 </span><span class="lineNoCov">          0 :         if (X509_NAME_get_text_by_NID(X509_get_subject_name(x509),</span>
+<span class="lineNum">     748 </span>            :                           ssl_io-&gt;username_nid,
+<span class="lineNum">     749 </span>            :                           name, len + 1) &lt; 0)
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :             name = &quot;&quot;;</span>
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :         else if (strlen(name) != (size_t)len) {</span>
+<span class="lineNum">     752 </span>            :             /* NUL characters in name. Someone's trying to fake
+<span class="lineNum">     753 </span>            :                being another user? Don't allow it. */
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :             name = &quot;&quot;;</span>
+<span class="lineNum">     755 </span>            :         }
+<span class="lineNum">     756 </span>            :     }
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :     X509_free(x509);</span>
+<span class="lineNum">     758 </span>            :     
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :     return *name == '\0' ? NULL : name;</span>
+<a name="760"><span class="lineNum">     760 </span>            : }</a>
+<span class="lineNum">     761 </span>            : 
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 : static const char *openssl_iostream_get_server_name(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     763 </span>            : {
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     return ssl_io-&gt;sni_host;</span>
+<span class="lineNum">     765 </span>            : }
+<a name="766"><span class="lineNum">     766 </span>            : </a>
+<span class="lineNum">     767 </span>            : static const char *
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 : openssl_iostream_get_compression(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     769 </span>            : {
+<span class="lineNum">     770 </span>            : #if defined(HAVE_SSL_COMPRESSION) &amp;&amp; !defined(OPENSSL_NO_COMP)
+<span class="lineNum">     771 </span>            :     const COMP_METHOD *comp;
+<span class="lineNum">     772 </span>            : 
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :     comp = SSL_get_current_compression(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     774 </span><span class="lineNoCov">          0 :     return comp == NULL ? NULL : SSL_COMP_get_name(comp);</span>
+<span class="lineNum">     775 </span>            : #else
+<span class="lineNum">     776 </span>            :     return NULL;
+<span class="lineNum">     777 </span>            : #endif
+<span class="lineNum">     778 </span>            : }
+<a name="779"><span class="lineNum">     779 </span>            : </a>
+<span class="lineNum">     780 </span>            : static const char *
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 : openssl_iostream_get_security_string(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     782 </span>            : {
+<span class="lineNum">     783 </span>            :     const SSL_CIPHER *cipher;
+<span class="lineNum">     784 </span>            : #if defined(HAVE_SSL_COMPRESSION) &amp;&amp; !defined(OPENSSL_NO_COMP)
+<span class="lineNum">     785 </span>            :     const COMP_METHOD *comp;
+<span class="lineNum">     786 </span>            : #endif
+<span class="lineNum">     787 </span>            :     const char *comp_str;
+<span class="lineNum">     788 </span>            :     int bits, alg_bits;
+<span class="lineNum">     789 </span>            : 
+<span class="lineNum">     790 </span><span class="lineNoCov">          0 :     if (!ssl_io-&gt;handshaked)</span>
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :         return &quot;&quot;;</span>
+<span class="lineNum">     792 </span>            : 
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :     cipher = SSL_get_current_cipher(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     794 </span><span class="lineNoCov">          0 :     bits = SSL_CIPHER_get_bits(cipher, &amp;alg_bits);</span>
+<span class="lineNum">     795 </span>            : #if defined(HAVE_SSL_COMPRESSION) &amp;&amp; !defined(OPENSSL_NO_COMP)
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :     comp = SSL_get_current_compression(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 :     comp_str = comp == NULL ? &quot;&quot; :</span>
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :         t_strconcat(&quot; &quot;, SSL_COMP_get_name(comp), NULL);</span>
+<span class="lineNum">     799 </span>            : #else
+<span class="lineNum">     800 </span>            :     comp_str = &quot;&quot;;
+<span class="lineNum">     801 </span>            : #endif
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :     return t_strdup_printf(&quot;%s with cipher %s (%d/%d bits)%s&quot;,</span>
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :                    SSL_get_version(ssl_io-&gt;ssl),</span>
+<span class="lineNum">     804 </span>            :                    SSL_CIPHER_get_name(cipher),
+<span class="lineNum">     805 </span>            :                    bits, alg_bits, comp_str);
+<span class="lineNum">     806 </span>            : }
+<a name="807"><span class="lineNum">     807 </span>            : </a>
+<span class="lineNum">     808 </span>            : static const char *
+<span class="lineNum">     809 </span><span class="lineNoCov">          0 : openssl_iostream_get_last_error(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     810 </span>            : {
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 :     return ssl_io-&gt;last_error;</span>
+<span class="lineNum">     812 </span>            : }
+<a name="813"><span class="lineNum">     813 </span>            : </a>
+<span class="lineNum">     814 </span>            : static const char *
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 : openssl_iostream_get_cipher(struct ssl_iostream *ssl_io, unsigned int *bits_r)</span>
+<span class="lineNum">     816 </span>            : {
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :     if (!ssl_io-&gt;handshaked)</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     819 </span>            : 
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :     const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :     *bits_r = SSL_CIPHER_get_bits(cipher, NULL);</span>
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :     return SSL_CIPHER_get_name(cipher);</span>
+<span class="lineNum">     823 </span>            : }
+<a name="824"><span class="lineNum">     824 </span>            : </a>
+<span class="lineNum">     825 </span>            : static const char *
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 : openssl_iostream_get_pfs(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     827 </span>            : {
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :     if (!ssl_io-&gt;handshaked)</span>
+<span class="lineNum">     829 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     830 </span>            : 
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :     const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     832 </span>            : #if defined(HAVE_SSL_CIPHER_get_kx_nid)
+<span class="lineNum">     833 </span>            :     int nid = SSL_CIPHER_get_kx_nid(cipher);
+<span class="lineNum">     834 </span>            :     return OBJ_nid2sn(nid);
+<span class="lineNum">     835 </span>            : #else
+<span class="lineNum">     836 </span>            :     char buf[128];
+<span class="lineNum">     837 </span>            :     const char *desc, *ptr;
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :     if ((desc = SSL_CIPHER_description(cipher, buf, sizeof(buf)))==NULL ||</span>
+<span class="lineNum">     839 </span>            :         (ptr = strstr(desc, &quot;Kx=&quot;)) == NULL)
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :         return &quot;&quot;;</span>
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :     return t_strcut(ptr+3, ' ');</span>
+<span class="lineNum">     842 </span>            : #endif
+<span class="lineNum">     843 </span>            : }
+<a name="844"><span class="lineNum">     844 </span>            : </a>
+<span class="lineNum">     845 </span>            : static const char *
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 : openssl_iostream_get_protocol_name(struct ssl_iostream *ssl_io)</span>
+<span class="lineNum">     847 </span>            : {
+<span class="lineNum">     848 </span><span class="lineNoCov">          0 :     if (!ssl_io-&gt;handshaked)</span>
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     850 </span><span class="lineNoCov">          0 :     return SSL_get_version(ssl_io-&gt;ssl);</span>
+<span class="lineNum">     851 </span>            : }
+<span class="lineNum">     852 </span>            : 
+<span class="lineNum">     853 </span>            : 
+<span class="lineNum">     854 </span>            : static const struct iostream_ssl_vfuncs ssl_vfuncs = {
+<span class="lineNum">     855 </span>            :     .global_init = openssl_iostream_global_init,
+<span class="lineNum">     856 </span>            :     .context_init_client = openssl_iostream_context_init_client,
+<span class="lineNum">     857 </span>            :     .context_init_server = openssl_iostream_context_init_server,
+<span class="lineNum">     858 </span>            :     .context_ref = openssl_iostream_context_ref,
+<span class="lineNum">     859 </span>            :     .context_unref = openssl_iostream_context_unref,
+<span class="lineNum">     860 </span>            : 
+<span class="lineNum">     861 </span>            :     .create = openssl_iostream_create,
+<span class="lineNum">     862 </span>            :     .unref = openssl_iostream_unref,
+<span class="lineNum">     863 </span>            :     .destroy = openssl_iostream_destroy,
+<span class="lineNum">     864 </span>            : 
+<span class="lineNum">     865 </span>            :     .handshake = openssl_iostream_handshake,
+<span class="lineNum">     866 </span>            :     .set_handshake_callback = openssl_iostream_set_handshake_callback,
+<span class="lineNum">     867 </span>            :     .set_sni_callback = openssl_iostream_set_sni_callback,
+<span class="lineNum">     868 </span>            :     .change_context = openssl_iostream_change_context,
+<span class="lineNum">     869 </span>            : 
+<span class="lineNum">     870 </span>            :     .set_log_prefix = openssl_iostream_set_log_prefix,
+<span class="lineNum">     871 </span>            :     .is_handshaked = openssl_iostream_is_handshaked,
+<span class="lineNum">     872 </span>            :     .has_handshake_failed = openssl_iostream_has_handshake_failed,
+<span class="lineNum">     873 </span>            :     .has_valid_client_cert = openssl_iostream_has_valid_client_cert,
+<span class="lineNum">     874 </span>            :     .has_broken_client_cert = openssl_iostream_has_broken_client_cert,
+<span class="lineNum">     875 </span>            :     .cert_match_name = openssl_iostream_cert_match_name,
+<span class="lineNum">     876 </span>            :     .get_peer_name = openssl_iostream_get_peer_name,
+<span class="lineNum">     877 </span>            :     .get_server_name = openssl_iostream_get_server_name,
+<span class="lineNum">     878 </span>            :     .get_compression = openssl_iostream_get_compression,
+<span class="lineNum">     879 </span>            :     .get_security_string = openssl_iostream_get_security_string,
+<span class="lineNum">     880 </span>            :     .get_last_error = openssl_iostream_get_last_error,
+<span class="lineNum">     881 </span>            :     .get_cipher = openssl_iostream_get_cipher,
+<span class="lineNum">     882 </span>            :     .get_pfs = openssl_iostream_get_pfs,
+<span class="lineNum">     883 </span>            :     .get_protocol_name = openssl_iostream_get_protocol_name,
+<a name="884"><span class="lineNum">     884 </span>            : };</a>
+<span class="lineNum">     885 </span>            : 
+<span class="lineNum">     886 </span><span class="lineNoCov">          0 : void ssl_iostream_openssl_init(void)</span>
+<span class="lineNum">     887 </span>            : {
+<span class="lineNum">     888 </span>            :     unsigned char buf;
+<span class="lineNum">     889 </span><span class="lineNoCov">          0 :     if (RAND_bytes(&amp;buf, 1) &lt; 1)</span>
+<span class="lineNum">     890 </span><span class="lineNoCov">          0 :         i_fatal(&quot;OpenSSL RNG failed to initialize&quot;);</span>
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 :     iostream_ssl_module_init(&amp;ssl_vfuncs);</span>
+<a name="892"><span class="lineNum">     892 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     893 </span>            : 
+<span class="lineNum">     894 </span><span class="lineNoCov">          0 : void ssl_iostream_openssl_deinit(void)</span>
+<span class="lineNum">     895 </span>            : {
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :     openssl_iostream_global_deinit();</span>
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

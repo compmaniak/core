@@ -1,0 +1,1026 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/index-mail-headers.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">lib-storage/index</a> - index-mail-headers.c<span style="font-size: 80%;"> (source / <a href="index-mail-headers.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">482</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">27</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;message-date.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;message-part-data.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;message-header-decode.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;istream-tee.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;istream-header-filter.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;imap-envelope.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;imap-bodystructure.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;index-storage.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;index-mail.h&quot;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : static const enum message_header_parser_flags hdr_parser_flags =
+<span class="lineNum">      20 </span>            :     MESSAGE_HEADER_PARSER_FLAG_SKIP_INITIAL_LWSP |
+<span class="lineNum">      21 </span>            :     MESSAGE_HEADER_PARSER_FLAG_DROP_CR;
+<span class="lineNum">      22 </span>            : static const enum message_parser_flags msg_parser_flags =
+<a name="23"><span class="lineNum">      23 </span>            :     MESSAGE_PARSER_FLAG_SKIP_BODY_BLOCK;</a>
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 : static int header_line_cmp(const struct index_mail_line *l1,</span>
+<span class="lineNum">      26 </span>            :                const struct index_mail_line *l2)
+<span class="lineNum">      27 </span>            : {
+<span class="lineNum">      28 </span>            :     int diff;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span><span class="lineNoCov">          0 :     diff = (int)l1-&gt;field_idx - (int)l2-&gt;field_idx;</span>
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :     return diff != 0 ? diff :</span>
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :         (int)l1-&gt;line_num - (int)l2-&gt;line_num;</span>
+<a name="33"><span class="lineNum">      33 </span>            : }</a>
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 : static void index_mail_parse_header_finish(struct index_mail *mail)</span>
+<span class="lineNum">      36 </span>            : {
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :     struct mail *_mail = &amp;mail-&gt;mail.mail;</span>
+<span class="lineNum">      38 </span>            :     const struct index_mail_line *lines;
+<span class="lineNum">      39 </span>            :     const unsigned char *header;
+<span class="lineNum">      40 </span>            :     const uint8_t *match;
+<span class="lineNum">      41 </span>            :     buffer_t *buf;
+<span class="lineNum">      42 </span>            :     unsigned int i, j, count, match_idx, match_count;
+<span class="lineNum">      43 </span>            :     bool noncontiguous;
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            :     /* sort it first so fields are grouped together and ordered by
+<span class="lineNum">      46 </span>            :        line number */
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :     array_sort(&amp;mail-&gt;header_lines, header_line_cmp);</span>
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :     lines = array_get(&amp;mail-&gt;header_lines, &amp;count);</span>
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     match = array_get(&amp;mail-&gt;header_match, &amp;match_count);</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     header = mail-&gt;header_data-&gt;data;</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :     buf = t_buffer_create(256);</span>
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :     /* go through all the header lines we found */
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     for (i = match_idx = 0; i &lt; count; i = j) {</span>
+<span class="lineNum">      56 </span>            :         /* matches and header lines are both sorted, all matches
+<span class="lineNum">      57 </span>            :            until lines[i] weren't found */
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :         while (match_idx &lt; lines[i].field_idx &amp;&amp;</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :                match_idx &lt; match_count) {</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :             if (HEADER_MATCH_USABLE(mail, match[match_idx]) &amp;&amp;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :                 mail_cache_field_can_add(_mail-&gt;transaction-&gt;cache_trans,</span>
+<span class="lineNum">      62 </span>            :                              _mail-&gt;seq, match_idx)) {
+<span class="lineNum">      63 </span>            :                 /* this header doesn't exist. remember that. */
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :                 i_assert((match[match_idx] &amp;</span>
+<span class="lineNum">      65 </span>            :                       HEADER_MATCH_FLAG_FOUND) == 0);
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :                 index_mail_cache_add_idx(mail, match_idx,</span>
+<span class="lineNum">      67 </span>            :                              &quot;&quot;, 0);
+<span class="lineNum">      68 </span>            :             }
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :             match_idx++;</span>
+<span class="lineNum">      70 </span>            :         }
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :         if (match_idx &lt; match_count) {</span>
+<span class="lineNum">      73 </span>            :             /* save index to first header line */
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :             i_assert(match_idx == lines[i].field_idx);</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :             j = i + 1;</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :             array_idx_set(&amp;mail-&gt;header_match_lines, match_idx, &amp;j);</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :             match_idx++;</span>
+<span class="lineNum">      78 </span>            :         }
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         if (!mail_cache_field_can_add(_mail-&gt;transaction-&gt;cache_trans,</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :                           _mail-&gt;seq, lines[i].field_idx)) {</span>
+<span class="lineNum">      82 </span>            :             /* header is already cached. skip over all the
+<span class="lineNum">      83 </span>            :                header lines. */
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :             for (j = i+1; j &lt; count; j++) {</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :                 if (lines[j].field_idx != lines[i].field_idx)</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">      87 </span>            :             }
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">      89 </span>            :         }
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span>            :         /* buffer contains: { uint32_t line_num[], 0, header texts }
+<span class="lineNum">      92 </span>            :            noncontiguous is just a small optimization.. */
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         buffer_set_used_size(buf, 0);</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :         buffer_append(buf, &amp;lines[i].line_num,</span>
+<span class="lineNum">      95 </span>            :                   sizeof(lines[i].line_num));
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :         noncontiguous = FALSE;</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         for (j = i+1; j &lt; count; j++) {</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :             if (lines[j].field_idx != lines[i].field_idx)</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :             if (lines[j].start_pos != lines[j-1].end_pos)</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :                 noncontiguous = TRUE;</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :             buffer_append(buf, &amp;lines[j].line_num,</span>
+<span class="lineNum">     105 </span>            :                       sizeof(lines[j].line_num));
+<span class="lineNum">     106 </span>            :         }
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         buffer_append_zero(buf, sizeof(uint32_t));</span>
+<span class="lineNum">     108 </span>            : 
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         if (noncontiguous) {</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :             for (; i &lt; j; i++) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :                 buffer_append(buf, header + lines[i].start_pos,</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :                           lines[i].end_pos -</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :                           lines[i].start_pos);</span>
+<span class="lineNum">     114 </span>            :             }
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             i--;</span>
+<span class="lineNum">     116 </span>            :         } else {
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :             buffer_append(buf, header + lines[i].start_pos,</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :                       lines[j-1].end_pos - lines[i].start_pos);</span>
+<span class="lineNum">     119 </span>            :         }
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         index_mail_cache_add_idx(mail, lines[i].field_idx,</span>
+<span class="lineNum">     122 </span>            :                      buf-&gt;data, buf-&gt;used);
+<span class="lineNum">     123 </span>            :     }
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     for (; match_idx &lt; match_count; match_idx++) {</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :         if (HEADER_MATCH_USABLE(mail, match[match_idx]) &amp;&amp;</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :             mail_cache_field_can_add(_mail-&gt;transaction-&gt;cache_trans,</span>
+<span class="lineNum">     128 </span>            :                          _mail-&gt;seq, match_idx)) {
+<span class="lineNum">     129 </span>            :             /* this header doesn't exist. remember that. */
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :             i_assert((match[match_idx] &amp;</span>
+<span class="lineNum">     131 </span>            :                   HEADER_MATCH_FLAG_FOUND) == 0);
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :             index_mail_cache_add_idx(mail, match_idx, &quot;&quot;, 0);</span>
+<span class="lineNum">     133 </span>            :         }
+<span class="lineNum">     134 </span>            :     }
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     mail-&gt;data.dont_cache_field_idx = UINT_MAX;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     mail-&gt;data.header_parser_initialized = FALSE;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 : }</span>
+<a name="139"><span class="lineNum">     139 </span>            : </a>
+<span class="lineNum">     140 </span>            : static unsigned int
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 : get_header_field_idx(struct mailbox *box, const char *field,</span>
+<span class="lineNum">     142 </span>            :              enum mail_cache_decision_type decision)
+<span class="lineNum">     143 </span>            : {
+<span class="lineNum">     144 </span>            :     struct mail_cache_field header_field;
+<span class="lineNum">     145 </span>            : 
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     i_zero(&amp;header_field);</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     header_field.type = MAIL_CACHE_FIELD_HEADER;</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     header_field.decision = decision;</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         header_field.name = t_strconcat(&quot;hdr.&quot;, field, NULL);</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         mail_cache_register_fields(box-&gt;cache, &amp;header_field, 1);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     return header_field.idx;</span>
+<a name="154"><span class="lineNum">     154 </span>            : }</a>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : bool index_mail_want_parse_headers(struct index_mail *mail)</span>
+<span class="lineNum">     157 </span>            : {
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     if (mail-&gt;data.wanted_headers != NULL ||</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :         mail-&gt;data.save_bodystructure_header)</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     if ((mail-&gt;data.cache_fetch_fields &amp; MAIL_FETCH_DATE) != 0 &amp;&amp;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         !mail-&gt;data.sent_date_parsed)</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="166"><span class="lineNum">     166 </span>            : }</a>
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 : static void index_mail_parse_header_register_all_wanted(struct index_mail *mail)</span>
+<span class="lineNum">     169 </span>            : {
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     struct mail *_mail = &amp;mail-&gt;mail.mail;</span>
+<span class="lineNum">     171 </span>            :     const struct mail_cache_field *all_cache_fields;
+<span class="lineNum">     172 </span>            :     unsigned int i, count;
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     all_cache_fields =</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         mail_cache_register_get_list(_mail-&gt;box-&gt;cache,</span>
+<span class="lineNum">     176 </span>            :                          pool_datastack_create(), &amp;count);
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         if (strncasecmp(all_cache_fields[i].name, &quot;hdr.&quot;, 4) != 0)</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         if (!mail_cache_field_want_add(_mail-&gt;transaction-&gt;cache_trans,</span>
+<span class="lineNum">     181 </span>            :                            _mail-&gt;seq, i))
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     183 </span>            : 
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         array_idx_set(&amp;mail-&gt;header_match, all_cache_fields[i].idx,</span>
+<span class="lineNum">     185 </span>            :                   &amp;mail-&gt;header_match_value);
+<span class="lineNum">     186 </span>            :     }
+<a name="187"><span class="lineNum">     187 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 : void index_mail_parse_header_init(struct index_mail *mail,</span>
+<span class="lineNum">     190 </span>            :                   struct mailbox_header_lookup_ctx *headers)
+<span class="lineNum">     191 </span>            : {
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     struct index_mail_data *data = &amp;mail-&gt;data;</span>
+<span class="lineNum">     193 </span>            :     const uint8_t *match;
+<span class="lineNum">     194 </span>            :     unsigned int i, field_idx, match_count;
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     i_assert(!mail-&gt;data.header_parser_initialized);</span>
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     mail-&gt;header_seq = data-&gt;seq;</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     if (mail-&gt;header_data == NULL) {</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         mail-&gt;header_data = buffer_create_dynamic(default_pool, 4096);</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         i_array_init(&amp;mail-&gt;header_lines, 32);</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         i_array_init(&amp;mail-&gt;header_match, 32);</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :         i_array_init(&amp;mail-&gt;header_match_lines, 32);</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :         mail-&gt;header_match_value = HEADER_MATCH_SKIP_COUNT;</span>
+<span class="lineNum">     205 </span>            :     } else {
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         buffer_set_used_size(mail-&gt;header_data, 0);</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         array_clear(&amp;mail-&gt;header_lines);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :         array_clear(&amp;mail-&gt;header_match_lines);</span>
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         mail-&gt;header_match_value += HEADER_MATCH_SKIP_COUNT;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :         i_assert((mail-&gt;header_match_value &amp;</span>
+<span class="lineNum">     212 </span>            :               (HEADER_MATCH_SKIP_COUNT-1)) == 0);
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         if (mail-&gt;header_match_value == 0) {</span>
+<span class="lineNum">     214 </span>            :             /* wrapped, we'll have to clear the buffer */
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :             array_clear(&amp;mail-&gt;header_match);</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :             mail-&gt;header_match_value = HEADER_MATCH_SKIP_COUNT;</span>
+<span class="lineNum">     217 </span>            :         }
+<span class="lineNum">     218 </span>            :     }
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     if (headers != NULL) {</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; headers-&gt;count; i++) {</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :             array_idx_set(&amp;mail-&gt;header_match, headers-&gt;idx[i],</span>
+<span class="lineNum">     223 </span>            :                       &amp;mail-&gt;header_match_value);
+<span class="lineNum">     224 </span>            :         }
+<span class="lineNum">     225 </span>            :     }
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     if (data-&gt;wanted_headers != NULL &amp;&amp; data-&gt;wanted_headers != headers) {</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         headers = data-&gt;wanted_headers;</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; headers-&gt;count; i++) {</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             array_idx_set(&amp;mail-&gt;header_match, headers-&gt;idx[i],</span>
+<span class="lineNum">     231 </span>            :                       &amp;mail-&gt;header_match_value);
+<span class="lineNum">     232 </span>            :         }
+<span class="lineNum">     233 </span>            :     }
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span>            :     /* register also all the other headers that exist in cache file */
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         index_mail_parse_header_register_all_wanted(mail);</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     239 </span>            : 
+<span class="lineNum">     240 </span>            :     /* if we want sent date, it doesn't mean that we also want to cache
+<span class="lineNum">     241 </span>            :        Date: header. if we have Date field's index set at this point we
+<span class="lineNum">     242 </span>            :        know that we want it. otherwise add it and remember that we don't
+<span class="lineNum">     243 </span>            :        want it cached. */
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     field_idx = get_header_field_idx(mail-&gt;mail.mail.box, &quot;Date&quot;,</span>
+<span class="lineNum">     245 </span>            :                      MAIL_CACHE_DECISION_NO);
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :     match = array_get(&amp;mail-&gt;header_match, &amp;match_count);</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :     if (field_idx &lt; match_count &amp;&amp;</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         match[field_idx] == mail-&gt;header_match_value) {</span>
+<span class="lineNum">     249 </span>            :         /* cache Date: header */
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     } else if ((data-&gt;cache_fetch_fields &amp; MAIL_FETCH_DATE) != 0 ||</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :            data-&gt;save_sent_date) {</span>
+<span class="lineNum">     252 </span>            :         /* parse Date: header, but don't cache it. */
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :         data-&gt;dont_cache_field_idx = field_idx;</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         array_idx_set(&amp;mail-&gt;header_match, field_idx,</span>
+<span class="lineNum">     255 </span>            :                   &amp;mail-&gt;header_match_value);
+<span class="lineNum">     256 </span>            :     }
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     mail-&gt;data.header_parser_initialized = TRUE;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     mail-&gt;data.parse_line_num = 0;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     i_zero(&amp;mail-&gt;data.parse_line);</span>
+<a name="260"><span class="lineNum">     260 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 : static void index_mail_parse_finish_imap_envelope(struct index_mail *mail)</span>
+<span class="lineNum">     263 </span>            : {
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     struct mail *_mail = &amp;mail-&gt;mail.mail;</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     const unsigned int cache_field_envelope =</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         mail-&gt;ibox-&gt;cache_fields[MAIL_CACHE_IMAP_ENVELOPE].idx;</span>
+<span class="lineNum">     267 </span>            :     string_t *str;
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     str = str_new(mail-&gt;mail.data_pool, 256);</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     imap_envelope_write(mail-&gt;data.envelope_data, str);</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     mail-&gt;data.envelope = str_c(str);</span>
+<span class="lineNum">     272 </span>            : 
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     if (mail_cache_field_can_add(_mail-&gt;transaction-&gt;cache_trans,</span>
+<span class="lineNum">     274 </span>            :                      _mail-&gt;seq, cache_field_envelope)) {
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         index_mail_cache_add_idx(mail, cache_field_envelope,</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :                      str_data(str), str_len(str));</span>
+<span class="lineNum">     277 </span>            :     }
+<a name="278"><span class="lineNum">     278 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 : void index_mail_parse_header(struct message_part *part,</span>
+<span class="lineNum">     281 </span>            :                  struct message_header_line *hdr,
+<span class="lineNum">     282 </span>            :                  struct index_mail *mail)
+<span class="lineNum">     283 </span>            : {
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     struct mail *_mail = &amp;mail-&gt;mail.mail;</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     struct index_mail_data *data = &amp;mail-&gt;data;</span>
+<span class="lineNum">     286 </span>            :     unsigned int field_idx, count;
+<span class="lineNum">     287 </span>            :     uint8_t *match;
+<span class="lineNum">     288 </span>            : 
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     i_assert(data-&gt;header_parser_initialized);</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         data-&gt;parse_line_num++;</span>
+<span class="lineNum">     292 </span>            : 
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     if (data-&gt;save_bodystructure_header) {</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         i_assert(part != NULL);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         message_part_data_parse_from_header(mail-&gt;mail.data_pool, part, hdr);</span>
+<span class="lineNum">     296 </span>            :     }
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     if (data-&gt;save_envelope) {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         message_part_envelope_parse_from_header(mail-&gt;mail.data_pool,</span>
+<span class="lineNum">     300 </span>            :                        &amp;data-&gt;envelope_data, hdr);
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :         if (hdr == NULL)</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :                         index_mail_parse_finish_imap_envelope(mail);</span>
+<span class="lineNum">     304 </span>            :     }
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     if (hdr == NULL) {</span>
+<span class="lineNum">     307 </span>            :         /* end of headers */
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         if (mail-&gt;data.save_sent_date)</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :             mail-&gt;data.sent_date_parsed = TRUE;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :             index_mail_parse_header_finish(mail);</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :         if (data-&gt;save_bodystructure_header) {</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :             i_assert(!data-&gt;save_bodystructure_body ||</span>
+<span class="lineNum">     315 </span>            :                  data-&gt;parser_ctx != NULL);
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :             data-&gt;save_bodystructure_header = FALSE;</span>
+<span class="lineNum">     317 </span>            :         }
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     319 </span>            :     }
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     if (!hdr-&gt;continued) {</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :             const char *cache_field_name =</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :                 t_strconcat(&quot;hdr.&quot;, hdr-&gt;name, NULL);</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :             data-&gt;parse_line.field_idx =</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :                 mail_cache_register_lookup(_mail-&gt;box-&gt;cache,</span>
+<span class="lineNum">     327 </span>            :                                cache_field_name);
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     329 </span>            :     }
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     field_idx = data-&gt;parse_line.field_idx;</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     match = array_get_modifiable(&amp;mail-&gt;header_match, &amp;count);</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :     if (field_idx &gt;= count ||</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :         !HEADER_MATCH_USABLE(mail, match[field_idx])) {</span>
+<span class="lineNum">     334 </span>            :         /* we don't want this header. */
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     336 </span>            :     }
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :     if (!hdr-&gt;continued) {</span>
+<span class="lineNum">     339 </span>            :         /* beginning of a line. add the header name. */
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         data-&gt;parse_line.start_pos = str_len(mail-&gt;header_data);</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :         data-&gt;parse_line.line_num = data-&gt;parse_line_num;</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :         str_append(mail-&gt;header_data, hdr-&gt;name);</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :         str_append_n(mail-&gt;header_data, hdr-&gt;middle, hdr-&gt;middle_len);</span>
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span>            :         /* remember that we saw this header so we don't add it to
+<span class="lineNum">     346 </span>            :            cache as nonexistent. */
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         match[field_idx] |= HEADER_MATCH_FLAG_FOUND;</span>
+<span class="lineNum">     348 </span>            :     }
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     str_append_n(mail-&gt;header_data, hdr-&gt;value, hdr-&gt;value_len);</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :     if (!hdr-&gt;no_newline)</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :         str_append(mail-&gt;header_data, &quot;\n&quot;);</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     if (!hdr-&gt;continues) {</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         data-&gt;parse_line.end_pos = str_len(mail-&gt;header_data);</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         array_append(&amp;mail-&gt;header_lines, &amp;data-&gt;parse_line, 1);</span>
+<span class="lineNum">     355 </span>            :     }
+<span class="lineNum">     356 </span>            : }
+<a name="357"><span class="lineNum">     357 </span>            : </a>
+<span class="lineNum">     358 </span>            : static void
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 : index_mail_parse_part_header_cb(struct message_part *part,</span>
+<span class="lineNum">     360 </span>            :                 struct message_header_line *hdr,
+<span class="lineNum">     361 </span>            :                 struct index_mail *mail)
+<span class="lineNum">     362 </span>            : {
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     index_mail_parse_header(part, hdr, mail);</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 : }</span>
+<a name="365"><span class="lineNum">     365 </span>            : </a>
+<span class="lineNum">     366 </span>            : static void
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 : index_mail_parse_header_cb(struct message_header_line *hdr,</span>
+<span class="lineNum">     368 </span>            :                struct index_mail *mail)
+<span class="lineNum">     369 </span>            : {
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :     index_mail_parse_header(mail-&gt;data.parts, hdr, mail);</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 : }</span>
+<a name="372"><span class="lineNum">     372 </span>            : </a>
+<span class="lineNum">     373 </span>            : struct istream *
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 : index_mail_cache_parse_init(struct mail *_mail, struct istream *input)</span>
+<span class="lineNum">     375 </span>            : {
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     377 </span>            :     struct istream *input2;
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :     i_assert(mail-&gt;data.tee_stream == NULL);</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     i_assert(mail-&gt;data.parser_ctx == NULL);</span>
+<span class="lineNum">     381 </span>            : 
+<span class="lineNum">     382 </span>            :     /* we're doing everything for now, figure out later if we want to
+<span class="lineNum">     383 </span>            :        save them. */
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :     mail-&gt;data.save_sent_date = TRUE;</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :     mail-&gt;data.save_bodystructure_header = TRUE;</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     mail-&gt;data.save_bodystructure_body = TRUE;</span>
+<span class="lineNum">     387 </span>            : 
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :     mail-&gt;data.tee_stream = tee_i_stream_create(input);</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :     input = tee_i_stream_create_child(mail-&gt;data.tee_stream);</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     input2 = tee_i_stream_create_child(mail-&gt;data.tee_stream);</span>
+<span class="lineNum">     391 </span>            : 
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :     index_mail_parse_header_init(mail, NULL);</span>
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :     mail-&gt;data.parser_input = input;</span>
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     mail-&gt;data.parser_ctx =</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :         message_parser_init(mail-&gt;mail.data_pool, input,</span>
+<span class="lineNum">     396 </span>            :                     hdr_parser_flags, msg_parser_flags);
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     return input2;</span>
+<a name="399"><span class="lineNum">     399 </span>            : }</a>
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 : static void index_mail_init_parser(struct index_mail *mail)</span>
+<span class="lineNum">     402 </span>            : {
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :     struct index_mail_data *data = &amp;mail-&gt;data;</span>
+<span class="lineNum">     404 </span>            :     struct message_part *parts;
+<span class="lineNum">     405 </span>            :     const char *error;
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     if (data-&gt;parser_ctx != NULL) {</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :         data-&gt;parser_input = NULL;</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         if (message_parser_deinit_from_parts(&amp;data-&gt;parser_ctx, &amp;parts, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :             index_mail_set_message_parts_corrupted(&amp;mail-&gt;mail.mail, error);</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :             data-&gt;parts = NULL;</span>
+<span class="lineNum">     412 </span>            :         }
+<span class="lineNum">     413 </span>            :     }
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     if (data-&gt;parts == NULL) {</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         data-&gt;parser_input = data-&gt;stream;</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         data-&gt;parser_ctx = message_parser_init(mail-&gt;mail.data_pool,</span>
+<span class="lineNum">     418 </span>            :                                data-&gt;stream,
+<span class="lineNum">     419 </span>            :                                hdr_parser_flags,
+<span class="lineNum">     420 </span>            :                                msg_parser_flags);
+<span class="lineNum">     421 </span>            :     } else {
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :         data-&gt;parser_ctx =</span>
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :             message_parser_init_from_parts(data-&gt;parts,</span>
+<span class="lineNum">     424 </span>            :                                data-&gt;stream,
+<span class="lineNum">     425 </span>            :                                hdr_parser_flags,
+<span class="lineNum">     426 </span>            :                                msg_parser_flags);
+<span class="lineNum">     427 </span>            :     }
+<a name="428"><span class="lineNum">     428 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     429 </span>            : 
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 : int index_mail_parse_headers(struct index_mail *mail,</span>
+<span class="lineNum">     431 </span>            :                  struct mailbox_header_lookup_ctx *headers,
+<span class="lineNum">     432 </span>            :                  const char *reason)
+<span class="lineNum">     433 </span>            : {
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     struct index_mail_data *data = &amp;mail-&gt;data;</span>
+<span class="lineNum">     435 </span>            :     struct istream *input;
+<span class="lineNum">     436 </span>            :     uoff_t old_offset;
+<span class="lineNum">     437 </span>            : 
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     old_offset = data-&gt;stream == NULL ? 0 : data-&gt;stream-&gt;v_offset;</span>
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     if (mail_get_hdr_stream_because(&amp;mail-&gt;mail.mail, NULL, reason, &amp;input) &lt; 0)</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     442 </span>            : 
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :     i_assert(data-&gt;stream != NULL);</span>
+<span class="lineNum">     444 </span>            : 
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :     index_mail_parse_header_init(mail, headers);</span>
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :     if (data-&gt;parts == NULL || data-&gt;save_bodystructure_header) {</span>
+<span class="lineNum">     448 </span>            :         /* initialize bodystructure parsing in case we read the whole
+<span class="lineNum">     449 </span>            :            message. */
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         index_mail_init_parser(mail);</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :         message_parser_parse_header(data-&gt;parser_ctx, &amp;data-&gt;hdr_size,</span>
+<span class="lineNum">     452 </span>            :                         index_mail_parse_part_header_cb,
+<span class="lineNum">     453 </span>            :                         mail);
+<span class="lineNum">     454 </span>            :     } else {
+<span class="lineNum">     455 </span>            :         /* just read the header */
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :         i_assert(!data-&gt;save_bodystructure_body ||</span>
+<span class="lineNum">     457 </span>            :              data-&gt;parser_ctx != NULL);
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         message_parse_header(data-&gt;stream, &amp;data-&gt;hdr_size,</span>
+<span class="lineNum">     459 </span>            :                      hdr_parser_flags,
+<span class="lineNum">     460 </span>            :                      index_mail_parse_header_cb, mail);
+<span class="lineNum">     461 </span>            :     }
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     if (index_mail_stream_check_failure(mail) &lt; 0)</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :     data-&gt;hdr_size_set = TRUE;</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     data-&gt;access_part &amp;= ~PARSE_HDR;</span>
+<span class="lineNum">     466 </span>            : 
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :     i_stream_seek(data-&gt;stream, old_offset);</span>
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     469 </span>            : }
+<a name="470"><span class="lineNum">     470 </span>            : </a>
+<span class="lineNum">     471 </span>            : static void
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 : imap_envelope_parse_callback(struct message_header_line *hdr,</span>
+<span class="lineNum">     473 </span>            :                  struct index_mail *mail)
+<span class="lineNum">     474 </span>            : {
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :     message_part_envelope_parse_from_header(mail-&gt;mail.data_pool,</span>
+<span class="lineNum">     476 </span>            :                    &amp;mail-&gt;data.envelope_data, hdr);
+<span class="lineNum">     477 </span>            : 
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :     if (hdr == NULL)</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :         index_mail_parse_finish_imap_envelope(mail);</span>
+<a name="480"><span class="lineNum">     480 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 : int index_mail_headers_get_envelope(struct index_mail *mail)</span>
+<span class="lineNum">     483 </span>            : {
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     const unsigned int cache_field_envelope =</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         mail-&gt;ibox-&gt;cache_fields[MAIL_CACHE_IMAP_ENVELOPE].idx;</span>
+<span class="lineNum">     486 </span>            :     struct mailbox_header_lookup_ctx *header_ctx;
+<span class="lineNum">     487 </span>            :     struct istream *stream;
+<span class="lineNum">     488 </span>            :     uoff_t old_offset;
+<span class="lineNum">     489 </span>            :     string_t *str;
+<span class="lineNum">     490 </span>            : 
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     str = str_new(mail-&gt;mail.data_pool, 256);</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     if (index_mail_cache_lookup_field(mail, str,</span>
+<span class="lineNum">     493 </span>            :                       cache_field_envelope) &gt; 0) {
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :         mail-&gt;data.envelope = str_c(str);</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     496 </span>            :     }
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     str_free(&amp;str);</span>
+<span class="lineNum">     498 </span>            : 
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     old_offset = mail-&gt;data.stream == NULL ? 0 :</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :         mail-&gt;data.stream-&gt;v_offset;</span>
+<span class="lineNum">     501 </span>            : 
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :     mail-&gt;data.save_envelope = TRUE;</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     header_ctx = mailbox_header_lookup_init(mail-&gt;mail.mail.box,</span>
+<span class="lineNum">     504 </span>            :                         message_part_envelope_headers);
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :     if (mail_get_header_stream(&amp;mail-&gt;mail.mail, header_ctx, &amp;stream) &lt; 0) {</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :         mailbox_header_lookup_unref(&amp;header_ctx);</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     508 </span>            :     }
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     mailbox_header_lookup_unref(&amp;header_ctx);</span>
+<span class="lineNum">     510 </span>            : 
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     if (mail-&gt;data.envelope == NULL &amp;&amp; stream != NULL) {</span>
+<span class="lineNum">     512 </span>            :         /* we got the headers from cache - parse them to get the
+<span class="lineNum">     513 </span>            :            envelope */
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :         message_parse_header(stream, NULL, hdr_parser_flags,</span>
+<span class="lineNum">     515 </span>            :                      imap_envelope_parse_callback, mail);
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :         if (stream-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :             index_mail_stream_log_failure_for(mail, stream);</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     519 </span>            :         }
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :         mail-&gt;data.save_envelope = FALSE;</span>
+<span class="lineNum">     521 </span>            :     }
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :     if (mail-&gt;data.stream != NULL)</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         i_stream_seek(mail-&gt;data.stream, old_offset);</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="526"><span class="lineNum">     526 </span>            : }</a>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 : static size_t get_header_size(buffer_t *buffer, size_t pos)</span>
+<span class="lineNum">     529 </span>            : {
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :     const unsigned char *data = buffer-&gt;data;</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :     size_t i, size = buffer-&gt;used;</span>
+<span class="lineNum">     532 </span>            : 
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :     i_assert(pos &lt;= size);</span>
+<span class="lineNum">     534 </span>            : 
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     for (i = pos; i &lt; size; i++) {</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :         if (data[i] == '\n') {</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :             if (i+1 == size ||</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :                 (data[i+1] != ' ' &amp;&amp; data[i+1] != '\t'))</span>
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :                 return i - pos;</span>
+<span class="lineNum">     540 </span>            :         }
+<span class="lineNum">     541 </span>            :     }
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     return size - pos;</span>
+<a name="543"><span class="lineNum">     543 </span>            : }</a>
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 : static int index_mail_header_is_parsed(struct index_mail *mail,</span>
+<span class="lineNum">     546 </span>            :                        unsigned int field_idx)
+<span class="lineNum">     547 </span>            : {
+<span class="lineNum">     548 </span>            :     const uint8_t *match;
+<span class="lineNum">     549 </span>            :     unsigned int count;
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :     match = array_get(&amp;mail-&gt;header_match, &amp;count);</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :     if (field_idx &lt; count &amp;&amp; HEADER_MATCH_USABLE(mail, match[field_idx]))</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :         return (match[field_idx] &amp; HEADER_MATCH_FLAG_FOUND) != 0 ? 1 : 0;</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :     return -1;</span>
+<a name="555"><span class="lineNum">     555 </span>            : }</a>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 : static bool skip_header(const unsigned char **data, size_t len)</span>
+<span class="lineNum">     558 </span>            : {
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     const unsigned char *p = *data;</span>
+<span class="lineNum">     560 </span>            :     size_t i;
+<span class="lineNum">     561 </span>            : 
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; len; i++) {</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :         if (p[i] == ':')</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     565 </span>            :     }
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :     if (i == len)</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     568 </span>            : 
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :     for (i++; i &lt; len; i++) {</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :         if (!IS_LWSP(p[i]))</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     572 </span>            :     }
+<span class="lineNum">     573 </span>            : 
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :     *data = p + i;</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<span class="lineNum">     576 </span>            : }
+<a name="577"><span class="lineNum">     577 </span>            : </a>
+<span class="lineNum">     578 </span>            : static const char *const *
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 : index_mail_get_parsed_header(struct index_mail *mail, unsigned int field_idx)</span>
+<span class="lineNum">     580 </span>            : {
+<span class="lineNum">     581 </span>            :     ARRAY(const char *) header_values;
+<span class="lineNum">     582 </span>            :         const struct index_mail_line *lines;
+<span class="lineNum">     583 </span>            :     const unsigned char *header, *value_start, *value_end;
+<span class="lineNum">     584 </span>            :     const unsigned int *line_idx;
+<span class="lineNum">     585 </span>            :     const char *value;
+<span class="lineNum">     586 </span>            :     unsigned int i, lines_count, first_line_idx;
+<span class="lineNum">     587 </span>            : 
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     line_idx = array_idx(&amp;mail-&gt;header_match_lines, field_idx);</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :     i_assert(*line_idx != 0);</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :     first_line_idx = *line_idx - 1;</span>
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :     p_array_init(&amp;header_values, mail-&gt;mail.data_pool, 4);</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :     header = mail-&gt;header_data-&gt;data;</span>
+<span class="lineNum">     594 </span>            : 
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :     lines = array_get(&amp;mail-&gt;header_lines, &amp;lines_count);</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :     for (i = first_line_idx; i &lt; lines_count; i++) {</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :         if (lines[i].field_idx != lines[first_line_idx].field_idx)</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     599 </span>            : 
+<span class="lineNum">     600 </span>            :         /* skip header: and drop ending LF */
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         value_start = header + lines[i].start_pos;</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         value_end = header + lines[i].end_pos;</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         if (skip_header(&amp;value_start, value_end - value_start)) {</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :             if (value_start != value_end &amp;&amp; value_end[-1] == '\n')</span>
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :                 value_end--;</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :             value = p_strndup(mail-&gt;mail.data_pool, value_start,</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :                       value_end - value_start);</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :             array_append(&amp;header_values, &amp;value, 1);</span>
+<span class="lineNum">     609 </span>            :         }
+<span class="lineNum">     610 </span>            :     }
+<span class="lineNum">     611 </span>            : 
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :     array_append_zero(&amp;header_values);</span>
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :     return array_idx(&amp;header_values, 0);</span>
+<span class="lineNum">     614 </span>            : }
+<a name="615"><span class="lineNum">     615 </span>            : </a>
+<span class="lineNum">     616 </span>            : static int
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 : index_mail_get_raw_headers(struct index_mail *mail, const char *field,</span>
+<span class="lineNum">     618 </span>            :                const char *const **value_r)
+<span class="lineNum">     619 </span>            : {
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :     struct mail *_mail = &amp;mail-&gt;mail.mail;</span>
+<span class="lineNum">     621 </span>            :     const char *headers[2], *value;
+<span class="lineNum">     622 </span>            :     struct mailbox_header_lookup_ctx *headers_ctx;
+<span class="lineNum">     623 </span>            :     unsigned char *data;
+<span class="lineNum">     624 </span>            :     unsigned int field_idx;
+<span class="lineNum">     625 </span>            :     string_t *dest;
+<span class="lineNum">     626 </span>            :     size_t i, len, len2;
+<span class="lineNum">     627 </span>            :     int ret;
+<span class="lineNum">     628 </span>            :     ARRAY(const char *) header_values;
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :     i_assert(field != NULL);</span>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :     field_idx = get_header_field_idx(_mail-&gt;box, field,</span>
+<span class="lineNum">     633 </span>            :                      MAIL_CACHE_DECISION_TEMP);
+<span class="lineNum">     634 </span>            : 
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :     dest = str_new(mail-&gt;mail.data_pool, 128);</span>
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :     if (mail_cache_lookup_headers(_mail-&gt;transaction-&gt;cache_view, dest,</span>
+<span class="lineNum">     637 </span>            :                       _mail-&gt;seq, &amp;field_idx, 1) &lt;= 0) {
+<span class="lineNum">     638 </span>            :         /* not in cache / error - first see if it's already parsed */
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :         p_free(mail-&gt;mail.data_pool, dest);</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :         if (mail-&gt;data.header_parser_initialized) {</span>
+<span class="lineNum">     641 </span>            :             /* don't try to parse headers recursively. we're here
+<span class="lineNum">     642 </span>            :                because message size was wrong and istream-mail
+<span class="lineNum">     643 </span>            :                wants to log some cached headers. */
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :             i_assert(mail-&gt;mail.mail.lookup_abort == MAIL_LOOKUP_ABORT_NOT_IN_CACHE);</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :             mail_set_aborted(&amp;mail-&gt;mail.mail);</span>
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     647 </span>            :         }
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :         if (mail-&gt;header_seq != mail-&gt;data.seq ||</span>
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :             index_mail_header_is_parsed(mail, field_idx) &lt; 0) {</span>
+<span class="lineNum">     650 </span>            :             /* parse */
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :             const char *reason = index_mail_cache_reason(_mail,</span>
+<span class="lineNum">     652 </span>            :                 t_strdup_printf(&quot;header %s&quot;, field));
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :             headers[0] = field; headers[1] = NULL;</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :             headers_ctx = mailbox_header_lookup_init(_mail-&gt;box,</span>
+<span class="lineNum">     655 </span>            :                                  headers);
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :             ret = index_mail_parse_headers(mail, headers_ctx, reason);</span>
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :             mailbox_header_lookup_unref(&amp;headers_ctx);</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :             if (ret &lt; 0)</span>
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     660 </span>            :         }
+<span class="lineNum">     661 </span>            : 
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :         if ((ret = index_mail_header_is_parsed(mail, field_idx)) &lt;= 0) {</span>
+<span class="lineNum">     663 </span>            :             /* not found */
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :             i_assert(ret != -1);</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :             *value_r = p_new(mail-&gt;mail.data_pool, const char *, 1);</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     667 </span>            :         }
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :         *value_r = index_mail_get_parsed_header(mail, field_idx);</span>
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     670 </span>            :     }
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :     _mail-&gt;transaction-&gt;stats.cache_hit_count++;</span>
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :     data = buffer_get_modifiable_data(dest, &amp;len);</span>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :     if (len == 0) {</span>
+<span class="lineNum">     675 </span>            :         /* cached as nonexistent. */
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :         *value_r = p_new(mail-&gt;mail.data_pool, const char *, 1);</span>
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     678 </span>            :     }
+<span class="lineNum">     679 </span>            : 
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :     p_array_init(&amp;header_values, mail-&gt;mail.data_pool, 4);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span>            :     /* cached. skip &quot;header name: &quot; parts in dest. */
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; len; i++) {</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :         if (data[i] == ':') {</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :             i++;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :             while (i &lt; len &amp;&amp; IS_LWSP(data[i])) i++;</span>
+<span class="lineNum">     687 </span>            : 
+<span class="lineNum">     688 </span>            :             /* @UNSAFE */
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :             len2 = get_header_size(dest, i);</span>
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :             data[i + len2] = '\0';</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :             value = (const char *)data + i;</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :             i += len2 + 1;</span>
+<span class="lineNum">     693 </span>            : 
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :             array_append(&amp;header_values, &amp;value, 1);</span>
+<span class="lineNum">     695 </span>            :         }
+<span class="lineNum">     696 </span>            :     }
+<span class="lineNum">     697 </span>            : 
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :     array_append_zero(&amp;header_values);</span>
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :     *value_r = array_idx(&amp;header_values, 0);</span>
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="701"><span class="lineNum">     701 </span>            : }</a>
+<span class="lineNum">     702 </span>            : 
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 : static int unfold_header(pool_t pool, const char **_str)</span>
+<span class="lineNum">     704 </span>            : {
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     const char *str = *_str;</span>
+<span class="lineNum">     706 </span>            :     char *new_str;
+<span class="lineNum">     707 </span>            :     unsigned int i, j;
+<span class="lineNum">     708 </span>            : 
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :     for (i = 0; str[i] != '\0'; i++) {</span>
+<span class="lineNum">     710 </span><span class="lineNoCov">          0 :         if (str[i] == '\n')</span>
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     712 </span>            :     }
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     if (str[i] == '\0')</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     715 </span>            : 
+<span class="lineNum">     716 </span>            :     /* @UNSAFE */
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     new_str = p_malloc(pool, i + strlen(str+i) + 1);</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     memcpy(new_str, str, i);</span>
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     for (j = i; str[i] != '\0'; i++) {</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :         if (str[i] == '\n') {</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :             new_str[j++] = ' ';</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :             i++;</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :             if (str[i] == '\0')</span>
+<span class="lineNum">     724 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     725 </span>            : 
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :             if (str[i] != ' ' &amp;&amp; str[i] != '\t') {</span>
+<span class="lineNum">     727 </span>            :                 /* corrupted */
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     729 </span>            :             }
+<span class="lineNum">     730 </span>            :         } else {
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :             new_str[j++] = str[i];</span>
+<span class="lineNum">     732 </span>            :         }
+<span class="lineNum">     733 </span>            :     }
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :     new_str[j] = '\0';</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     *_str = new_str;</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="737"><span class="lineNum">     737 </span>            : }</a>
+<span class="lineNum">     738 </span>            : 
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 : static void str_replace_nuls(string_t *str)</span>
+<span class="lineNum">     740 </span>            : {
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :     char *data = str_c_modifiable(str);</span>
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :     size_t i, len = str_len(str);</span>
+<span class="lineNum">     743 </span>            : 
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; len; i++) {</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :         if (data[i] == '\0')</span>
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :             data[i] = ' ';</span>
+<span class="lineNum">     747 </span>            :     }
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 : }</span>
+<a name="749"><span class="lineNum">     749 </span>            : </a>
+<span class="lineNum">     750 </span>            : static int
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 : index_mail_headers_decode(struct index_mail *mail, const char *const **_list,</span>
+<span class="lineNum">     752 </span>            :               unsigned int max_count)
+<span class="lineNum">     753 </span>            : {
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :     const char *const *list = *_list;</span>
+<span class="lineNum">     755 </span>            :     const char **decoded_list, *input;
+<span class="lineNum">     756 </span>            :     unsigned int i, count;
+<span class="lineNum">     757 </span>            :     string_t *str;
+<span class="lineNum">     758 </span>            : 
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :     count = str_array_length(list);</span>
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 :     if (count &gt; max_count)</span>
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :         count = max_count;</span>
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :     decoded_list = p_new(mail-&gt;mail.data_pool, const char *, count + 1);</span>
+<span class="lineNum">     763 </span>            : 
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     str = t_str_new(512);</span>
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :         str_truncate(str, 0);</span>
+<span class="lineNum">     767 </span><span class="lineNoCov">          0 :         input = list[i];</span>
+<span class="lineNum">     768 </span>            :         /* unfold all lines into a single line */
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 :         if (unfold_header(mail-&gt;mail.data_pool, &amp;input) &lt; 0)</span>
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     771 </span>            : 
+<span class="lineNum">     772 </span>            :         /* decode MIME encoded-words. decoding may also add new LFs. */
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :         message_header_decode_utf8((const unsigned char *)input,</span>
+<span class="lineNum">     774 </span>            :                        strlen(input), str, NULL);
+<span class="lineNum">     775 </span><span class="lineNoCov">          0 :         if (strcmp(str_c(str), input) != 0) {</span>
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :             if (strlen(str_c(str)) != str_len(str)) {</span>
+<span class="lineNum">     777 </span>            :                 /* replace NULs with spaces */
+<span class="lineNum">     778 </span><span class="lineNoCov">          0 :                 str_replace_nuls(str);</span>
+<span class="lineNum">     779 </span>            :             }
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :             input = p_strdup(mail-&gt;mail.data_pool, str_c(str));</span>
+<span class="lineNum">     781 </span>            :         }
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 :         decoded_list[i] = input;</span>
+<span class="lineNum">     783 </span>            :     }
+<span class="lineNum">     784 </span><span class="lineNoCov">          0 :     *_list = decoded_list;</span>
+<span class="lineNum">     785 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="786"><span class="lineNum">     786 </span>            : }</a>
+<span class="lineNum">     787 </span>            : 
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 : int index_mail_get_headers(struct mail *_mail, const char *field,</span>
+<span class="lineNum">     789 </span>            :                bool decode_to_utf8, const char *const **value_r)
+<span class="lineNum">     790 </span>            : {
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 :     bool retry = TRUE;</span>
+<span class="lineNum">     793 </span>            :     int ret;
+<span class="lineNum">     794 </span>            : 
+<span class="lineNum">     795 </span><span class="lineNoCov">          0 :     for (;; retry = FALSE) {</span>
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :         if (index_mail_get_raw_headers(mail, field, value_r) &lt; 0)</span>
+<span class="lineNum">     797 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :         if (**value_r == NULL)</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :         if (!decode_to_utf8)</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :             return 1;</span>
+<span class="lineNum">     802 </span>            : 
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :             ret = index_mail_headers_decode(mail, value_r, UINT_MAX);</span>
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span><span class="lineNoCov">          0 :         if (ret &lt; 0 &amp;&amp; retry) {</span>
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :             mail_set_mail_cache_corrupted(_mail, &quot;Broken header %s&quot;,</span>
+<span class="lineNum">     809 </span>            :                               field);
+<span class="lineNum">     810 </span>            :         } else {
+<span class="lineNum">     811 </span>            :             break;
+<span class="lineNum">     812 </span>            :         }
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     814 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :         i_panic(&quot;BUG: Broken header %s for mail UID %u &quot;</span>
+<span class="lineNum">     816 </span>            :             &quot;wasn't fixed by re-parsing the header&quot;,
+<span class="lineNum">     817 </span>            :             field, _mail-&gt;uid);
+<span class="lineNum">     818 </span>            :     }
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="820"><span class="lineNum">     820 </span>            : }</a>
+<span class="lineNum">     821 </span>            : 
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 : int index_mail_get_first_header(struct mail *_mail, const char *field,</span>
+<span class="lineNum">     823 </span>            :                 bool decode_to_utf8, const char **value_r)
+<span class="lineNum">     824 </span>            : {
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     826 </span>            :     const char *const *list;
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :     bool retry = TRUE;</span>
+<span class="lineNum">     828 </span>            :     int ret;
+<span class="lineNum">     829 </span>            : 
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :     for (;; retry = FALSE) {</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :         if (index_mail_get_raw_headers(mail, field, &amp;list) &lt; 0)</span>
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     833 </span><span class="lineNoCov">          0 :         if (!decode_to_utf8 || list[0] == NULL) {</span>
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :             ret = 0;</span>
+<span class="lineNum">     835 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     836 </span>            :         }
+<span class="lineNum">     837 </span>            : 
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :             ret = index_mail_headers_decode(mail, &amp;list, 1);</span>
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     841 </span>            : 
+<span class="lineNum">     842 </span><span class="lineNoCov">          0 :         if (ret &lt; 0 &amp;&amp; retry) {</span>
+<span class="lineNum">     843 </span><span class="lineNoCov">          0 :             mail_set_mail_cache_corrupted(_mail, &quot;Broken header %s&quot;,</span>
+<span class="lineNum">     844 </span>            :                               field);
+<span class="lineNum">     845 </span>            :             /* retry by parsing the full header */
+<span class="lineNum">     846 </span>            :         } else {
+<span class="lineNum">     847 </span>            :             break;
+<span class="lineNum">     848 </span>            :         }
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     850 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     851 </span><span class="lineNoCov">          0 :         i_panic(&quot;BUG: Broken header %s for mail UID %u &quot;</span>
+<span class="lineNum">     852 </span>            :             &quot;wasn't fixed by re-parsing the header&quot;,
+<span class="lineNum">     853 </span>            :             field, _mail-&gt;uid);
+<span class="lineNum">     854 </span>            :     }
+<span class="lineNum">     855 </span><span class="lineNoCov">          0 :     *value_r = list[0];</span>
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 :     return list[0] != NULL ? 1 : 0;</span>
+<span class="lineNum">     857 </span>            : }
+<a name="858"><span class="lineNum">     858 </span>            : </a>
+<span class="lineNum">     859 </span>            : static void
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 : header_cache_callback(struct header_filter_istream *input ATTR_UNUSED,</span>
+<span class="lineNum">     861 </span>            :               struct message_header_line *hdr,
+<span class="lineNum">     862 </span>            :               bool *matched ATTR_UNUSED, struct index_mail *mail)
+<span class="lineNum">     863 </span>            : {
+<span class="lineNum">     864 </span><span class="lineNoCov">          0 :     index_mail_parse_header(NULL, hdr, mail);</span>
+<a name="865"><span class="lineNum">     865 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     866 </span>            : 
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 : int index_mail_get_header_stream(struct mail *_mail,</span>
+<span class="lineNum">     868 </span>            :                  struct mailbox_header_lookup_ctx *headers,
+<span class="lineNum">     869 </span>            :                  struct istream **stream_r)
+<span class="lineNum">     870 </span>            : {
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :     struct index_mail *mail = INDEX_MAIL(_mail);</span>
+<span class="lineNum">     872 </span>            :     struct istream *input;
+<span class="lineNum">     873 </span>            :     string_t *dest;
+<span class="lineNum">     874 </span>            : 
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :     if (mail-&gt;data.filter_stream != NULL) {</span>
+<span class="lineNum">     876 </span>            :         const unsigned char *data;
+<span class="lineNum">     877 </span>            :         size_t size;
+<span class="lineNum">     878 </span>            : 
+<span class="lineNum">     879 </span>            :         /* read through the previous filter_stream. this makes sure
+<span class="lineNum">     880 </span>            :            that the fields are added to cache, and most importantly it
+<span class="lineNum">     881 </span>            :            resets header_parser_initialized=FALSE so we don't assert
+<span class="lineNum">     882 </span>            :            on it. */
+<span class="lineNum">     883 </span><span class="lineNoCov">          0 :         while (i_stream_read_more(mail-&gt;data.filter_stream, &amp;data, &amp;size) &gt; 0)</span>
+<span class="lineNum">     884 </span><span class="lineNoCov">          0 :             i_stream_skip(mail-&gt;data.filter_stream, size);</span>
+<span class="lineNum">     885 </span><span class="lineNoCov">          0 :         i_stream_destroy(&amp;mail-&gt;data.filter_stream);</span>
+<span class="lineNum">     886 </span>            :     }
+<span class="lineNum">     887 </span>            : 
+<span class="lineNum">     888 </span><span class="lineNoCov">          0 :     if (mail-&gt;data.save_bodystructure_header) {</span>
+<span class="lineNum">     889 </span>            :         /* we have to parse the header. */
+<span class="lineNum">     890 </span><span class="lineNoCov">          0 :         const char *reason =</span>
+<span class="lineNum">     891 </span>            :             index_mail_cache_reason(_mail, &quot;bodystructure&quot;);
+<span class="lineNum">     892 </span><span class="lineNoCov">          0 :         if (index_mail_parse_headers(mail, headers, reason) &lt; 0)</span>
+<span class="lineNum">     893 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     894 </span>            :     }
+<span class="lineNum">     895 </span>            : 
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :     dest = str_new(mail-&gt;mail.data_pool, 256);</span>
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 :     if (mail_cache_lookup_headers(_mail-&gt;transaction-&gt;cache_view, dest,</span>
+<span class="lineNum">     898 </span>            :                       _mail-&gt;seq, headers-&gt;idx,
+<span class="lineNum">     899 </span>            :                       headers-&gt;count) &gt; 0) {
+<span class="lineNum">     900 </span><span class="lineNoCov">          0 :         str_append(dest, &quot;\n&quot;);</span>
+<span class="lineNum">     901 </span><span class="lineNoCov">          0 :         _mail-&gt;transaction-&gt;stats.cache_hit_count++;</span>
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :         mail-&gt;data.filter_stream =</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :             i_stream_create_from_data(str_data(dest),</span>
+<span class="lineNum">     904 </span>            :                           str_len(dest));
+<span class="lineNum">     905 </span><span class="lineNoCov">          0 :         *stream_r = mail-&gt;data.filter_stream;</span>
+<span class="lineNum">     906 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     907 </span>            :     }
+<span class="lineNum">     908 </span>            :     /* not in cache / error */
+<span class="lineNum">     909 </span><span class="lineNoCov">          0 :     p_free(mail-&gt;mail.data_pool, dest);</span>
+<span class="lineNum">     910 </span>            : 
+<span class="lineNum">     911 </span><span class="lineNoCov">          0 :     unsigned int first_not_found = UINT_MAX, not_found_count = 0;</span>
+<span class="lineNum">     912 </span><span class="lineNoCov">          0 :     for (unsigned int i = 0; i &lt; headers-&gt;count; i++) {</span>
+<span class="lineNum">     913 </span><span class="lineNoCov">          0 :         if (mail_cache_field_exists(_mail-&gt;transaction-&gt;cache_view,</span>
+<span class="lineNum">     914 </span><span class="lineNoCov">          0 :                         _mail-&gt;seq, headers-&gt;idx[i]) &lt;= 0) {</span>
+<span class="lineNum">     915 </span><span class="lineNoCov">          0 :             if (not_found_count++ == 0)</span>
+<span class="lineNum">     916 </span><span class="lineNoCov">          0 :                 first_not_found = i;</span>
+<span class="lineNum">     917 </span>            :         }
+<span class="lineNum">     918 </span>            :     }
+<span class="lineNum">     919 </span>            : 
+<span class="lineNum">     920 </span>            :     const char *reason;
+<span class="lineNum">     921 </span><span class="lineNoCov">          0 :     if (not_found_count == 0)</span>
+<span class="lineNum">     922 </span><span class="lineNoCov">          0 :         reason = &quot;BUG: all headers seem to exist in cache&quot;;</span>
+<span class="lineNum">     923 </span>            :     else {
+<span class="lineNum">     924 </span><span class="lineNoCov">          0 :         i_assert(first_not_found != UINT_MAX);</span>
+<span class="lineNum">     925 </span><span class="lineNoCov">          0 :         reason = index_mail_cache_reason(_mail, t_strdup_printf(</span>
+<span class="lineNum">     926 </span>            :             &quot;%u/%u headers not cached (first=%s)&quot;,
+<span class="lineNum">     927 </span><span class="lineNoCov">          0 :             not_found_count, headers-&gt;count, headers-&gt;name[first_not_found]));</span>
+<span class="lineNum">     928 </span>            :     }
+<span class="lineNum">     929 </span><span class="lineNoCov">          0 :     if (mail_get_hdr_stream_because(_mail, NULL, reason, &amp;input) &lt; 0)</span>
+<span class="lineNum">     930 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     931 </span>            : 
+<span class="lineNum">     932 </span><span class="lineNoCov">          0 :     index_mail_parse_header_init(mail, headers);</span>
+<span class="lineNum">     933 </span><span class="lineNoCov">          0 :     mail-&gt;data.filter_stream =</span>
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 :         i_stream_create_header_filter(mail-&gt;data.stream,</span>
+<span class="lineNum">     935 </span>            :                           HEADER_FILTER_INCLUDE |
+<span class="lineNum">     936 </span>            :                           HEADER_FILTER_ADD_MISSING_EOH |
+<span class="lineNum">     937 </span>            :                           HEADER_FILTER_HIDE_BODY,
+<span class="lineNum">     938 </span>            :                           headers-&gt;name, headers-&gt;count,
+<span class="lineNum">     939 </span>            :                           header_cache_callback, mail);
+<span class="lineNum">     940 </span><span class="lineNoCov">          0 :     *stream_r = mail-&gt;data.filter_stream;</span>
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     942 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

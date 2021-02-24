@@ -1,0 +1,1013 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-fs/fs-posix.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-fs</a> - fs-posix.c<span style="font-size: 80%;"> (source / <a href="fs-posix.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">196</td>
+            <td class="headerCovTableEntry">471</td>
+            <td class="headerCovTableEntryLo">41.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">23</td>
+            <td class="headerCovTableEntry">34</td>
+            <td class="headerCovTableEntryLo">67.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2010-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;guid.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;safe-mkstemp.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;mkdir-parents.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;file-lock.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;file-dotlock.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;fs-api-private.h&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">      17 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      18 </span>            : #include &lt;dirent.h&gt;
+<span class="lineNum">      19 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      20 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : #define FS_POSIX_DOTLOCK_STALE_TIMEOUT_SECS (60*10)
+<span class="lineNum">      23 </span>            : #define MAX_MKDIR_RETRY_COUNT 5
+<span class="lineNum">      24 </span>            : #define FS_DEFAULT_MODE 0600
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            : enum fs_posix_lock_method {
+<span class="lineNum">      27 </span>            :     FS_POSIX_LOCK_METHOD_FLOCK,
+<span class="lineNum">      28 </span>            :     FS_POSIX_LOCK_METHOD_DOTLOCK
+<span class="lineNum">      29 </span>            : };
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : struct posix_fs {
+<span class="lineNum">      32 </span>            :     struct fs fs;
+<span class="lineNum">      33 </span>            :     char *temp_file_prefix, *root_path, *path_prefix;
+<span class="lineNum">      34 </span>            :     size_t temp_file_prefix_len;
+<span class="lineNum">      35 </span>            :     enum fs_posix_lock_method lock_method;
+<span class="lineNum">      36 </span>            :     mode_t mode;
+<span class="lineNum">      37 </span>            :     bool mode_auto;
+<span class="lineNum">      38 </span>            :     bool have_dirs;
+<span class="lineNum">      39 </span>            :     bool disable_fsync;
+<span class="lineNum">      40 </span>            : };
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : struct posix_fs_file {
+<span class="lineNum">      43 </span>            :     struct fs_file file;
+<span class="lineNum">      44 </span>            :     char *temp_path, *full_path;
+<span class="lineNum">      45 </span>            :     int fd;
+<span class="lineNum">      46 </span>            :     enum fs_open_mode open_mode;
+<span class="lineNum">      47 </span>            :     enum fs_open_flags open_flags;
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            :     buffer_t *write_buf;
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :     bool seek_to_beginning;
+<span class="lineNum">      52 </span>            : };
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            : struct posix_fs_lock {
+<span class="lineNum">      55 </span>            :     struct fs_lock lock;
+<span class="lineNum">      56 </span>            :     struct file_lock *file_lock;
+<span class="lineNum">      57 </span>            :     struct dotlock *dotlock;
+<span class="lineNum">      58 </span>            : };
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span>            : struct posix_fs_iter {
+<span class="lineNum">      61 </span>            :     struct fs_iter iter;
+<span class="lineNum">      62 </span>            :     char *path;
+<span class="lineNum">      63 </span>            :     DIR *dir;
+<span class="lineNum">      64 </span>            :     int err;
+<a name="65"><span class="lineNum">      65 </span>            : };</a>
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span><span class="lineCov">          1 : static struct fs *fs_posix_alloc(void)</span>
+<span class="lineNum">      68 </span>            : {
+<span class="lineNum">      69 </span>            :     struct posix_fs *fs;
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineCov">          1 :     fs = i_new(struct posix_fs, 1);</span>
+<span class="lineNum">      72 </span><span class="lineCov">          1 :     fs-&gt;fs = fs_class_posix;</span>
+<span class="lineNum">      73 </span><span class="lineCov">          1 :     return &amp;fs-&gt;fs;</span>
+<span class="lineNum">      74 </span>            : }
+<a name="75"><span class="lineNum">      75 </span>            : </a>
+<span class="lineNum">      76 </span>            : static int
+<span class="lineNum">      77 </span><span class="lineCov">          1 : fs_posix_init(struct fs *_fs, const char *args, const struct fs_settings *set)</span>
+<span class="lineNum">      78 </span>            : {
+<span class="lineNum">      79 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)_fs;</span>
+<span class="lineNum">      80 </span>            :     const char *const *tmp;
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span><span class="lineCov">          2 :     fs-&gt;temp_file_prefix = set-&gt;temp_file_prefix != NULL ?</span>
+<span class="lineNum">      83 </span><span class="lineCov">          1 :         i_strdup(set-&gt;temp_file_prefix) : i_strdup(&quot;temp.dovecot.&quot;);</span>
+<span class="lineNum">      84 </span><span class="lineCov">          1 :     fs-&gt;temp_file_prefix_len = strlen(fs-&gt;temp_file_prefix);</span>
+<span class="lineNum">      85 </span><span class="lineCov">          1 :     fs-&gt;root_path = i_strdup(set-&gt;root_path);</span>
+<span class="lineNum">      86 </span><span class="lineCov">          1 :     fs-&gt;fs.set.temp_file_prefix = fs-&gt;temp_file_prefix;</span>
+<span class="lineNum">      87 </span><span class="lineCov">          1 :     fs-&gt;fs.set.root_path = fs-&gt;root_path;</span>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">          1 :     fs-&gt;lock_method = FS_POSIX_LOCK_METHOD_FLOCK;</span>
+<span class="lineNum">      90 </span><span class="lineCov">          1 :     fs-&gt;mode = FS_DEFAULT_MODE;</span>
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineCov">          1 :     tmp = t_strsplit_spaces(args, &quot;:&quot;);</span>
+<span class="lineNum">      93 </span><span class="lineCov">          2 :     for (; *tmp != NULL; tmp++) {</span>
+<span class="lineNum">      94 </span><span class="lineCov">          1 :         const char *arg = *tmp;</span>
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span><span class="lineCov">          1 :         if (strcmp(arg, &quot;lock=flock&quot;) == 0)</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :             fs-&gt;lock_method = FS_POSIX_LOCK_METHOD_FLOCK;</span>
+<span class="lineNum">      98 </span><span class="lineCov">          1 :         else if (strcmp(arg, &quot;lock=dotlock&quot;) == 0)</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :             fs-&gt;lock_method = FS_POSIX_LOCK_METHOD_DOTLOCK;</span>
+<span class="lineNum">     100 </span><span class="lineCov">          1 :         else if (strncmp(arg, &quot;prefix=&quot;, 7) == 0) {</span>
+<span class="lineNum">     101 </span><span class="lineCov">          1 :             i_free(fs-&gt;path_prefix);</span>
+<span class="lineNum">     102 </span><span class="lineCov">          1 :             fs-&gt;path_prefix = i_strdup(arg + 7);</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         } else if (strcmp(arg, &quot;mode=auto&quot;) == 0) {</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :             fs-&gt;mode_auto = TRUE;</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :         } else if (strcmp(arg, &quot;dirs&quot;) == 0) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :             fs-&gt;have_dirs = TRUE;</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         } else if (strcmp(arg, &quot;no-fsync&quot;) == 0) {</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :             fs-&gt;disable_fsync = TRUE;</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :         } else if (strncmp(arg, &quot;mode=&quot;, 5) == 0) {</span>
+<span class="lineNum">     110 </span>            :             unsigned int mode;
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :             if (str_to_uint_oct(arg+5, &amp;mode) &lt; 0) {</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :                 fs_set_error(_fs, &quot;Invalid mode value: %s&quot;, arg+5);</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     114 </span>            :             }
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :             fs-&gt;mode = mode &amp; 0666;</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :             if (fs-&gt;mode == 0) {</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :                 fs_set_error(_fs, &quot;Invalid mode: %s&quot;, arg+5);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     119 </span>            :             }
+<span class="lineNum">     120 </span>            :         } else {
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :             fs_set_error(_fs, &quot;Unknown arg '%s'&quot;, arg);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     123 </span>            :         }
+<span class="lineNum">     124 </span>            :     }
+<span class="lineNum">     125 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="126"><span class="lineNum">     126 </span>            : }</a>
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineCov">          1 : static void fs_posix_deinit(struct fs *_fs)</span>
+<span class="lineNum">     129 </span>            : {
+<span class="lineNum">     130 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)_fs;</span>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineCov">          1 :     i_free(fs-&gt;temp_file_prefix);</span>
+<span class="lineNum">     133 </span><span class="lineCov">          1 :     i_free(fs-&gt;root_path);</span>
+<span class="lineNum">     134 </span><span class="lineCov">          1 :     i_free(fs-&gt;path_prefix);</span>
+<span class="lineNum">     135 </span><span class="lineCov">          1 :     i_free(fs);</span>
+<a name="136"><span class="lineNum">     136 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 : static enum fs_properties fs_posix_get_properties(struct fs *_fs)</span>
+<span class="lineNum">     139 </span>            : {
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     struct posix_fs *fs = (struct posix_fs *)_fs;</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     enum fs_properties props =</span>
+<span class="lineNum">     142 </span>            :         FS_PROPERTY_LOCKS | FS_PROPERTY_FASTCOPY | FS_PROPERTY_RENAME |
+<span class="lineNum">     143 </span>            :         FS_PROPERTY_STAT | FS_PROPERTY_ITER | FS_PROPERTY_RELIABLEITER;
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span>            :     /* FS_PROPERTY_DIRECTORIES is not returned normally because fs_delete()
+<span class="lineNum">     146 </span>            :        automatically rmdir()s parents. For backwards compatibility
+<span class="lineNum">     147 </span>            :        (especially with SIS code) we'll do it that way, but optionally with
+<span class="lineNum">     148 </span>            :        &quot;dirs&quot; parameter enable them. This is especially important to be
+<span class="lineNum">     149 </span>            :        able to use doveadm fs commands to delete empty directories. */
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     if (fs-&gt;have_dirs)</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :         props |= FS_PROPERTY_DIRECTORIES;</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     return props;</span>
+<span class="lineNum">     153 </span>            : }
+<a name="154"><span class="lineNum">     154 </span>            : </a>
+<span class="lineNum">     155 </span>            : static int
+<span class="lineNum">     156 </span><span class="lineCov">          1 : fs_posix_get_mode(struct posix_fs *fs, const char *path, mode_t *mode_r)</span>
+<span class="lineNum">     157 </span>            : {
+<span class="lineNum">     158 </span>            :     struct stat st;
+<span class="lineNum">     159 </span>            :     const char *p;
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineCov">          1 :     *mode_r = fs-&gt;mode;</span>
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">          2 :     while (stat(path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :         if (errno != ENOENT) {</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :             fs_set_error(&amp;fs-&gt;fs, &quot;stat(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     167 </span>            :         }
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :         p = strrchr(path, '/');</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         if (p != NULL)</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :             path = t_strdup_until(path, p);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         else if (strcmp(path, &quot;.&quot;) != 0)</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :             path = &quot;.&quot;;</span>
+<span class="lineNum">     173 </span>            :         else
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     175 </span>            :     }
+<span class="lineNum">     176 </span><span class="lineCov">          1 :     if ((st.st_mode &amp; S_ISGID) != 0) {</span>
+<span class="lineNum">     177 </span>            :         /* setgid set - copy mode from parent */
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         *mode_r = st.st_mode &amp; 0666;</span>
+<span class="lineNum">     179 </span>            :     }
+<span class="lineNum">     180 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="181"><span class="lineNum">     181 </span>            : }</a>
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 : static int fs_posix_mkdir_parents(struct posix_fs *fs, const char *path)</span>
+<span class="lineNum">     184 </span>            : {
+<span class="lineNum">     185 </span>            :     const char *dir, *fname;
+<span class="lineNum">     186 </span>            :     mode_t mode, dir_mode;
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     fname = strrchr(path, '/');</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     if (fname == NULL)</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     dir = t_strdup_until(path, fname);</span>
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     if (fs_posix_get_mode(fs, dir, &amp;mode) &lt; 0)</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     dir_mode = mode;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     if ((dir_mode &amp; 0600) != 0) dir_mode |= 0100;</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     if ((dir_mode &amp; 0060) != 0) dir_mode |= 0010;</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     if ((dir_mode &amp; 0006) != 0) dir_mode |= 0001;</span>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     if (mkdir_parents(dir, dir_mode) == 0)</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     else if (errno == EEXIST)</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     204 </span>            :     else {
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :         fs_set_error(&amp;fs-&gt;fs, &quot;mkdir_parents(%s) failed: %m&quot;, dir);</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     207 </span>            :     }
+<a name="208"><span class="lineNum">     208 </span>            : }</a>
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span><span class="lineCov">          1 : static int fs_posix_rmdir_parents(struct posix_fs *fs, const char *path)</span>
+<span class="lineNum">     211 </span>            : {
+<span class="lineNum">     212 </span>            :     const char *p;
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineCov">          1 :     if (fs-&gt;have_dirs)</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     216 </span><span class="lineCov">          1 :     if (fs-&gt;root_path == NULL &amp;&amp; fs-&gt;path_prefix == NULL)</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span><span class="lineCov">          2 :     while ((p = strrchr(path, '/')) != NULL) {</span>
+<span class="lineNum">     220 </span><span class="lineCov">          1 :         path = t_strdup_until(path, p);</span>
+<span class="lineNum">     221 </span><span class="lineCov">          2 :         if ((fs-&gt;root_path != NULL &amp;&amp; strcmp(path, fs-&gt;root_path) == 0) ||</span>
+<span class="lineNum">     222 </span><span class="lineCov">          2 :             (fs-&gt;path_prefix != NULL &amp;&amp; strncmp(path, fs-&gt;path_prefix, strlen(path)) == 0))</span>
+<span class="lineNum">     223 </span>            :             break;
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :         if (rmdir(path) == 0) {</span>
+<span class="lineNum">     225 </span>            :             /* success, continue to parent */
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :         } else if (errno == ENOTEMPTY || errno == EEXIST) {</span>
+<span class="lineNum">     227 </span>            :             /* there are other entries in this directory */
+<span class="lineNum">     228 </span>            :             break;
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         } else if (errno == EBUSY || errno == ENOENT) {</span>
+<span class="lineNum">     230 </span>            :             /* some other not-unexpected error */
+<span class="lineNum">     231 </span>            :             break;
+<span class="lineNum">     232 </span>            :         } else {
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :             fs_set_error(&amp;fs-&gt;fs, &quot;rmdir(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     235 </span>            :         }
+<span class="lineNum">     236 </span>            :     }
+<span class="lineNum">     237 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="238"><span class="lineNum">     238 </span>            : }</a>
+<span class="lineNum">     239 </span>            : 
+<span class="lineNum">     240 </span><span class="lineCov">          1 : static int fs_posix_create(struct posix_fs_file *file)</span>
+<span class="lineNum">     241 </span>            : {
+<span class="lineNum">     242 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)file-&gt;file.fs;</span>
+<span class="lineNum">     243 </span><span class="lineCov">          1 :     string_t *str = t_str_new(256);</span>
+<span class="lineNum">     244 </span>            :     const char *slash;
+<span class="lineNum">     245 </span><span class="lineCov">          1 :     unsigned int try_count = 0;</span>
+<span class="lineNum">     246 </span>            :     mode_t mode;
+<span class="lineNum">     247 </span>            :     int fd;
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineCov">          1 :     i_assert(file-&gt;temp_path == NULL);</span>
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span><span class="lineCov">          1 :     if ((slash = strrchr(file-&gt;full_path, '/')) != NULL) {</span>
+<span class="lineNum">     252 </span><span class="lineCov">          1 :         str_append_n(str, file-&gt;full_path, slash - file-&gt;full_path);</span>
+<span class="lineNum">     253 </span><span class="lineCov">          1 :         if (fs_posix_get_mode(fs, str_c(str), &amp;mode) &lt; 0)</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     255 </span><span class="lineCov">          1 :         str_append_c(str, '/');</span>
+<span class="lineNum">     256 </span>            :     } else {
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         if (fs_posix_get_mode(fs, &quot;.&quot;, &amp;mode) &lt; 0)</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     259 </span>            :     }
+<span class="lineNum">     260 </span><span class="lineCov">          1 :     str_append(str, fs-&gt;temp_file_prefix);</span>
+<span class="lineNum">     261 </span>            : 
+<span class="lineNum">     262 </span><span class="lineCov">          1 :     fd = safe_mkstemp_hostpid(str, mode, (uid_t)-1, (gid_t)-1);</span>
+<span class="lineNum">     263 </span><span class="lineCov">          2 :     while (fd == -1 &amp;&amp; errno == ENOENT &amp;&amp;</span>
+<span class="lineNum">     264 </span>            :            try_count &lt;= MAX_MKDIR_RETRY_COUNT) {
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         if (fs_posix_mkdir_parents(fs, str_c(str)) &lt; 0)</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         fd = safe_mkstemp_hostpid(str, mode, (uid_t)-1, (gid_t)-1);</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :         try_count++;</span>
+<span class="lineNum">     269 </span>            :     }
+<span class="lineNum">     270 </span><span class="lineCov">          1 :     if (fd == -1) {</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :         fs_set_error(&amp;fs-&gt;fs, &quot;safe_mkstemp(%s) failed: %m&quot;, str_c(str));</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     273 </span>            :     }
+<span class="lineNum">     274 </span><span class="lineCov">          1 :     file-&gt;temp_path = i_strdup(str_c(str));</span>
+<span class="lineNum">     275 </span><span class="lineCov">          1 :     return fd;</span>
+<a name="276"><span class="lineNum">     276 </span>            : }</a>
+<span class="lineNum">     277 </span>            : 
+<span class="lineNum">     278 </span><span class="lineCov">          3 : static int fs_posix_open(struct posix_fs_file *file)</span>
+<span class="lineNum">     279 </span>            : {
+<span class="lineNum">     280 </span><span class="lineCov">          3 :     struct posix_fs *fs = (struct posix_fs *)file-&gt;file.fs;</span>
+<span class="lineNum">     281 </span><span class="lineCov">          3 :     const char *path = file-&gt;full_path;</span>
+<span class="lineNum">     282 </span>            : 
+<span class="lineNum">     283 </span><span class="lineCov">          3 :     i_assert(file-&gt;fd == -1);</span>
+<span class="lineNum">     284 </span>            : 
+<span class="lineNum">     285 </span><span class="lineCov">          3 :     switch (file-&gt;open_mode) {</span>
+<span class="lineNum">     286 </span>            :     case FS_OPEN_MODE_READONLY:
+<span class="lineNum">     287 </span><span class="lineCov">          2 :         file-&gt;fd = open(path, O_RDONLY);</span>
+<span class="lineNum">     288 </span><span class="lineCov">          2 :         if (file-&gt;fd == -1)</span>
+<span class="lineNum">     289 </span><span class="lineCov">          1 :             fs_set_error(&amp;fs-&gt;fs, &quot;open(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     290 </span><span class="lineCov">          2 :         break;</span>
+<span class="lineNum">     291 </span>            :     case FS_OPEN_MODE_APPEND:
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         file-&gt;fd = open(path, O_RDWR | O_APPEND);</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         if (file-&gt;fd == -1)</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :             fs_set_error(&amp;fs-&gt;fs, &quot;open(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     296 </span>            :     case FS_OPEN_MODE_CREATE_UNIQUE_128:
+<span class="lineNum">     297 </span>            :     case FS_OPEN_MODE_CREATE:
+<span class="lineNum">     298 </span>            :     case FS_OPEN_MODE_REPLACE:
+<span class="lineNum">     299 </span><span class="lineCov">          1 :         T_BEGIN {</span>
+<span class="lineNum">     300 </span><span class="lineCov">          1 :             file-&gt;fd = fs_posix_create(file);</span>
+<span class="lineNum">     301 </span><span class="lineCov">          1 :         } T_END;</span>
+<span class="lineNum">     302 </span><span class="lineCov">          1 :         break;</span>
+<span class="lineNum">     303 </span>            :     }
+<span class="lineNum">     304 </span><span class="lineCov">          3 :     if (file-&gt;fd == -1)</span>
+<span class="lineNum">     305 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     306 </span><span class="lineCov">          2 :     return 0;</span>
+<a name="307"><span class="lineNum">     307 </span>            : }</a>
+<span class="lineNum">     308 </span>            : 
+<span class="lineNum">     309 </span><span class="lineCov">          4 : static struct fs_file *fs_posix_file_alloc(void)</span>
+<span class="lineNum">     310 </span>            : {
+<span class="lineNum">     311 </span><span class="lineCov">          4 :     struct posix_fs_file *file = i_new(struct posix_fs_file, 1);</span>
+<span class="lineNum">     312 </span><span class="lineCov">          4 :     return &amp;file-&gt;file;</span>
+<span class="lineNum">     313 </span>            : }
+<a name="314"><span class="lineNum">     314 </span>            : </a>
+<span class="lineNum">     315 </span>            : static void
+<span class="lineNum">     316 </span><span class="lineCov">          4 : fs_posix_file_init(struct fs_file *_file, const char *path,</span>
+<span class="lineNum">     317 </span>            :            enum fs_open_mode mode, enum fs_open_flags flags)
+<span class="lineNum">     318 </span>            : {
+<span class="lineNum">     319 </span><span class="lineCov">          4 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     320 </span><span class="lineCov">          4 :     struct posix_fs *fs = (struct posix_fs *)_file-&gt;fs;</span>
+<span class="lineNum">     321 </span>            :     guid_128_t guid;
+<span class="lineNum">     322 </span>            : 
+<span class="lineNum">     323 </span><span class="lineCov">          4 :     if (mode != FS_OPEN_MODE_CREATE_UNIQUE_128)</span>
+<span class="lineNum">     324 </span><span class="lineCov">          4 :         file-&gt;file.path = i_strdup(path);</span>
+<span class="lineNum">     325 </span>            :     else {
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :         guid_128_generate(guid);</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :         file-&gt;file.path = i_strdup_printf(&quot;%s/%s&quot;, path,</span>
+<span class="lineNum">     328 </span>            :                           guid_128_to_string(guid));
+<span class="lineNum">     329 </span>            :     }
+<span class="lineNum">     330 </span><span class="lineCov">          8 :     file-&gt;full_path = fs-&gt;path_prefix == NULL ? i_strdup(file-&gt;file.path) :</span>
+<span class="lineNum">     331 </span><span class="lineCov">          4 :         i_strconcat(fs-&gt;path_prefix, file-&gt;file.path, NULL);</span>
+<span class="lineNum">     332 </span><span class="lineCov">          4 :     file-&gt;open_mode = mode;</span>
+<span class="lineNum">     333 </span><span class="lineCov">          4 :     file-&gt;open_flags = flags;</span>
+<span class="lineNum">     334 </span><span class="lineCov">          4 :     file-&gt;fd = -1;</span>
+<a name="335"><span class="lineNum">     335 </span><span class="lineCov">          4 : }</span></a>
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineCov">          5 : static void fs_posix_file_close(struct fs_file *_file)</span>
+<span class="lineNum">     338 </span>            : {
+<span class="lineNum">     339 </span><span class="lineCov">          5 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     340 </span>            : 
+<span class="lineNum">     341 </span><span class="lineCov">          5 :     if (file-&gt;fd != -1 &amp;&amp; file-&gt;file.output == NULL) {</span>
+<span class="lineNum">     342 </span><span class="lineCov">          2 :         if (close(file-&gt;fd) &lt; 0) {</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :             fs_set_critical(file-&gt;file.fs, &quot;close(%s) failed: %m&quot;,</span>
+<span class="lineNum">     344 </span>            :                     file-&gt;full_path);
+<span class="lineNum">     345 </span>            :         }
+<span class="lineNum">     346 </span><span class="lineCov">          2 :         file-&gt;fd = -1;</span>
+<span class="lineNum">     347 </span>            :     }
+<a name="348"><span class="lineNum">     348 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineCov">          4 : static void fs_posix_file_deinit(struct fs_file *_file)</span>
+<span class="lineNum">     351 </span>            : {
+<span class="lineNum">     352 </span><span class="lineCov">          4 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span><span class="lineCov">          4 :     i_assert(_file-&gt;output == NULL);</span>
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineCov">          4 :     switch (file-&gt;open_mode) {</span>
+<span class="lineNum">     357 </span>            :     case FS_OPEN_MODE_READONLY:
+<span class="lineNum">     358 </span>            :     case FS_OPEN_MODE_APPEND:
+<span class="lineNum">     359 </span><span class="lineCov">          4 :         break;</span>
+<span class="lineNum">     360 </span>            :     case FS_OPEN_MODE_CREATE_UNIQUE_128:
+<span class="lineNum">     361 </span>            :     case FS_OPEN_MODE_CREATE:
+<span class="lineNum">     362 </span>            :     case FS_OPEN_MODE_REPLACE:
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :         if (file-&gt;temp_path == NULL)</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     365 </span>            :         /* failed to create/replace this. delete the temp file */
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         if (unlink(file-&gt;temp_path) &lt; 0) {</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :             fs_set_critical(_file-&gt;fs, &quot;unlink(%s) failed: %m&quot;,</span>
+<span class="lineNum">     368 </span>            :                     file-&gt;temp_path);
+<span class="lineNum">     369 </span>            :         }
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     371 </span>            :     }
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineCov">          4 :     i_free(file-&gt;temp_path);</span>
+<span class="lineNum">     374 </span><span class="lineCov">          4 :     i_free(file-&gt;full_path);</span>
+<span class="lineNum">     375 </span><span class="lineCov">          4 :     i_free(file-&gt;file.path);</span>
+<span class="lineNum">     376 </span><span class="lineCov">          4 :     i_free(file);</span>
+<a name="377"><span class="lineNum">     377 </span><span class="lineCov">          4 : }</span></a>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineCov">          2 : static int fs_posix_open_for_read(struct posix_fs_file *file)</span>
+<span class="lineNum">     380 </span>            : {
+<span class="lineNum">     381 </span><span class="lineCov">          2 :     i_assert(file-&gt;file.output == NULL);</span>
+<span class="lineNum">     382 </span><span class="lineCov">          2 :     i_assert(file-&gt;temp_path == NULL);</span>
+<span class="lineNum">     383 </span>            : 
+<span class="lineNum">     384 </span><span class="lineCov">          2 :     if (file-&gt;fd == -1) {</span>
+<span class="lineNum">     385 </span><span class="lineCov">          2 :         if (fs_posix_open(file) &lt; 0)</span>
+<span class="lineNum">     386 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     387 </span>            :     }
+<span class="lineNum">     388 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="389"><span class="lineNum">     389 </span>            : }</a>
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 : static bool fs_posix_prefetch(struct fs_file *_file, uoff_t length ATTR_UNUSED)</span>
+<span class="lineNum">     392 </span>            : {
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     if (fs_posix_open_for_read(file) &lt; 0)</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span>            : /* HAVE_POSIX_FADVISE alone isn't enough for CentOS 4.9 */
+<span class="lineNum">     399 </span>            : #if defined(HAVE_POSIX_FADVISE) &amp;&amp; defined(POSIX_FADV_WILLNEED)
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :     if (posix_fadvise(file-&gt;fd, 0, length, POSIX_FADV_WILLNEED) &lt; 0) {</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :         e_error(_file-&gt;event, &quot;posix_fadvise(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     403 </span>            :     }
+<span class="lineNum">     404 </span>            : #endif
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="406"><span class="lineNum">     406 </span>            : }</a>
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span><span class="lineCov">          2 : static ssize_t fs_posix_read(struct fs_file *_file, void *buf, size_t size)</span>
+<span class="lineNum">     409 </span>            : {
+<span class="lineNum">     410 </span><span class="lineCov">          2 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     411 </span>            :     ssize_t ret;
+<span class="lineNum">     412 </span>            : 
+<span class="lineNum">     413 </span><span class="lineCov">          2 :     if (fs_posix_open_for_read(file) &lt; 0)</span>
+<span class="lineNum">     414 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineCov">          1 :     if (file-&gt;seek_to_beginning) {</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         file-&gt;seek_to_beginning = FALSE;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         if (lseek(file-&gt;fd, 0, SEEK_SET) &lt; 0) {</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :             fs_set_critical(_file-&gt;fs, &quot;lseek(%s, 0) failed: %m&quot;,</span>
+<span class="lineNum">     420 </span>            :                     file-&gt;full_path);
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     422 </span>            :         }
+<span class="lineNum">     423 </span>            :     }
+<span class="lineNum">     424 </span>            : 
+<span class="lineNum">     425 </span><span class="lineCov">          1 :     ret = read(file-&gt;fd, buf, size);</span>
+<span class="lineNum">     426 </span><span class="lineCov">          1 :     if (ret &lt; 0)</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :         fs_set_error(_file-&gt;fs, &quot;read(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     428 </span><span class="lineCov">          1 :     fs_posix_file_close(_file);</span>
+<span class="lineNum">     429 </span><span class="lineCov">          1 :     return ret;</span>
+<span class="lineNum">     430 </span>            : }
+<a name="431"><span class="lineNum">     431 </span>            : </a>
+<span class="lineNum">     432 </span>            : static struct istream *
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 : fs_posix_read_stream(struct fs_file *_file, size_t max_buffer_size)</span>
+<span class="lineNum">     434 </span>            : {
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     436 </span>            :     struct istream *input;
+<span class="lineNum">     437 </span>            : 
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     if (fs_posix_open_for_read(file) &lt; 0)</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         input = i_stream_create_error_str(errno, &quot;%s&quot;, fs_last_error(_file-&gt;fs));</span>
+<span class="lineNum">     440 </span>            :     else {
+<span class="lineNum">     441 </span>            :         /* the stream could live even after the fs_file */
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :         input = i_stream_create_fd_autoclose(&amp;file-&gt;fd, max_buffer_size);</span>
+<span class="lineNum">     443 </span>            :     }
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :     i_stream_set_name(input, file-&gt;full_path);</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :     return input;</span>
+<a name="446"><span class="lineNum">     446 </span>            : }</a>
+<span class="lineNum">     447 </span>            : 
+<span class="lineNum">     448 </span><span class="lineCov">          1 : static void fs_posix_write_rename_if_needed(struct posix_fs_file *file)</span>
+<span class="lineNum">     449 </span>            : {
+<span class="lineNum">     450 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)file-&gt;file.fs;</span>
+<span class="lineNum">     451 </span>            :     const char *new_fname, *new_prefix, *p;
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span><span class="lineCov">          1 :     new_fname = fs_metadata_find(&amp;file-&gt;file.metadata, FS_METADATA_WRITE_FNAME);</span>
+<span class="lineNum">     454 </span><span class="lineCov">          1 :     if (new_fname == NULL)</span>
+<span class="lineNum">     455 </span><span class="lineCov">          2 :         return;</span>
+<span class="lineNum">     456 </span>            : 
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :     p = strrchr(file-&gt;file.path, '/');</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     if (p == NULL)</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         new_prefix = &quot;&quot;;</span>
+<span class="lineNum">     460 </span>            :     else
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :         new_prefix = t_strdup_until(file-&gt;file.path, p+1);</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     i_free(file-&gt;file.path);</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     file-&gt;file.path = i_strconcat(new_prefix, new_fname, NULL);</span>
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     i_free(file-&gt;full_path);</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     file-&gt;full_path = fs-&gt;path_prefix == NULL ? i_strdup(file-&gt;file.path) :</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :         i_strconcat(fs-&gt;path_prefix, file-&gt;file.path, NULL);</span>
+<a name="468"><span class="lineNum">     468 </span>            : }</a>
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span><span class="lineCov">          1 : static int fs_posix_write_finish(struct posix_fs_file *file)</span>
+<span class="lineNum">     471 </span>            : {
+<span class="lineNum">     472 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)file-&gt;file.fs;</span>
+<span class="lineNum">     473 </span>            :     int ret, old_errno;
+<span class="lineNum">     474 </span>            : 
+<span class="lineNum">     475 </span><span class="lineCov">          1 :     if ((file-&gt;open_flags &amp; FS_OPEN_FLAG_FSYNC) != 0 &amp;&amp;</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         !fs-&gt;disable_fsync) {</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :         if (fdatasync(file-&gt;fd) &lt; 0) {</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :             fs_set_error(file-&gt;file.fs, &quot;fdatasync(%s) failed: %m&quot;,</span>
+<span class="lineNum">     479 </span>            :                      file-&gt;full_path);
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     481 </span>            :         }
+<span class="lineNum">     482 </span>            :     }
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span><span class="lineCov">          1 :     fs_posix_write_rename_if_needed(file);</span>
+<span class="lineNum">     485 </span><span class="lineCov">          1 :     switch (file-&gt;open_mode) {</span>
+<span class="lineNum">     486 </span>            :     case FS_OPEN_MODE_CREATE_UNIQUE_128:
+<span class="lineNum">     487 </span>            :     case FS_OPEN_MODE_CREATE:
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :         if ((ret = link(file-&gt;temp_path, file-&gt;full_path)) &lt; 0) {</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             fs_set_error(file-&gt;file.fs, &quot;link(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">     490 </span>            :                      file-&gt;temp_path, file-&gt;full_path);
+<span class="lineNum">     491 </span>            :         }
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :         old_errno = errno;</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :         if (unlink(file-&gt;temp_path) &lt; 0) {</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :             fs_set_error(file-&gt;file.fs, &quot;unlink(%s) failed: %m&quot;,</span>
+<span class="lineNum">     495 </span>            :                      file-&gt;temp_path);
+<span class="lineNum">     496 </span>            :         }
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :         errno = old_errno;</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :             fs_posix_file_close(&amp;file-&gt;file);</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :             i_free_and_null(file-&gt;temp_path);</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     502 </span>            :         }
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     504 </span>            :     case FS_OPEN_MODE_REPLACE:
+<span class="lineNum">     505 </span><span class="lineCov">          1 :         if (rename(file-&gt;temp_path, file-&gt;full_path) &lt; 0) {</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :             fs_set_error(file-&gt;file.fs, &quot;rename(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">     507 </span>            :                      file-&gt;temp_path, file-&gt;full_path);
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     509 </span>            :         }
+<span class="lineNum">     510 </span><span class="lineCov">          1 :         break;</span>
+<span class="lineNum">     511 </span>            :     default:
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     513 </span>            :     }
+<span class="lineNum">     514 </span><span class="lineCov">          1 :     i_free_and_null(file-&gt;temp_path);</span>
+<span class="lineNum">     515 </span><span class="lineCov">          1 :     file-&gt;seek_to_beginning = TRUE;</span>
+<span class="lineNum">     516 </span>            :     /* allow opening the file after writing to it */
+<span class="lineNum">     517 </span><span class="lineCov">          1 :     file-&gt;open_mode = FS_OPEN_MODE_READONLY;</span>
+<span class="lineNum">     518 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="519"><span class="lineNum">     519 </span>            : }</a>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineCov">          1 : static int fs_posix_write(struct fs_file *_file, const void *data, size_t size)</span>
+<span class="lineNum">     522 </span>            : {
+<span class="lineNum">     523 </span><span class="lineCov">          1 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     524 </span>            :     ssize_t ret;
+<span class="lineNum">     525 </span>            : 
+<span class="lineNum">     526 </span><span class="lineCov">          1 :     if (file-&gt;fd == -1) {</span>
+<span class="lineNum">     527 </span><span class="lineCov">          1 :         if (fs_posix_open(file) &lt; 0)</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     529 </span><span class="lineCov">          1 :         i_assert(file-&gt;fd != -1);</span>
+<span class="lineNum">     530 </span>            :     }
+<span class="lineNum">     531 </span>            : 
+<span class="lineNum">     532 </span><span class="lineCov">          1 :     if (file-&gt;open_mode != FS_OPEN_MODE_APPEND) {</span>
+<span class="lineNum">     533 </span><span class="lineCov">          1 :         if (write_full(file-&gt;fd, data, size) &lt; 0) {</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;write(%s) failed: %m&quot;,</span>
+<span class="lineNum">     535 </span>            :                      file-&gt;full_path);
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     537 </span>            :         }
+<span class="lineNum">     538 </span><span class="lineCov">          1 :         return fs_posix_write_finish(file);</span>
+<span class="lineNum">     539 </span>            :     }
+<span class="lineNum">     540 </span>            : 
+<span class="lineNum">     541 </span>            :     /* atomic append - it should either succeed or fail */
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     ret = write(file-&gt;fd, data, size);</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :         fs_set_error(_file-&gt;fs, &quot;write(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     546 </span>            :     }
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :     if ((size_t)ret != size) {</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :         fs_set_error(_file-&gt;fs,</span>
+<span class="lineNum">     549 </span>            :                  &quot;write(%s) returned %&quot;PRIuSIZE_T&quot;/%&quot;PRIuSIZE_T,
+<span class="lineNum">     550 </span>            :                  file-&gt;full_path, (size_t)ret, size);
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :         errno = ENOSPC;</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     553 </span>            :     }
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="555"><span class="lineNum">     555 </span>            : }</a>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 : static void fs_posix_write_stream(struct fs_file *_file)</span>
+<span class="lineNum">     558 </span>            : {
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     560 </span>            : 
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :     i_assert(_file-&gt;output == NULL);</span>
+<span class="lineNum">     562 </span>            : 
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :     if (file-&gt;open_mode == FS_OPEN_MODE_APPEND) {</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :         file-&gt;write_buf = buffer_create_dynamic(default_pool, 1024*32);</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :         _file-&gt;output = o_stream_create_buffer(file-&gt;write_buf);</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :     } else if (file-&gt;fd == -1 &amp;&amp; fs_posix_open(file) &lt; 0) {</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :         _file-&gt;output = o_stream_create_error_str(errno, &quot;%s&quot;,</span>
+<span class="lineNum">     568 </span>            :             fs_file_last_error(_file));
+<span class="lineNum">     569 </span>            :     } else {
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :         i_assert(file-&gt;fd != -1);</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :         _file-&gt;output = o_stream_create_fd_file(file-&gt;fd,</span>
+<span class="lineNum">     572 </span>            :                             (uoff_t)-1, FALSE);
+<span class="lineNum">     573 </span>            :     }
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :     o_stream_set_name(_file-&gt;output, file-&gt;full_path);</span>
+<a name="575"><span class="lineNum">     575 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 : static int fs_posix_write_stream_finish(struct fs_file *_file, bool success)</span>
+<span class="lineNum">     578 </span>            : {
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :     int ret = success ? 0 : -1;</span>
+<span class="lineNum">     581 </span>            : 
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :     o_stream_destroy(&amp;_file-&gt;output);</span>
+<span class="lineNum">     583 </span>            : 
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :     switch (file-&gt;open_mode) {</span>
+<span class="lineNum">     585 </span>            :     case FS_OPEN_MODE_APPEND:
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :             ret = fs_posix_write(_file, file-&gt;write_buf-&gt;data,</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :                          file-&gt;write_buf-&gt;used);</span>
+<span class="lineNum">     589 </span>            :         }
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         buffer_free(&amp;file-&gt;write_buf);</span>
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     592 </span>            :     case FS_OPEN_MODE_CREATE:
+<span class="lineNum">     593 </span>            :     case FS_OPEN_MODE_CREATE_UNIQUE_128:
+<span class="lineNum">     594 </span>            :     case FS_OPEN_MODE_REPLACE:
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :             ret = fs_posix_write_finish(file);</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     598 </span>            :     case FS_OPEN_MODE_READONLY:
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     600 </span>            :     }
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     return ret &lt; 0 ? -1 : 1;</span>
+<span class="lineNum">     602 </span>            : }
+<a name="603"><span class="lineNum">     603 </span>            : </a>
+<span class="lineNum">     604 </span>            : static int
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 : fs_posix_lock(struct fs_file *_file, unsigned int secs, struct fs_lock **lock_r)</span>
+<span class="lineNum">     606 </span>            : {
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :     struct posix_fs *fs = (struct posix_fs *)_file-&gt;fs;</span>
+<span class="lineNum">     609 </span>            :     struct dotlock_settings dotlock_set;
+<span class="lineNum">     610 </span>            :     struct posix_fs_lock fs_lock, *ret_lock;
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :     int ret = -1;</span>
+<span class="lineNum">     612 </span>            : 
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :     i_zero(&amp;fs_lock);</span>
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :     fs_lock.lock.file = _file;</span>
+<span class="lineNum">     615 </span>            : 
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :     switch (fs-&gt;lock_method) {</span>
+<span class="lineNum">     617 </span>            :     case FS_POSIX_LOCK_METHOD_FLOCK:
+<span class="lineNum">     618 </span>            : #ifndef HAVE_FLOCK
+<span class="lineNum">     619 </span>            :         fs_set_error(_file-&gt;fs, &quot;flock() not supported by OS &quot;
+<span class="lineNum">     620 </span>            :                  &quot;(for file %s)&quot;, file-&gt;full_path);
+<span class="lineNum">     621 </span>            : #else
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :         if (secs == 0) {</span>
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :             ret = file_try_lock(file-&gt;fd, file-&gt;full_path, F_WRLCK,</span>
+<span class="lineNum">     624 </span>            :                         FILE_LOCK_METHOD_FLOCK,
+<span class="lineNum">     625 </span>            :                         &amp;fs_lock.file_lock);
+<span class="lineNum">     626 </span>            :         } else {
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :             ret = file_wait_lock(file-&gt;fd, file-&gt;full_path, F_WRLCK,</span>
+<span class="lineNum">     628 </span>            :                          FILE_LOCK_METHOD_FLOCK, secs,
+<span class="lineNum">     629 </span>            :                          &amp;fs_lock.file_lock);
+<span class="lineNum">     630 </span>            :         }
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;flock(%s) failed: %m&quot;,</span>
+<span class="lineNum">     633 </span>            :                      file-&gt;full_path);
+<span class="lineNum">     634 </span>            :         }
+<span class="lineNum">     635 </span>            : #endif
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     637 </span>            :     case FS_POSIX_LOCK_METHOD_DOTLOCK:
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :         i_zero(&amp;dotlock_set);</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :         dotlock_set.stale_timeout = FS_POSIX_DOTLOCK_STALE_TIMEOUT_SECS;</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :         dotlock_set.use_excl_lock = TRUE;</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         dotlock_set.timeout = secs;</span>
+<span class="lineNum">     642 </span>            : 
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :         ret = file_dotlock_create(&amp;dotlock_set, file-&gt;full_path,</span>
+<span class="lineNum">     644 </span>            :                       secs == 0 ? 0 :
+<span class="lineNum">     645 </span>            :                       DOTLOCK_CREATE_FLAG_NONBLOCK,
+<span class="lineNum">     646 </span>            :                       &amp;fs_lock.dotlock);
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs,</span>
+<span class="lineNum">     649 </span>            :                      &quot;file_dotlock_create(%s) failed: %m&quot;,
+<span class="lineNum">     650 </span>            :                      file-&gt;full_path);
+<span class="lineNum">     651 </span>            :         }
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     653 </span>            :     }
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0)</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     656 </span>            : 
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :     ret_lock = i_new(struct posix_fs_lock, 1);</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :     *ret_lock = fs_lock;</span>
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :     *lock_r = &amp;ret_lock-&gt;lock;</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="661"><span class="lineNum">     661 </span>            : }</a>
+<span class="lineNum">     662 </span>            : 
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 : static void fs_posix_unlock(struct fs_lock *_lock)</span>
+<span class="lineNum">     664 </span>            : {
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :     struct posix_fs_lock *lock = (struct posix_fs_lock *)_lock;</span>
+<span class="lineNum">     666 </span>            : 
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :     if (lock-&gt;file_lock != NULL)</span>
+<span class="lineNum">     668 </span><span class="lineNoCov">          0 :         file_unlock(&amp;lock-&gt;file_lock);</span>
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     if (lock-&gt;dotlock != NULL)</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :         file_dotlock_delete(&amp;lock-&gt;dotlock);</span>
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :     i_free(lock);</span>
+<a name="672"><span class="lineNum">     672 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     673 </span>            : 
+<span class="lineNum">     674 </span><span class="lineCov">          4 : static int fs_posix_exists(struct fs_file *_file)</span>
+<span class="lineNum">     675 </span>            : {
+<span class="lineNum">     676 </span><span class="lineCov">          4 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     677 </span>            :     struct stat st;
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span><span class="lineCov">          4 :     if (stat(file-&gt;full_path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     680 </span><span class="lineCov">          2 :         if (errno != ENOENT) {</span>
+<span class="lineNum">     681 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;stat(%s) failed: %m&quot;,</span>
+<span class="lineNum">     682 </span>            :                      file-&gt;full_path);
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     684 </span>            :         }
+<span class="lineNum">     685 </span><span class="lineCov">          2 :         return 0;</span>
+<span class="lineNum">     686 </span>            :     }
+<span class="lineNum">     687 </span><span class="lineCov">          2 :     return 1;</span>
+<a name="688"><span class="lineNum">     688 </span>            : }</a>
+<span class="lineNum">     689 </span>            : 
+<span class="lineNum">     690 </span><span class="lineCov">          1 : static int fs_posix_stat(struct fs_file *_file, struct stat *st_r)</span>
+<span class="lineNum">     691 </span>            : {
+<span class="lineNum">     692 </span><span class="lineCov">          1 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     693 </span>            : 
+<span class="lineNum">     694 </span>            :     /* in case output != NULL it means that we're still writing to the file
+<span class="lineNum">     695 </span>            :        and fs_stat() shouldn't stat the unfinished file. this is done by
+<span class="lineNum">     696 </span>            :        fs-sis after fs_copy(). */
+<span class="lineNum">     697 </span><span class="lineCov">          1 :     if (file-&gt;fd != -1 &amp;&amp; _file-&gt;output == NULL) {</span>
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :         if (fstat(file-&gt;fd, st_r) &lt; 0) {</span>
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;fstat(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     701 </span>            :         }
+<span class="lineNum">     702 </span>            :     } else {
+<span class="lineNum">     703 </span><span class="lineCov">          1 :         if (stat(file-&gt;full_path, st_r) &lt; 0) {</span>
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;stat(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     706 </span>            :         }
+<span class="lineNum">     707 </span>            :     }
+<span class="lineNum">     708 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="709"><span class="lineNum">     709 </span>            : }</a>
+<span class="lineNum">     710 </span>            : 
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 : static int fs_posix_copy(struct fs_file *_src, struct fs_file *_dest)</span>
+<span class="lineNum">     712 </span>            : {
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     struct posix_fs_file *src = (struct posix_fs_file *)_src;</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     struct posix_fs_file *dest = (struct posix_fs_file *)_dest;</span>
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :     struct posix_fs *fs = (struct posix_fs *)_src-&gt;fs;</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :     unsigned int try_count = 0;</span>
+<span class="lineNum">     717 </span>            :     int ret;
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     ret = link(src-&gt;full_path, dest-&gt;full_path);</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :     if (errno == EEXIST &amp;&amp; dest-&gt;open_mode == FS_OPEN_MODE_REPLACE) {</span>
+<span class="lineNum">     721 </span>            :         /* destination file already exists - replace it */
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :         i_unlink_if_exists(dest-&gt;full_path);</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :         ret = link(src-&gt;full_path, dest-&gt;full_path);</span>
+<span class="lineNum">     724 </span>            :     }
+<span class="lineNum">     725 </span><span class="lineNoCov">          0 :     while (ret &lt; 0 &amp;&amp; errno == ENOENT &amp;&amp;</span>
+<span class="lineNum">     726 </span>            :            try_count &lt;= MAX_MKDIR_RETRY_COUNT) {
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :         if (fs_posix_mkdir_parents(fs, dest-&gt;full_path) &lt; 0)</span>
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :         ret = link(src-&gt;full_path, dest-&gt;full_path);</span>
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :         try_count++;</span>
+<span class="lineNum">     731 </span>            :     }
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :         fs_set_error(_src-&gt;fs, &quot;link(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">     734 </span>            :                  src-&gt;full_path, dest-&gt;full_path);
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     736 </span>            :     }
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="738"><span class="lineNum">     738 </span>            : }</a>
+<span class="lineNum">     739 </span>            : 
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 : static int fs_posix_rename(struct fs_file *_src, struct fs_file *_dest)</span>
+<span class="lineNum">     741 </span>            : {
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :     struct posix_fs *fs = (struct posix_fs *)_src-&gt;fs;</span>
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :     struct posix_fs_file *src = (struct posix_fs_file *)_src;</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :     struct posix_fs_file *dest = (struct posix_fs_file *)_dest;</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :     unsigned int try_count = 0;</span>
+<span class="lineNum">     746 </span>            :     int ret;
+<span class="lineNum">     747 </span>            : 
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     ret = rename(src-&gt;full_path, dest-&gt;full_path);</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :     while (ret &lt; 0 &amp;&amp; errno == ENOENT &amp;&amp;</span>
+<span class="lineNum">     750 </span>            :            try_count &lt;= MAX_MKDIR_RETRY_COUNT) {
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :         if (fs_posix_mkdir_parents(fs, dest-&gt;full_path) &lt; 0)</span>
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :         ret = rename(src-&gt;full_path, dest-&gt;full_path);</span>
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :         try_count++;</span>
+<span class="lineNum">     755 </span>            :     }
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :         fs_set_error(_src-&gt;fs, &quot;rename(%s, %s) failed: %m&quot;,</span>
+<span class="lineNum">     758 </span>            :                  src-&gt;full_path, dest-&gt;full_path);
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     760 </span>            :     }
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="762"><span class="lineNum">     762 </span>            : }</a>
+<span class="lineNum">     763 </span>            : 
+<span class="lineNum">     764 </span><span class="lineCov">          1 : static int fs_posix_delete(struct fs_file *_file)</span>
+<span class="lineNum">     765 </span>            : {
+<span class="lineNum">     766 </span><span class="lineCov">          1 :     struct posix_fs_file *file = (struct posix_fs_file *)_file;</span>
+<span class="lineNum">     767 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)_file-&gt;fs;</span>
+<span class="lineNum">     768 </span>            : 
+<span class="lineNum">     769 </span><span class="lineCov">          1 :     if (unlink(file-&gt;full_path) &lt; 0) {</span>
+<span class="lineNum">     770 </span><span class="lineNoCov">          0 :         if (!UNLINK_EISDIR(errno)) {</span>
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;unlink(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     772 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     773 </span>            :         }
+<span class="lineNum">     774 </span>            :         /* attempting to delete a directory. convert it to rmdir()
+<span class="lineNum">     775 </span>            :            automatically. */
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 :         if (rmdir(file-&gt;full_path) &lt; 0) {</span>
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;rmdir(%s) failed: %m&quot;, file-&gt;full_path);</span>
+<span class="lineNum">     778 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     779 </span>            :         }
+<span class="lineNum">     780 </span>            :     }
+<span class="lineNum">     781 </span><span class="lineCov">          1 :     (void)fs_posix_rmdir_parents(fs, file-&gt;full_path);</span>
+<span class="lineNum">     782 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="783"><span class="lineNum">     783 </span>            : }</a>
+<span class="lineNum">     784 </span>            : 
+<span class="lineNum">     785 </span><span class="lineCov">          1 : static struct fs_iter *fs_posix_iter_alloc(void)</span>
+<span class="lineNum">     786 </span>            : {
+<span class="lineNum">     787 </span><span class="lineCov">          1 :     struct posix_fs_iter *iter = i_new(struct posix_fs_iter, 1);</span>
+<span class="lineNum">     788 </span><span class="lineCov">          1 :     return &amp;iter-&gt;iter;</span>
+<span class="lineNum">     789 </span>            : }
+<a name="790"><span class="lineNum">     790 </span>            : </a>
+<span class="lineNum">     791 </span>            : static void
+<span class="lineNum">     792 </span><span class="lineCov">          1 : fs_posix_iter_init(struct fs_iter *_iter, const char *path,</span>
+<span class="lineNum">     793 </span>            :            enum fs_iter_flags flags ATTR_UNUSED)
+<span class="lineNum">     794 </span>            : {
+<span class="lineNum">     795 </span><span class="lineCov">          1 :     struct posix_fs_iter *iter = (struct posix_fs_iter *)_iter;</span>
+<span class="lineNum">     796 </span><span class="lineCov">          1 :     struct posix_fs *fs = (struct posix_fs *)_iter-&gt;fs;</span>
+<span class="lineNum">     797 </span>            : 
+<span class="lineNum">     798 </span><span class="lineCov">          2 :     iter-&gt;path = fs-&gt;path_prefix == NULL ? i_strdup(path) :</span>
+<span class="lineNum">     799 </span><span class="lineCov">          1 :         i_strconcat(fs-&gt;path_prefix, path, NULL);</span>
+<span class="lineNum">     800 </span><span class="lineCov">          1 :     if (iter-&gt;path[0] == '\0') {</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :         i_free(iter-&gt;path);</span>
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :         iter-&gt;path = i_strdup(&quot;.&quot;);</span>
+<span class="lineNum">     803 </span>            :     }
+<span class="lineNum">     804 </span><span class="lineCov">          1 :     iter-&gt;dir = opendir(iter-&gt;path);</span>
+<span class="lineNum">     805 </span><span class="lineCov">          1 :     if (iter-&gt;dir == NULL &amp;&amp; errno != ENOENT) {</span>
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 :         iter-&gt;err = errno;</span>
+<span class="lineNum">     807 </span><span class="lineNoCov">          0 :         fs_set_error(_iter-&gt;fs, &quot;opendir(%s) failed: %m&quot;, iter-&gt;path);</span>
+<span class="lineNum">     808 </span>            :     }
+<a name="809"><span class="lineNum">     809 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     810 </span>            : 
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 : static bool fs_posix_iter_want(struct posix_fs_iter *iter, const char *fname)</span>
+<span class="lineNum">     812 </span>            : {
+<span class="lineNum">     813 </span>            :     bool ret;
+<span class="lineNum">     814 </span>            : 
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :         const char *path = t_strdup_printf(&quot;%s/%s&quot;, iter-&gt;path, fname);</span>
+<span class="lineNum">     817 </span>            :         struct stat st;
+<span class="lineNum">     818 </span>            : 
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :         if (stat(path, &amp;st) &lt; 0)</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :             ret = FALSE;</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :         else if (!S_ISDIR(st.st_mode))</span>
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :             ret = (iter-&gt;iter.flags &amp; FS_ITER_FLAG_DIRS) == 0;</span>
+<span class="lineNum">     823 </span>            :         else
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :             ret = (iter-&gt;iter.flags &amp; FS_ITER_FLAG_DIRS) != 0;</span>
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="827"><span class="lineNum">     827 </span>            : }</a>
+<span class="lineNum">     828 </span>            : 
+<span class="lineNum">     829 </span><span class="lineCov">          2 : static const char *fs_posix_iter_next(struct fs_iter *_iter)</span>
+<span class="lineNum">     830 </span>            : {
+<span class="lineNum">     831 </span><span class="lineCov">          2 :     struct posix_fs_iter *iter = (struct posix_fs_iter *)_iter;</span>
+<span class="lineNum">     832 </span><span class="lineCov">          2 :     struct posix_fs *fs = (struct posix_fs *)_iter-&gt;fs;</span>
+<span class="lineNum">     833 </span>            :     struct dirent *d;
+<span class="lineNum">     834 </span>            : 
+<span class="lineNum">     835 </span><span class="lineCov">          2 :     if (iter-&gt;dir == NULL)</span>
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     837 </span>            : 
+<span class="lineNum">     838 </span><span class="lineCov">          2 :     errno = 0;</span>
+<span class="lineNum">     839 </span><span class="lineCov">          4 :     for (; (d = readdir(iter-&gt;dir)) != NULL; errno = 0) {</span>
+<span class="lineNum">     840 </span><span class="lineCov">          5 :         if (strcmp(d-&gt;d_name, &quot;.&quot;) == 0 ||</span>
+<span class="lineNum">     841 </span><span class="lineCov">          2 :             strcmp(d-&gt;d_name, &quot;..&quot;) == 0)</span>
+<span class="lineNum">     842 </span><span class="lineCov">          2 :             continue;</span>
+<span class="lineNum">     843 </span><span class="lineCov">          1 :         if (strncmp(d-&gt;d_name, fs-&gt;temp_file_prefix,</span>
+<span class="lineNum">     844 </span>            :                 fs-&gt;temp_file_prefix_len) == 0)
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     846 </span>            : #ifdef HAVE_DIRENT_D_TYPE
+<span class="lineNum">     847 </span><span class="lineCov">          1 :         switch (d-&gt;d_type) {</span>
+<span class="lineNum">     848 </span>            :         case DT_UNKNOWN:
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :             if (!fs_posix_iter_want(iter, d-&gt;d_name))</span>
+<span class="lineNum">     850 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     851 </span>            :             /* fall through */
+<span class="lineNum">     852 </span>            :         case DT_REG:
+<span class="lineNum">     853 </span>            :         case DT_LNK:
+<span class="lineNum">     854 </span><span class="lineCov">          1 :             if ((iter-&gt;iter.flags &amp; FS_ITER_FLAG_DIRS) == 0)</span>
+<span class="lineNum">     855 </span><span class="lineCov">          1 :                 return d-&gt;d_name;</span>
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     857 </span>            :         case DT_DIR:
+<span class="lineNum">     858 </span><span class="lineNoCov">          0 :             if ((iter-&gt;iter.flags &amp; FS_ITER_FLAG_DIRS) != 0)</span>
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :                 return d-&gt;d_name;</span>
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     861 </span>            :         default:
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     863 </span>            :         }
+<span class="lineNum">     864 </span>            : #else
+<span class="lineNum">     865 </span>            :         if (fs_posix_iter_want(iter, d-&gt;d_name))
+<span class="lineNum">     866 </span>            :             return d-&gt;d_name;
+<span class="lineNum">     867 </span>            : #endif
+<span class="lineNum">     868 </span>            :     }
+<span class="lineNum">     869 </span><span class="lineCov">          1 :     if (errno != 0) {</span>
+<span class="lineNum">     870 </span><span class="lineNoCov">          0 :         iter-&gt;err = errno;</span>
+<span class="lineNum">     871 </span><span class="lineNoCov">          0 :         fs_set_error(_iter-&gt;fs, &quot;readdir(%s) failed: %m&quot;, iter-&gt;path);</span>
+<span class="lineNum">     872 </span>            :     }
+<span class="lineNum">     873 </span><span class="lineCov">          1 :     return NULL;</span>
+<a name="874"><span class="lineNum">     874 </span>            : }</a>
+<span class="lineNum">     875 </span>            : 
+<span class="lineNum">     876 </span><span class="lineCov">          1 : static int fs_posix_iter_deinit(struct fs_iter *_iter)</span>
+<span class="lineNum">     877 </span>            : {
+<span class="lineNum">     878 </span><span class="lineCov">          1 :     struct posix_fs_iter *iter = (struct posix_fs_iter *)_iter;</span>
+<span class="lineNum">     879 </span><span class="lineCov">          1 :     int ret = 0;</span>
+<span class="lineNum">     880 </span>            : 
+<span class="lineNum">     881 </span><span class="lineCov">          1 :     if (iter-&gt;dir != NULL &amp;&amp; closedir(iter-&gt;dir) &lt; 0 &amp;&amp; iter-&gt;err == 0) {</span>
+<span class="lineNum">     882 </span><span class="lineNoCov">          0 :         iter-&gt;err = errno;</span>
+<span class="lineNum">     883 </span><span class="lineNoCov">          0 :         fs_set_error(_iter-&gt;fs, &quot;closedir(%s) failed: %m&quot;, iter-&gt;path);</span>
+<span class="lineNum">     884 </span>            :     }
+<span class="lineNum">     885 </span><span class="lineCov">          1 :     if (iter-&gt;err != 0) {</span>
+<span class="lineNum">     886 </span><span class="lineNoCov">          0 :         errno = iter-&gt;err;</span>
+<span class="lineNum">     887 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     888 </span>            :     }
+<span class="lineNum">     889 </span><span class="lineCov">          1 :     i_free(iter-&gt;path);</span>
+<span class="lineNum">     890 </span><span class="lineCov">          1 :     i_free(iter);</span>
+<span class="lineNum">     891 </span><span class="lineCov">          1 :     return ret;</span>
+<span class="lineNum">     892 </span>            : }
+<span class="lineNum">     893 </span>            : 
+<span class="lineNum">     894 </span>            : const struct fs fs_class_posix = {
+<span class="lineNum">     895 </span>            :     .name = &quot;posix&quot;,
+<span class="lineNum">     896 </span>            :     .v = {
+<span class="lineNum">     897 </span>            :         fs_posix_alloc,
+<span class="lineNum">     898 </span>            :         fs_posix_init,
+<span class="lineNum">     899 </span>            :         fs_posix_deinit,
+<span class="lineNum">     900 </span>            :         fs_posix_get_properties,
+<span class="lineNum">     901 </span>            :         fs_posix_file_alloc,
+<span class="lineNum">     902 </span>            :         fs_posix_file_init,
+<span class="lineNum">     903 </span>            :         fs_posix_file_deinit,
+<span class="lineNum">     904 </span>            :         fs_posix_file_close,
+<span class="lineNum">     905 </span>            :         NULL,
+<span class="lineNum">     906 </span>            :         NULL, NULL,
+<span class="lineNum">     907 </span>            :         fs_default_set_metadata,
+<span class="lineNum">     908 </span>            :         NULL,
+<span class="lineNum">     909 </span>            :         fs_posix_prefetch,
+<span class="lineNum">     910 </span>            :         fs_posix_read,
+<span class="lineNum">     911 </span>            :         fs_posix_read_stream,
+<span class="lineNum">     912 </span>            :         fs_posix_write,
+<span class="lineNum">     913 </span>            :         fs_posix_write_stream,
+<span class="lineNum">     914 </span>            :         fs_posix_write_stream_finish,
+<span class="lineNum">     915 </span>            :         fs_posix_lock,
+<span class="lineNum">     916 </span>            :         fs_posix_unlock,
+<span class="lineNum">     917 </span>            :         fs_posix_exists,
+<span class="lineNum">     918 </span>            :         fs_posix_stat,
+<span class="lineNum">     919 </span>            :         fs_posix_copy,
+<span class="lineNum">     920 </span>            :         fs_posix_rename,
+<span class="lineNum">     921 </span>            :         fs_posix_delete,
+<span class="lineNum">     922 </span>            :         fs_posix_iter_alloc,
+<span class="lineNum">     923 </span>            :         fs_posix_iter_init,
+<span class="lineNum">     924 </span>            :         fs_posix_iter_next,
+<span class="lineNum">     925 </span>            :         fs_posix_iter_deinit,
+<span class="lineNum">     926 </span>            :         NULL,
+<span class="lineNum">     927 </span>            :         NULL,
+<span class="lineNum">     928 </span>            :     }
+<span class="lineNum">     929 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

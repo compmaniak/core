@@ -1,0 +1,612 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-fs/fs-metawrap.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-fs</a> - fs-metawrap.c<span style="font-size: 80%;"> (source / <a href="fs-metawrap.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">184</td>
+            <td class="headerCovTableEntry">253</td>
+            <td class="headerCovTableEntryLo">72.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntry">23</td>
+            <td class="headerCovTableEntryMed">87.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;istream-concat.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;istream-metawrap.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;ostream-metawrap.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;iostream-temp.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;fs-api-private.h&quot;
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : struct metawrap_fs {
+<span class="lineNum">      17 </span>            :     struct fs fs;
+<span class="lineNum">      18 </span>            :     bool wrap_metadata;
+<span class="lineNum">      19 </span>            : };
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : struct metawrap_fs_file {
+<span class="lineNum">      22 </span>            :     struct fs_file file;
+<span class="lineNum">      23 </span>            :     struct metawrap_fs *fs;
+<span class="lineNum">      24 </span>            :     struct fs_file *super_read;
+<span class="lineNum">      25 </span>            :     enum fs_open_mode open_mode;
+<span class="lineNum">      26 </span>            :     struct istream *input;
+<span class="lineNum">      27 </span>            :     bool metadata_read;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :     struct ostream *super_output;
+<span class="lineNum">      30 </span>            :     struct ostream *temp_output;
+<span class="lineNum">      31 </span>            :     string_t *metadata_header;
+<span class="lineNum">      32 </span>            :     uoff_t metadata_write_size;
+<span class="lineNum">      33 </span>            :     bool metadata_changed_since_write;
+<a name="34"><span class="lineNum">      34 </span>            : };</a>
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span><span class="lineCov">          6 : static struct fs *fs_metawrap_alloc(void)</span>
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span>            :     struct metawrap_fs *fs;
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span><span class="lineCov">          6 :     fs = i_new(struct metawrap_fs, 1);</span>
+<span class="lineNum">      41 </span><span class="lineCov">          6 :     fs-&gt;fs = fs_class_metawrap;</span>
+<span class="lineNum">      42 </span><span class="lineCov">          6 :     return &amp;fs-&gt;fs;</span>
+<span class="lineNum">      43 </span>            : }
+<a name="44"><span class="lineNum">      44 </span>            : </a>
+<span class="lineNum">      45 </span>            : static int
+<span class="lineNum">      46 </span><span class="lineCov">          6 : fs_metawrap_init(struct fs *_fs, const char *args, const</span>
+<span class="lineNum">      47 </span>            :          struct fs_settings *set)
+<span class="lineNum">      48 </span>            : {
+<span class="lineNum">      49 </span><span class="lineCov">          6 :     struct metawrap_fs *fs = (struct metawrap_fs *)_fs;</span>
+<span class="lineNum">      50 </span>            :     const char *parent_name, *parent_args, *error;
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span><span class="lineCov">          6 :     if (*args == '\0') {</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :         fs_set_error(_fs, &quot;Parent filesystem not given as parameter&quot;);</span>
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      55 </span>            :     }
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span><span class="lineCov">          6 :     parent_args = strchr(args, ':');</span>
+<span class="lineNum">      58 </span><span class="lineCov">          6 :     if (parent_args == NULL) {</span>
+<span class="lineNum">      59 </span><span class="lineCov">          5 :         parent_name = args;</span>
+<span class="lineNum">      60 </span><span class="lineCov">          5 :         parent_args = &quot;&quot;;</span>
+<span class="lineNum">      61 </span>            :     } else {
+<span class="lineNum">      62 </span><span class="lineCov">          1 :         parent_name = t_strdup_until(args, parent_args);</span>
+<span class="lineNum">      63 </span><span class="lineCov">          1 :         parent_args++;</span>
+<span class="lineNum">      64 </span>            :     }
+<span class="lineNum">      65 </span><span class="lineCov">          6 :     if (fs_init(parent_name, parent_args, set, &amp;_fs-&gt;parent, &amp;error) &lt; 0) {</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         fs_set_error(_fs, &quot;%s&quot;, error);</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      68 </span>            :     }
+<span class="lineNum">      69 </span><span class="lineCov">          6 :     if ((fs_get_properties(_fs-&gt;parent) &amp; FS_PROPERTY_METADATA) == 0)</span>
+<span class="lineNum">      70 </span><span class="lineCov">          6 :         fs-&gt;wrap_metadata = TRUE;</span>
+<span class="lineNum">      71 </span><span class="lineCov">          6 :     return 0;</span>
+<a name="72"><span class="lineNum">      72 </span>            : }</a>
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineCov">          6 : static void fs_metawrap_deinit(struct fs *_fs)</span>
+<span class="lineNum">      75 </span>            : {
+<span class="lineNum">      76 </span><span class="lineCov">          6 :     struct metawrap_fs *fs = (struct metawrap_fs *)_fs;</span>
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span><span class="lineCov">          6 :     if (_fs-&gt;parent != NULL)</span>
+<span class="lineNum">      79 </span><span class="lineCov">          6 :         fs_deinit(&amp;_fs-&gt;parent);</span>
+<span class="lineNum">      80 </span><span class="lineCov">          6 :     i_free(fs);</span>
+<a name="81"><span class="lineNum">      81 </span><span class="lineCov">          6 : }</span></a>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">          1 : static enum fs_properties fs_metawrap_get_properties(struct fs *_fs)</span>
+<span class="lineNum">      84 </span>            : {
+<span class="lineNum">      85 </span><span class="lineCov">          1 :     const struct metawrap_fs *fs = (const struct metawrap_fs *)_fs;</span>
+<span class="lineNum">      86 </span>            :     enum fs_properties props;
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineCov">          1 :     props = fs_get_properties(_fs-&gt;parent);</span>
+<span class="lineNum">      89 </span><span class="lineCov">          1 :     if (fs-&gt;wrap_metadata) {</span>
+<span class="lineNum">      90 </span>            :         /* we don't have a quick stat() to see the file's size,
+<span class="lineNum">      91 </span>            :            because of the metadata header */
+<span class="lineNum">      92 </span><span class="lineCov">          1 :         props &amp;= ~FS_PROPERTY_STAT;</span>
+<span class="lineNum">      93 </span>            :         /* Copying can copy the whole metadata. */
+<span class="lineNum">      94 </span><span class="lineCov">          1 :         props |= FS_PROPERTY_COPY_METADATA;</span>
+<span class="lineNum">      95 </span>            :     }
+<span class="lineNum">      96 </span><span class="lineCov">          1 :     return props;</span>
+<a name="97"><span class="lineNum">      97 </span>            : }</a>
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineCov">         23 : static struct fs_file *fs_metawrap_file_alloc(void)</span>
+<span class="lineNum">     100 </span>            : {
+<span class="lineNum">     101 </span><span class="lineCov">         23 :     struct metawrap_fs_file *file = i_new(struct metawrap_fs_file, 1);</span>
+<span class="lineNum">     102 </span><span class="lineCov">         23 :     return &amp;file-&gt;file;</span>
+<span class="lineNum">     103 </span>            : }
+<a name="104"><span class="lineNum">     104 </span>            : </a>
+<span class="lineNum">     105 </span>            : static void
+<span class="lineNum">     106 </span><span class="lineCov">         23 : fs_metawrap_file_init(struct fs_file *_file, const char *path,</span>
+<span class="lineNum">     107 </span>            :               enum fs_open_mode mode, enum fs_open_flags flags)
+<span class="lineNum">     108 </span>            : {
+<span class="lineNum">     109 </span><span class="lineCov">         23 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     110 </span><span class="lineCov">         23 :     struct metawrap_fs *fs = (struct metawrap_fs *)_file-&gt;fs;</span>
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineCov">         23 :     file-&gt;file.path = i_strdup(path);</span>
+<span class="lineNum">     113 </span><span class="lineCov">         23 :     file-&gt;fs = fs;</span>
+<span class="lineNum">     114 </span><span class="lineCov">         23 :     file-&gt;open_mode = mode;</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span>            :     /* avoid unnecessarily creating two seekable streams */
+<span class="lineNum">     117 </span><span class="lineCov">         23 :     flags &amp;= ~FS_OPEN_FLAG_SEEKABLE;</span>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineCov">         23 :     file-&gt;file.parent = fs_file_init_parent(_file, path, mode | flags);</span>
+<span class="lineNum">     120 </span><span class="lineCov">         25 :     if (file-&gt;fs-&gt;wrap_metadata &amp;&amp; mode == FS_OPEN_MODE_READONLY &amp;&amp;</span>
+<span class="lineNum">     121 </span><span class="lineCov">          2 :         (flags &amp; FS_OPEN_FLAG_ASYNC) == 0) {</span>
+<span class="lineNum">     122 </span>            :         /* use async stream for parent, so fs_read_stream() won't create
+<span class="lineNum">     123 </span>            :            another seekable stream needlessly */
+<span class="lineNum">     124 </span><span class="lineCov">          2 :         file-&gt;super_read = fs_file_init_parent(_file, path,</span>
+<span class="lineNum">     125 </span><span class="lineCov">          2 :             mode | flags | FS_OPEN_FLAG_ASYNC);</span>
+<span class="lineNum">     126 </span>            :     } else {
+<span class="lineNum">     127 </span><span class="lineCov">         21 :         file-&gt;super_read = file-&gt;file.parent;</span>
+<span class="lineNum">     128 </span>            :     }
+<span class="lineNum">     129 </span><span class="lineCov">         23 :     fs_metadata_init(&amp;file-&gt;file);</span>
+<a name="130"><span class="lineNum">     130 </span><span class="lineCov">         23 : }</span></a>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineCov">         23 : static void fs_metawrap_file_deinit(struct fs_file *_file)</span>
+<span class="lineNum">     133 </span>            : {
+<span class="lineNum">     134 </span><span class="lineCov">         23 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineCov">         23 :     if (file-&gt;super_read != _file-&gt;parent &amp;&amp; file-&gt;super_read != NULL)</span>
+<span class="lineNum">     137 </span><span class="lineCov">          2 :         fs_file_deinit(&amp;file-&gt;super_read);</span>
+<span class="lineNum">     138 </span><span class="lineCov">         23 :     if (file-&gt;metadata_header != NULL)</span>
+<span class="lineNum">     139 </span><span class="lineCov">          1 :         str_free(&amp;file-&gt;metadata_header);</span>
+<span class="lineNum">     140 </span><span class="lineCov">         23 :     fs_file_deinit(&amp;_file-&gt;parent);</span>
+<span class="lineNum">     141 </span><span class="lineCov">         23 :     i_free(file-&gt;file.path);</span>
+<span class="lineNum">     142 </span><span class="lineCov">         23 :     i_free(file);</span>
+<a name="143"><span class="lineNum">     143 </span><span class="lineCov">         23 : }</span></a>
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">         33 : static void fs_metawrap_file_close(struct fs_file *_file)</span>
+<span class="lineNum">     146 </span>            : {
+<span class="lineNum">     147 </span><span class="lineCov">         33 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineCov">         33 :     i_stream_unref(&amp;file-&gt;input);</span>
+<span class="lineNum">     150 </span><span class="lineCov">         33 :     if (file-&gt;super_read != NULL)</span>
+<span class="lineNum">     151 </span><span class="lineCov">         33 :         fs_file_close(file-&gt;super_read);</span>
+<span class="lineNum">     152 </span><span class="lineCov">         33 :     if (_file-&gt;parent != NULL)</span>
+<span class="lineNum">     153 </span><span class="lineCov">         33 :         fs_file_close(_file-&gt;parent);</span>
+<span class="lineNum">     154 </span><span class="lineCov">         33 : }</span>
+<a name="155"><span class="lineNum">     155 </span>            : </a>
+<span class="lineNum">     156 </span>            : static void
+<span class="lineNum">     157 </span><span class="lineCov">         23 : fs_metawrap_set_metadata(struct fs_file *_file, const char *key,</span>
+<span class="lineNum">     158 </span>            :              const char *value)
+<span class="lineNum">     159 </span>            : {
+<span class="lineNum">     160 </span><span class="lineCov">         23 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineCov">         23 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :         fs_set_metadata(_file-&gt;parent, key, value);</span>
+<span class="lineNum">     164 </span>            :     else {
+<span class="lineNum">     165 </span><span class="lineCov">         23 :         fs_default_set_metadata(_file, key, value);</span>
+<span class="lineNum">     166 </span><span class="lineCov">         23 :         file-&gt;metadata_changed_since_write = TRUE;</span>
+<span class="lineNum">     167 </span>            :     }
+<span class="lineNum">     168 </span><span class="lineCov">         23 : }</span>
+<a name="169"><span class="lineNum">     169 </span>            : </a>
+<span class="lineNum">     170 </span>            : static int
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 : fs_metawrap_get_metadata(struct fs_file *_file,</span>
+<span class="lineNum">     172 </span>            :              const ARRAY_TYPE(fs_metadata) **metadata_r)
+<span class="lineNum">     173 </span>            : {
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     175 </span>            :     ssize_t ret;
+<span class="lineNum">     176 </span>            :     char c;
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :         return fs_get_metadata(_file-&gt;parent, metadata_r);</span>
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     if (file-&gt;metadata_read) {</span>
+<span class="lineNum">     182 </span>            :         /* we have the metadata */
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :     } else if (file-&gt;input == NULL) {</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         if (fs_read(_file, &amp;c, 1) &lt; 0)</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     186 </span>            :     } else {
+<span class="lineNum">     187 </span>            :         /* use the existing istream to read it */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         while ((ret = i_stream_read(file-&gt;input)) == 0) {</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :             if (file-&gt;metadata_read)</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :             i_assert(!file-&gt;input-&gt;blocking);</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :             fs_wait_async(_file-&gt;fs);</span>
+<span class="lineNum">     194 </span>            :         }
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :         if (ret == -1 &amp;&amp; file-&gt;input-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs, &quot;read(%s) failed: %s&quot;,</span>
+<span class="lineNum">     197 </span>            :                      i_stream_get_name(file-&gt;input),
+<span class="lineNum">     198 </span>            :                      i_stream_get_error(file-&gt;input));
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     200 </span>            :         }
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         i_assert(file-&gt;metadata_read);</span>
+<span class="lineNum">     202 </span>            :     }
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     *metadata_r = &amp;_file-&gt;metadata;</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="205"><span class="lineNum">     205 </span>            : }</a>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 : static bool fs_metawrap_prefetch(struct fs_file *_file, uoff_t length)</span>
+<span class="lineNum">     208 </span>            : {
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :         return fs_prefetch(_file-&gt;parent, length);</span>
+<span class="lineNum">     213 </span>            :     else
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :         return fs_prefetch(file-&gt;super_read, length);</span>
+<a name="215"><span class="lineNum">     215 </span>            : }</a>
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 : static ssize_t fs_metawrap_read(struct fs_file *_file, void *buf, size_t size)</span>
+<span class="lineNum">     218 </span>            : {
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :         return fs_read(_file-&gt;parent, buf, size);</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     return fs_read_via_stream(_file, buf, size);</span>
+<span class="lineNum">     224 </span>            : }
+<a name="225"><span class="lineNum">     225 </span>            : </a>
+<span class="lineNum">     226 </span>            : static void
+<span class="lineNum">     227 </span><span class="lineCov">          4 : fs_metawrap_callback(const char *key, const char *value, void *context)</span>
+<span class="lineNum">     228 </span>            : {
+<span class="lineNum">     229 </span><span class="lineCov">          4 :     struct metawrap_fs_file *file = context;</span>
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineCov">          4 :     if (key == NULL) {</span>
+<span class="lineNum">     232 </span><span class="lineCov">          2 :         file-&gt;metadata_read = TRUE;</span>
+<span class="lineNum">     233 </span><span class="lineCov">          6 :         return;</span>
+<span class="lineNum">     234 </span>            :     }
+<span class="lineNum">     235 </span>            : 
+<span class="lineNum">     236 </span><span class="lineCov">          2 :     T_BEGIN {</span>
+<span class="lineNum">     237 </span><span class="lineCov">          2 :         key = str_tabunescape(t_strdup_noconst(key));</span>
+<span class="lineNum">     238 </span><span class="lineCov">          2 :         value = str_tabunescape(t_strdup_noconst(value));</span>
+<span class="lineNum">     239 </span><span class="lineCov">          2 :         fs_default_set_metadata(&amp;file-&gt;file, key, value);</span>
+<span class="lineNum">     240 </span><span class="lineCov">          2 :     } T_END;</span>
+<span class="lineNum">     241 </span>            : }
+<a name="242"><span class="lineNum">     242 </span>            : </a>
+<span class="lineNum">     243 </span>            : static struct istream *
+<span class="lineNum">     244 </span><span class="lineCov">          2 : fs_metawrap_read_stream(struct fs_file *_file, size_t max_buffer_size)</span>
+<span class="lineNum">     245 </span>            : {
+<span class="lineNum">     246 </span><span class="lineCov">          2 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     247 </span>            :     struct istream *input;
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineCov">          2 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :         return fs_read_stream(_file-&gt;parent, max_buffer_size);</span>
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span><span class="lineCov">          2 :     if (file-&gt;input != NULL) {</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :         i_stream_ref(file-&gt;input);</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         i_stream_seek(file-&gt;input, 0);</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :         return file-&gt;input;</span>
+<span class="lineNum">     256 </span>            :     }
+<span class="lineNum">     257 </span>            : 
+<span class="lineNum">     258 </span><span class="lineCov">          2 :     input = fs_read_stream(file-&gt;super_read, max_buffer_size);</span>
+<span class="lineNum">     259 </span><span class="lineCov">          2 :     file-&gt;input = i_stream_create_metawrap(input, fs_metawrap_callback, file);</span>
+<span class="lineNum">     260 </span><span class="lineCov">          2 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     261 </span><span class="lineCov">          2 :     i_stream_ref(file-&gt;input);</span>
+<span class="lineNum">     262 </span><span class="lineCov">          2 :     return file-&gt;input;</span>
+<a name="263"><span class="lineNum">     263 </span>            : }</a>
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineCov">          3 : static int fs_metawrap_write(struct fs_file *_file, const void *data, size_t size)</span>
+<span class="lineNum">     266 </span>            : {
+<span class="lineNum">     267 </span><span class="lineCov">          3 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineCov">          3 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :         return fs_write(_file-&gt;parent, data, size);</span>
+<span class="lineNum">     271 </span><span class="lineCov">          3 :     return fs_write_via_stream(_file, data, size);</span>
+<span class="lineNum">     272 </span>            : }
+<a name="273"><span class="lineNum">     273 </span>            : </a>
+<span class="lineNum">     274 </span>            : static void
+<span class="lineNum">     275 </span><span class="lineCov">         17 : fs_metawrap_append_metadata(struct metawrap_fs_file *file, string_t *str)</span>
+<span class="lineNum">     276 </span>            : {
+<span class="lineNum">     277 </span>            :     const struct fs_metadata *metadata;
+<span class="lineNum">     278 </span>            : 
+<span class="lineNum">     279 </span><span class="lineCov">         34 :     array_foreach(&amp;file-&gt;file.metadata, metadata) {</span>
+<span class="lineNum">     280 </span><span class="lineCov">         17 :         if (strncmp(metadata-&gt;key, FS_METADATA_INTERNAL_PREFIX,</span>
+<span class="lineNum">     281 </span>            :                 strlen(FS_METADATA_INTERNAL_PREFIX)) == 0)
+<span class="lineNum">     282 </span><span class="lineCov">         17 :             continue;</span>
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         str_append_tabescaped(str, metadata-&gt;key);</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         str_append_c(str, ':');</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :         str_append_tabescaped(str, metadata-&gt;value);</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         str_append_c(str, '\n');</span>
+<span class="lineNum">     288 </span>            :     }
+<span class="lineNum">     289 </span><span class="lineCov">         17 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     290 </span><span class="lineCov">         17 : }</span>
+<a name="291"><span class="lineNum">     291 </span>            : </a>
+<span class="lineNum">     292 </span>            : static void
+<span class="lineNum">     293 </span><span class="lineCov">         15 : fs_metawrap_write_metadata_to(struct metawrap_fs_file *file,</span>
+<span class="lineNum">     294 </span>            :                   struct ostream *output)
+<span class="lineNum">     295 </span>            : {
+<span class="lineNum">     296 </span><span class="lineCov">         15 :     string_t *str = t_str_new(256);</span>
+<span class="lineNum">     297 </span>            :     ssize_t ret;
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineCov">         15 :     fs_metawrap_append_metadata(file, str);</span>
+<span class="lineNum">     300 </span><span class="lineCov">         15 :     file-&gt;metadata_write_size = str_len(str);</span>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">         15 :     ret = o_stream_send(output, str_data(str), str_len(str));</span>
+<span class="lineNum">     303 </span><span class="lineCov">         15 :     if (ret &lt; 0)</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :         o_stream_close(output);</span>
+<span class="lineNum">     305 </span>            :     else
+<span class="lineNum">     306 </span><span class="lineCov">         15 :         i_assert((size_t)ret == str_len(str));</span>
+<span class="lineNum">     307 </span><span class="lineCov">         15 :     file-&gt;metadata_changed_since_write = FALSE;</span>
+<a name="308"><span class="lineNum">     308 </span><span class="lineCov">         15 : }</span></a>
+<span class="lineNum">     309 </span>            : 
+<span class="lineNum">     310 </span><span class="lineCov">         15 : static void fs_metawrap_write_metadata(void *context)</span>
+<span class="lineNum">     311 </span>            : {
+<span class="lineNum">     312 </span><span class="lineCov">         15 :     struct metawrap_fs_file *file = context;</span>
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span><span class="lineCov">         15 :     fs_metawrap_write_metadata_to(file, file-&gt;file.output);</span>
+<a name="315"><span class="lineNum">     315 </span><span class="lineCov">         15 : }</span></a>
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineCov">         16 : static void fs_metawrap_write_stream(struct fs_file *_file)</span>
+<span class="lineNum">     318 </span>            : {
+<span class="lineNum">     319 </span><span class="lineCov">         16 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineCov">         16 :     i_assert(_file-&gt;output == NULL);</span>
+<span class="lineNum">     322 </span>            : 
+<span class="lineNum">     323 </span><span class="lineCov">         16 :     if (!file-&gt;fs-&gt;wrap_metadata) {</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :         file-&gt;super_output = fs_write_stream(_file-&gt;parent);</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :         _file-&gt;output = file-&gt;super_output;</span>
+<span class="lineNum">     326 </span>            :     } else {
+<span class="lineNum">     327 </span><span class="lineCov">         16 :         file-&gt;temp_output =</span>
+<span class="lineNum">     328 </span><span class="lineCov">         16 :             iostream_temp_create_named(_file-&gt;fs-&gt;temp_path_prefix,</span>
+<span class="lineNum">     329 </span>            :                            IOSTREAM_TEMP_FLAG_TRY_FD_DUP,
+<span class="lineNum">     330 </span>            :                            fs_file_path(_file));
+<span class="lineNum">     331 </span><span class="lineCov">         16 :         _file-&gt;output = o_stream_create_metawrap(file-&gt;temp_output,</span>
+<span class="lineNum">     332 </span>            :             fs_metawrap_write_metadata, file);
+<span class="lineNum">     333 </span>            :     }
+<span class="lineNum">     334 </span><span class="lineCov">         16 : }</span>
+<a name="335"><span class="lineNum">     335 </span>            : </a>
+<span class="lineNum">     336 </span>            : static struct istream *
+<span class="lineNum">     337 </span><span class="lineCov">          1 : fs_metawrap_create_updated_istream(struct metawrap_fs_file *file,</span>
+<span class="lineNum">     338 </span>            :                    struct istream *input)
+<span class="lineNum">     339 </span>            : {
+<span class="lineNum">     340 </span>            :     struct istream *input2, *inputs[3];
+<span class="lineNum">     341 </span>            : 
+<span class="lineNum">     342 </span><span class="lineCov">          1 :     if (file-&gt;metadata_header != NULL)</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :         str_truncate(file-&gt;metadata_header, 0);</span>
+<span class="lineNum">     344 </span>            :     else
+<span class="lineNum">     345 </span><span class="lineCov">          1 :         file-&gt;metadata_header = str_new(default_pool, 1024);</span>
+<span class="lineNum">     346 </span><span class="lineCov">          1 :     fs_metawrap_append_metadata(file, file-&gt;metadata_header);</span>
+<span class="lineNum">     347 </span><span class="lineCov">          1 :     inputs[0] = i_stream_create_from_data(str_data(file-&gt;metadata_header),</span>
+<span class="lineNum">     348 </span><span class="lineCov">          1 :                            str_len(file-&gt;metadata_header));</span>
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineCov">          1 :     i_stream_seek(input, file-&gt;metadata_write_size);</span>
+<span class="lineNum">     351 </span><span class="lineCov">          1 :     inputs[1] = i_stream_create_limit(input, (uoff_t)-1);</span>
+<span class="lineNum">     352 </span><span class="lineCov">          1 :     inputs[2] = NULL;</span>
+<span class="lineNum">     353 </span><span class="lineCov">          1 :     input2 = i_stream_create_concat(inputs);</span>
+<span class="lineNum">     354 </span><span class="lineCov">          1 :     i_stream_unref(&amp;inputs[0]);</span>
+<span class="lineNum">     355 </span><span class="lineCov">          1 :     i_stream_unref(&amp;inputs[1]);</span>
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span><span class="lineCov">          1 :     file-&gt;metadata_write_size = str_len(file-&gt;metadata_header);</span>
+<span class="lineNum">     358 </span><span class="lineCov">          1 :     return input2;</span>
+<a name="359"><span class="lineNum">     359 </span>            : }</a>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineCov">         32 : static int fs_metawrap_write_stream_finish(struct fs_file *_file, bool success)</span>
+<span class="lineNum">     362 </span>            : {
+<span class="lineNum">     363 </span><span class="lineCov">         32 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     364 </span>            :     struct istream *input;
+<span class="lineNum">     365 </span>            :     int ret;
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineCov">         32 :     if (_file-&gt;output != NULL) {</span>
+<span class="lineNum">     368 </span><span class="lineCov">         16 :         if (_file-&gt;output == file-&gt;super_output)</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :             _file-&gt;output = NULL;</span>
+<span class="lineNum">     370 </span>            :         else
+<span class="lineNum">     371 </span><span class="lineCov">         16 :             o_stream_unref(&amp;_file-&gt;output);</span>
+<span class="lineNum">     372 </span>            :     }
+<span class="lineNum">     373 </span><span class="lineCov">         32 :     if (!success) {</span>
+<span class="lineNum">     374 </span><span class="lineCov">          3 :         if (file-&gt;super_output != NULL) {</span>
+<span class="lineNum">     375 </span>            :             /* no metawrap */
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             i_assert(file-&gt;temp_output == NULL);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :             fs_write_stream_abort_parent(_file, &amp;file-&gt;super_output);</span>
+<span class="lineNum">     378 </span>            :         } else {
+<span class="lineNum">     379 </span><span class="lineCov">          3 :             i_assert(file-&gt;temp_output != NULL);</span>
+<span class="lineNum">     380 </span><span class="lineCov">          3 :             o_stream_destroy(&amp;file-&gt;temp_output);</span>
+<span class="lineNum">     381 </span>            :         }
+<span class="lineNum">     382 </span><span class="lineCov">          3 :         return -1;</span>
+<span class="lineNum">     383 </span>            :     }
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineCov">         29 :     if (file-&gt;super_output != NULL) {</span>
+<span class="lineNum">     386 </span>            :         /* no metawrap */
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :         i_assert(file-&gt;temp_output == NULL);</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         return fs_write_stream_finish(_file-&gt;parent, &amp;file-&gt;super_output);</span>
+<span class="lineNum">     389 </span>            :     }
+<span class="lineNum">     390 </span><span class="lineCov">         29 :     if (file-&gt;temp_output == NULL) {</span>
+<span class="lineNum">     391 </span>            :         /* finishing up */
+<span class="lineNum">     392 </span><span class="lineCov">         16 :         i_assert(file-&gt;super_output == NULL);</span>
+<span class="lineNum">     393 </span><span class="lineCov">         16 :         return fs_write_stream_finish_async(_file-&gt;parent);</span>
+<span class="lineNum">     394 </span>            :     }
+<span class="lineNum">     395 </span>            :     /* finish writing the temporary file */
+<span class="lineNum">     396 </span><span class="lineCov">         13 :     if (file-&gt;temp_output-&gt;offset == 0) {</span>
+<span class="lineNum">     397 </span>            :         /* empty file - temp_output is already finished,
+<span class="lineNum">     398 </span>            :            so we can't write to it. */
+<span class="lineNum">     399 </span><span class="lineCov">          1 :         string_t *str = t_str_new(128);</span>
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineCov">          1 :         o_stream_destroy(&amp;file-&gt;temp_output);</span>
+<span class="lineNum">     402 </span><span class="lineCov">          1 :         fs_metawrap_append_metadata(file, str);</span>
+<span class="lineNum">     403 </span><span class="lineCov">          1 :         input = i_stream_create_copy_from_data(str_data(str), str_len(str));</span>
+<span class="lineNum">     404 </span>            :     } else {
+<span class="lineNum">     405 </span><span class="lineCov">         12 :         input = iostream_temp_finish(&amp;file-&gt;temp_output, IO_BLOCK_SIZE);</span>
+<span class="lineNum">     406 </span>            :     }
+<span class="lineNum">     407 </span><span class="lineCov">         13 :     if (file-&gt;metadata_changed_since_write) {</span>
+<span class="lineNum">     408 </span>            :         /* we'll need to recreate the metadata. do this by creating a
+<span class="lineNum">     409 </span>            :            new istream combining the new metadata header and the
+<span class="lineNum">     410 </span>            :            old body. */
+<span class="lineNum">     411 </span><span class="lineCov">          1 :         struct istream *input2 = input;</span>
+<span class="lineNum">     412 </span>            : 
+<span class="lineNum">     413 </span><span class="lineCov">          1 :         input = fs_metawrap_create_updated_istream(file, input);</span>
+<span class="lineNum">     414 </span><span class="lineCov">          1 :         i_stream_unref(&amp;input2);</span>
+<span class="lineNum">     415 </span>            :     }
+<span class="lineNum">     416 </span><span class="lineCov">         13 :     file-&gt;super_output = fs_write_stream(_file-&gt;parent);</span>
+<span class="lineNum">     417 </span><span class="lineCov">         13 :     o_stream_nsend_istream(file-&gt;super_output, input);</span>
+<span class="lineNum">     418 </span>            :     /* because of the &quot;end of metadata&quot; LF, there's always at least
+<span class="lineNum">     419 </span>            :        1 byte */
+<span class="lineNum">     420 </span><span class="lineCov">         13 :     i_assert(file-&gt;super_output-&gt;offset &gt; 0 ||</span>
+<span class="lineNum">     421 </span>            :          file-&gt;super_output-&gt;stream_errno != 0);
+<span class="lineNum">     422 </span><span class="lineCov">         13 :     ret = fs_write_stream_finish(_file-&gt;parent, &amp;file-&gt;super_output);</span>
+<span class="lineNum">     423 </span><span class="lineCov">         13 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     424 </span><span class="lineCov">         13 :     return ret;</span>
+<a name="425"><span class="lineNum">     425 </span>            : }</a>
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineCov">          2 : static int fs_metawrap_stat(struct fs_file *_file, struct stat *st_r)</span>
+<span class="lineNum">     428 </span>            : {
+<span class="lineNum">     429 </span><span class="lineCov">          2 :     struct metawrap_fs_file *file = (struct metawrap_fs_file *)_file;</span>
+<span class="lineNum">     430 </span>            :     struct istream *input;
+<span class="lineNum">     431 </span>            :     uoff_t input_size;
+<span class="lineNum">     432 </span>            :     ssize_t ret;
+<span class="lineNum">     433 </span>            : 
+<span class="lineNum">     434 </span><span class="lineCov">          2 :     if (!file-&gt;fs-&gt;wrap_metadata)</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :         return fs_stat(_file-&gt;parent, st_r);</span>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span><span class="lineCov">          2 :     if (file-&gt;metadata_write_size != 0) {</span>
+<span class="lineNum">     438 </span>            :         /* fs_stat() after a write. we can do this quickly. */
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         if (fs_stat(_file-&gt;parent, st_r) &lt; 0)</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         if ((uoff_t)st_r-&gt;st_size &lt; file-&gt;metadata_write_size) {</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :             fs_set_error(_file-&gt;fs,</span>
+<span class="lineNum">     443 </span>            :                 &quot;Just-written %s shrank unexpectedly &quot;
+<span class="lineNum">     444 </span>            :                 &quot;(%&quot;PRIuUOFF_T&quot; &lt; %&quot;PRIuUOFF_T&quot;)&quot;,
+<span class="lineNum">     445 </span>            :                 fs_file_path(_file), st_r-&gt;st_size,
+<span class="lineNum">     446 </span>            :                 file-&gt;metadata_write_size);
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     448 </span>            :         }
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         st_r-&gt;st_size -= file-&gt;metadata_write_size;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     451 </span>            :     }
+<span class="lineNum">     452 </span>            : 
+<span class="lineNum">     453 </span><span class="lineCov">          2 :     if (file-&gt;input == NULL)</span>
+<span class="lineNum">     454 </span><span class="lineCov">          1 :         input = fs_read_stream(_file, IO_BLOCK_SIZE);</span>
+<span class="lineNum">     455 </span>            :     else {
+<span class="lineNum">     456 </span><span class="lineCov">          1 :         input = file-&gt;input;</span>
+<span class="lineNum">     457 </span><span class="lineCov">          1 :         i_stream_ref(input);</span>
+<span class="lineNum">     458 </span>            :     }
+<span class="lineNum">     459 </span><span class="lineCov">          2 :     if ((ret = i_stream_get_size(input, TRUE, &amp;input_size)) &lt; 0) {</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :         fs_set_error(_file-&gt;fs, &quot;i_stream_get_size(%s) failed: %s&quot;,</span>
+<span class="lineNum">     461 </span>            :                  fs_file_path(_file), i_stream_get_error(input));
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;input);</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     464 </span>            :     }
+<span class="lineNum">     465 </span><span class="lineCov">          2 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     466 </span><span class="lineCov">          2 :     if (ret == 0) {</span>
+<span class="lineNum">     467 </span>            :         /* we shouldn't get here */
+<span class="lineNum">     468 </span><span class="lineNoCov">          0 :         fs_set_error(_file-&gt;fs, &quot;i_stream_get_size(%s) returned size as unknown&quot;,</span>
+<span class="lineNum">     469 </span>            :                  fs_file_path(_file));
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :         errno = EIO;</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     472 </span>            :     }
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineCov">          2 :     if (fs_stat(_file-&gt;parent, st_r) &lt; 0) {</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :         i_assert(errno != EAGAIN); /* read should have caught this */</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     477 </span>            :     }
+<span class="lineNum">     478 </span><span class="lineCov">          2 :     st_r-&gt;st_size = input_size;</span>
+<span class="lineNum">     479 </span><span class="lineCov">          2 :     return 0;</span>
+<a name="480"><span class="lineNum">     480 </span>            : }</a>
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineCov">          8 : static int fs_metawrap_copy(struct fs_file *_src, struct fs_file *_dest)</span>
+<span class="lineNum">     483 </span>            : {
+<span class="lineNum">     484 </span><span class="lineCov">          8 :     struct metawrap_fs_file *dest = (struct metawrap_fs_file *)_dest;</span>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineCov">          8 :     if (!dest-&gt;fs-&gt;wrap_metadata || !_dest-&gt;metadata_changed)</span>
+<span class="lineNum">     487 </span><span class="lineCov">          8 :         return fs_wrapper_copy(_src, _dest);</span>
+<span class="lineNum">     488 </span>            :     else
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :         return fs_default_copy(_src, _dest);</span>
+<span class="lineNum">     490 </span>            : }
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span>            : const struct fs fs_class_metawrap = {
+<span class="lineNum">     493 </span>            :     .name = &quot;metawrap&quot;,
+<span class="lineNum">     494 </span>            :     .v = {
+<span class="lineNum">     495 </span>            :         fs_metawrap_alloc,
+<span class="lineNum">     496 </span>            :         fs_metawrap_init,
+<span class="lineNum">     497 </span>            :         fs_metawrap_deinit,
+<span class="lineNum">     498 </span>            :         fs_metawrap_get_properties,
+<span class="lineNum">     499 </span>            :         fs_metawrap_file_alloc,
+<span class="lineNum">     500 </span>            :         fs_metawrap_file_init,
+<span class="lineNum">     501 </span>            :         fs_metawrap_file_deinit,
+<span class="lineNum">     502 </span>            :         fs_metawrap_file_close,
+<span class="lineNum">     503 </span>            :         fs_wrapper_file_get_path,
+<span class="lineNum">     504 </span>            :         fs_wrapper_set_async_callback,
+<span class="lineNum">     505 </span>            :         fs_wrapper_wait_async,
+<span class="lineNum">     506 </span>            :         fs_metawrap_set_metadata,
+<span class="lineNum">     507 </span>            :         fs_metawrap_get_metadata,
+<span class="lineNum">     508 </span>            :         fs_metawrap_prefetch,
+<span class="lineNum">     509 </span>            :         fs_metawrap_read,
+<span class="lineNum">     510 </span>            :         fs_metawrap_read_stream,
+<span class="lineNum">     511 </span>            :         fs_metawrap_write,
+<span class="lineNum">     512 </span>            :         fs_metawrap_write_stream,
+<span class="lineNum">     513 </span>            :         fs_metawrap_write_stream_finish,
+<span class="lineNum">     514 </span>            :         fs_wrapper_lock,
+<span class="lineNum">     515 </span>            :         fs_wrapper_unlock,
+<span class="lineNum">     516 </span>            :         fs_wrapper_exists,
+<span class="lineNum">     517 </span>            :         fs_metawrap_stat,
+<span class="lineNum">     518 </span>            :         fs_metawrap_copy,
+<span class="lineNum">     519 </span>            :         fs_wrapper_rename,
+<span class="lineNum">     520 </span>            :         fs_wrapper_delete,
+<span class="lineNum">     521 </span>            :         fs_wrapper_iter_alloc,
+<span class="lineNum">     522 </span>            :         fs_wrapper_iter_init,
+<span class="lineNum">     523 </span>            :         fs_wrapper_iter_next,
+<span class="lineNum">     524 </span>            :         fs_wrapper_iter_deinit,
+<span class="lineNum">     525 </span>            :         NULL,
+<span class="lineNum">     526 </span>            :         fs_wrapper_get_nlinks,
+<span class="lineNum">     527 </span>            :     }
+<span class="lineNum">     528 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

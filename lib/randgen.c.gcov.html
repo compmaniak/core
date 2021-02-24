@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/randgen.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - randgen.c<span style="font-size: 80%;"> (source / <a href="randgen.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">29</td>
+            <td class="headerCovTableEntry">38</td>
+            <td class="headerCovTableEntryMed">76.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;randgen.h&quot;
+<span class="lineNum">       5 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">       6 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #ifdef DEBUG
+<span class="lineNum">       9 </span>            : /* For reproducing tests, fall back onto using a simple deterministic PRNG */
+<span class="lineNum">      10 </span>            : /* Marsaglia's 1999 KISS, de-macro-ified */
+<span class="lineNum">      11 </span>            : static bool kiss_in_use;
+<span class="lineNum">      12 </span>            : static unsigned int kiss_seed;
+<span class="lineNum">      13 </span>            : static uint32_t kiss_z, kiss_w, kiss_jsr, kiss_jcong;
+<span class="lineNum">      14 </span>            : static void
+<span class="lineNum">      15 </span>            : kiss_init(unsigned int seed)
+<span class="lineNum">      16 </span>            : {
+<span class="lineNum">      17 </span>            :     /* i_info(&quot;Random numbers are PRNG using kiss, seeded with %u&quot;, seed); */
+<span class="lineNum">      18 </span>            :     kiss_seed = seed;
+<span class="lineNum">      19 </span>            :     kiss_jsr = 0x5eed5eed; /* simply musn't be 0 */
+<span class="lineNum">      20 </span>            :     kiss_z = kiss_w = kiss_jcong = seed;
+<span class="lineNum">      21 </span>            :     kiss_in_use = TRUE;
+<span class="lineNum">      22 </span>            : }
+<span class="lineNum">      23 </span>            : static unsigned int
+<span class="lineNum">      24 </span>            : kiss_rand(void)
+<span class="lineNum">      25 </span>            : {
+<span class="lineNum">      26 </span>            :     kiss_z = 36969 * (kiss_z&amp;65535) + (kiss_z&gt;&gt;16);
+<span class="lineNum">      27 </span>            :     kiss_w = 18000 * (kiss_w&amp;65535) + (kiss_w&gt;&gt;16);
+<span class="lineNum">      28 </span>            :     kiss_jcong = 69069 * kiss_jcong + 1234567;
+<span class="lineNum">      29 </span>            :     kiss_jsr^=(kiss_jsr&lt;&lt;17);
+<span class="lineNum">      30 </span>            :     kiss_jsr^=(kiss_jsr&gt;&gt;13);
+<span class="lineNum">      31 </span>            :     kiss_jsr^=(kiss_jsr&lt;&lt;5);
+<span class="lineNum">      32 </span>            :     return (((kiss_z&lt;&lt;16) + kiss_w) ^ kiss_jcong) + kiss_jsr;
+<span class="lineNum">      33 </span>            : }
+<span class="lineNum">      34 </span>            : int rand_get_last_seed(unsigned int *seed_r)
+<span class="lineNum">      35 </span>            : {
+<span class="lineNum">      36 </span>            :     if (!kiss_in_use)
+<span class="lineNum">      37 </span>            :         return -1; /* not using a deterministic PRNG, seed is irrelevant */
+<span class="lineNum">      38 </span>            :     *seed_r = kiss_seed;
+<span class="lineNum">      39 </span>            :     return 0;
+<span class="lineNum">      40 </span>            : }
+<span class="lineNum">      41 </span>            : #endif
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            : /* get randomness from either getrandom, arc4random or /dev/urandom */
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            : #if defined(HAVE_GETRANDOM) &amp;&amp; HAVE_DECL_GETRANDOM != 0
+<span class="lineNum">      46 </span>            : #  include &lt;sys/random.h&gt;
+<span class="lineNum">      47 </span>            : #  define USE_GETRANDOM
+<span class="lineNum">      48 </span>            : static bool getrandom_present = TRUE;
+<span class="lineNum">      49 </span>            : #elif defined(HAVE_ARC4RANDOM)
+<span class="lineNum">      50 </span>            : #  if defined(HAVE_LIBBSD)
+<span class="lineNum">      51 </span>            : #    include &lt;bsd/stdlib.h&gt;
+<span class="lineNum">      52 </span>            : #  endif
+<span class="lineNum">      53 </span>            : #  define USE_ARC4RANDOM
+<span class="lineNum">      54 </span>            : #else
+<span class="lineNum">      55 </span>            : static bool getrandom_present = FALSE;
+<span class="lineNum">      56 </span>            : #  define USE_RANDOM_DEV
+<span class="lineNum">      57 </span>            : #endif
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span>            : static int init_refcount = 0;
+<a name="60"><span class="lineNum">      60 </span>            : static int urandom_fd = -1;</a>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineCov">         88 : static void random_open_urandom(void)</span>
+<span class="lineNum">      63 </span>            : {
+<span class="lineNum">      64 </span><span class="lineCov">         88 :     urandom_fd = open(DEV_URANDOM_PATH, O_RDONLY);</span>
+<span class="lineNum">      65 </span><span class="lineCov">         88 :     if (urandom_fd == -1) {</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :         if (errno == ENOENT) {</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :             i_fatal(&quot;open(&quot;DEV_URANDOM_PATH&quot;) failed: doesn't exist,&quot;</span>
+<span class="lineNum">      68 </span>            :                 &quot;currently we require it&quot;);
+<span class="lineNum">      69 </span>            :         } else {
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :             i_fatal(&quot;open(&quot;DEV_URANDOM_PATH&quot;) failed: %m&quot;);</span>
+<span class="lineNum">      71 </span>            :         }
+<span class="lineNum">      72 </span>            :     }
+<span class="lineNum">      73 </span><span class="lineCov">         88 :     fd_close_on_exec(urandom_fd, TRUE);</span>
+<span class="lineNum">      74 </span><span class="lineCov">         88 : }</span>
+<a name="75"><span class="lineNum">      75 </span>            : </a>
+<span class="lineNum">      76 </span>            : #if defined(USE_GETRANDOM) || defined(USE_RANDOM_DEV)
+<span class="lineNum">      77 </span><span class="lineCov">    3016794 : static inline int random_read(char *buf, size_t size)</span>
+<span class="lineNum">      78 </span>            : {
+<span class="lineNum">      79 </span><span class="lineCov">    3016794 :     ssize_t ret = 0;</span>
+<span class="lineNum">      80 </span>            : # if defined(USE_GETRANDOM)
+<span class="lineNum">      81 </span>            :     if (getrandom_present) {
+<span class="lineNum">      82 </span>            :         ret = getrandom(buf, size, 0);
+<span class="lineNum">      83 </span>            :         if (ret &lt; 0 &amp;&amp; errno == ENOSYS) {
+<span class="lineNum">      84 </span>            :             getrandom_present = FALSE;
+<span class="lineNum">      85 </span>            :             /* It gets complicated here...  While the libc (and its
+<span class="lineNum">      86 </span>            :             headers) indicated that getrandom() was available when
+<span class="lineNum">      87 </span>            :             we were compiled, the kernel disagreed just now at
+<span class="lineNum">      88 </span>            :             runtime. Fall back to reading /dev/urandom. */
+<span class="lineNum">      89 </span>            :             random_open_urandom();
+<span class="lineNum">      90 </span>            :         }
+<span class="lineNum">      91 </span>            :     }
+<span class="lineNum">      92 </span>            :     /* this is here to avoid clang complain,
+<span class="lineNum">      93 </span>            :        because getrandom_present will be always FALSE
+<span class="lineNum">      94 </span>            :        if USE_GETRANDOM is not defined */
+<span class="lineNum">      95 </span>            :     if (!getrandom_present)
+<span class="lineNum">      96 </span>            : # endif
+<span class="lineNum">      97 </span><span class="lineCov">    3016794 :         ret = read(urandom_fd, buf, size);</span>
+<span class="lineNum">      98 </span><span class="lineCov">    3016794 :     if (unlikely(ret &lt;= 0)) {</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :             i_fatal(&quot;read(&quot;DEV_URANDOM_PATH&quot;) failed: EOF&quot;);</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         } else if (errno != EINTR) {</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :             if (getrandom_present) {</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :                 i_fatal(&quot;getrandom() failed: %m&quot;);</span>
+<span class="lineNum">     104 </span>            :             } else {
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :                 i_fatal(&quot;read(&quot;DEV_URANDOM_PATH&quot;) failed: %m&quot;);</span>
+<span class="lineNum">     106 </span>            :             }
+<span class="lineNum">     107 </span>            :         }
+<span class="lineNum">     108 </span>            :     }
+<span class="lineNum">     109 </span><span class="lineCov">    3016794 :     i_assert(ret &gt; 0 || errno == EINTR);</span>
+<span class="lineNum">     110 </span><span class="lineCov">    3016794 :     return ret;</span>
+<span class="lineNum">     111 </span>            : }
+<a name="112"><span class="lineNum">     112 </span>            : #endif</a>
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span><span class="lineCov">    3016795 : void random_fill(void *buf, size_t size)</span>
+<span class="lineNum">     115 </span>            : {
+<span class="lineNum">     116 </span><span class="lineCov">    3016795 :     i_assert(init_refcount &gt; 0);</span>
+<span class="lineNum">     117 </span><span class="lineCov">    3016795 :     i_assert(size &lt; SSIZE_T_MAX);</span>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span>            : #ifdef DEBUG
+<span class="lineNum">     120 </span>            :     if (kiss_in_use) {
+<span class="lineNum">     121 </span>            :         for (size_t pos = 0; pos &lt; size; pos++)
+<span class="lineNum">     122 </span>            :             ((unsigned char*)buf)[pos] = kiss_rand();
+<span class="lineNum">     123 </span>            :         return;
+<span class="lineNum">     124 </span>            :     }
+<span class="lineNum">     125 </span>            : #endif
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span>            : #if defined(USE_ARC4RANDOM)
+<span class="lineNum">     128 </span>            :     arc4random_buf(buf, size);
+<span class="lineNum">     129 </span>            : #else
+<span class="lineNum">     130 </span>            :     size_t pos;
+<span class="lineNum">     131 </span>            :     ssize_t ret;
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineCov">    9050384 :     for (pos = 0; pos &lt; size; ) {</span>
+<span class="lineNum">     134 </span><span class="lineCov">    3016794 :         ret = random_read(PTR_OFFSET(buf, pos), size - pos);</span>
+<span class="lineNum">     135 </span><span class="lineCov">    3016794 :         if (ret &gt; -1)</span>
+<span class="lineNum">     136 </span><span class="lineCov">    3016794 :             pos += ret;</span>
+<span class="lineNum">     137 </span>            :     }
+<span class="lineNum">     138 </span>            : #endif /* defined(USE_ARC4RANDOM) */
+<a name="139"><span class="lineNum">     139 </span><span class="lineCov">    3016795 : }</span></a>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineCov">         89 : void random_init(void)</span>
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span>            :     unsigned int seed;
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">         89 :     if (init_refcount++ &gt; 0)</span>
+<span class="lineNum">     146 </span><span class="lineCov">         90 :         return;</span>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span>            : #ifdef DEBUG
+<span class="lineNum">     149 </span>            :     const char *env_seed = getenv(&quot;DOVECOT_SRAND&quot;);
+<span class="lineNum">     150 </span>            :     if (env_seed != NULL &amp;&amp; str_to_uint(env_seed, &amp;seed) &gt;= 0) {
+<span class="lineNum">     151 </span>            :         kiss_init(seed);
+<span class="lineNum">     152 </span>            :         /* getrandom_present = FALSE; not needed, only used in random_read() */
+<span class="lineNum">     153 </span>            :         goto normal_exit;
+<span class="lineNum">     154 </span>            :     }
+<span class="lineNum">     155 </span>            : #endif /* DEBUG */
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span>            : #if defined(USE_RANDOM_DEV)
+<span class="lineNum">     158 </span><span class="lineCov">         88 :     random_open_urandom();</span>
+<span class="lineNum">     159 </span>            : #endif
+<span class="lineNum">     160 </span>            :     /* DO NOT REMOVE THIS - It is also
+<span class="lineNum">     161 </span>            :        needed to make sure getrandom really works.
+<span class="lineNum">     162 </span>            :     */
+<span class="lineNum">     163 </span><span class="lineCov">         88 :     random_fill(&amp;seed, sizeof(seed));</span>
+<span class="lineNum">     164 </span>            : #ifdef DEBUG
+<span class="lineNum">     165 </span>            :     if (env_seed != NULL) {
+<span class="lineNum">     166 </span>            :         if (strcmp(env_seed, &quot;kiss&quot;) != 0)
+<span class="lineNum">     167 </span>            :             i_fatal(&quot;DOVECOT_SRAND not a number or 'kiss'&quot;);
+<span class="lineNum">     168 </span>            :         kiss_init(seed);
+<span class="lineNum">     169 </span>            :         i_close_fd(&amp;urandom_fd);
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span>            : normal_exit:
+<span class="lineNum">     173 </span>            : #endif
+<span class="lineNum">     174 </span><span class="lineCov">         88 :     srand(seed);</span>
+<a name="175"><span class="lineNum">     175 </span>            : }</a>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">         89 : void random_deinit(void)</span>
+<span class="lineNum">     178 </span>            : {
+<span class="lineNum">     179 </span><span class="lineCov">         89 :     if (--init_refcount &gt; 0)</span>
+<span class="lineNum">     180 </span><span class="lineCov">         90 :         return;</span>
+<span class="lineNum">     181 </span><span class="lineCov">         88 :     i_close_fd(&amp;urandom_fd);</span>
+<span class="lineNum">     182 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

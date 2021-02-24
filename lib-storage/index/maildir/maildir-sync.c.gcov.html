@@ -1,0 +1,1214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/maildir/maildir-sync.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">lib-storage/index/maildir</a> - maildir-sync.c<span style="font-size: 80%;"> (source / <a href="maildir-sync.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">427</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2004-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /*
+<span class="lineNum">       4 </span>            :    Here's a description of how we handle Maildir synchronization and
+<span class="lineNum">       5 </span>            :    it's problems:
+<span class="lineNum">       6 </span>            : 
+<span class="lineNum">       7 </span>            :    We want to be as efficient as we can. The most efficient way to
+<span class="lineNum">       8 </span>            :    check if changes have occurred is to stat() the new/ and cur/
+<span class="lineNum">       9 </span>            :    directories and uidlist file - if their mtimes haven't changed,
+<span class="lineNum">      10 </span>            :    there's no changes and we don't need to do anything.
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            :    Problem 1: Multiple changes can happen within a single second -
+<span class="lineNum">      13 </span>            :    nothing guarantees that once we synced it, someone else didn't just
+<span class="lineNum">      14 </span>            :    then make a modification. Such modifications wouldn't get noticed
+<span class="lineNum">      15 </span>            :    until a new modification occurred later.
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            :    Problem 2: Syncing cur/ directory is much more costly than syncing
+<span class="lineNum">      18 </span>            :    new/. Moving mails from new/ to cur/ will always change mtime of
+<span class="lineNum">      19 </span>            :    cur/ causing us to sync it as well.
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            :    Problem 3: We may not be able to move mail from new/ to cur/
+<span class="lineNum">      22 </span>            :    because we're out of quota, or simply because we're accessing a
+<span class="lineNum">      23 </span>            :    read-only mailbox.
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            :    MAILDIR_SYNC_SECS
+<span class="lineNum">      27 </span>            :    -----------------
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :    Several checks below use MAILDIR_SYNC_SECS, which should be maximum
+<span class="lineNum">      30 </span>            :    clock drift between all computers accessing the maildir (eg. via
+<span class="lineNum">      31 </span>            :    NFS), rounded up to next second. Our default is 1 second, since
+<span class="lineNum">      32 </span>            :    everyone should be using NTP.
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :    Note that setting it to 0 works only if there's only one computer
+<span class="lineNum">      35 </span>            :    accessing the maildir. It's practically impossible to make two
+<span class="lineNum">      36 </span>            :    clocks _exactly_ synchronized.
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :    It might be possible to only use file server's clock by looking at
+<span class="lineNum">      39 </span>            :    the atime field, but I don't know how well that would actually work.
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :    cur directory
+<span class="lineNum">      42 </span>            :    -------------
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :    We have dirty_cur_time variable which is set to cur/ directory's
+<span class="lineNum">      45 </span>            :    mtime when it's &gt;= time() - MAILDIR_SYNC_SECS and we _think_ we have
+<span class="lineNum">      46 </span>            :    synchronized the directory.
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span>            :    When dirty_cur_time is non-zero, we don't synchronize the cur/
+<span class="lineNum">      49 </span>            :    directory until
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            :       a) cur/'s mtime changes
+<span class="lineNum">      52 </span>            :       b) opening a mail fails with ENOENT
+<span class="lineNum">      53 </span>            :       c) time() &gt; dirty_cur_time + MAILDIR_SYNC_SECS
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :    This allows us to modify the maildir multiple times without having
+<span class="lineNum">      56 </span>            :    to sync it at every change. The sync will eventually be done to
+<span class="lineNum">      57 </span>            :    make sure we didn't miss any external changes.
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span>            :    The dirty_cur_time is set when:
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            :       - we change message flags
+<span class="lineNum">      62 </span>            :       - we expunge messages
+<span class="lineNum">      63 </span>            :       - we move mail from new/ to cur/
+<span class="lineNum">      64 </span>            :       - we sync cur/ directory and it's mtime is &gt;= time() - MAILDIR_SYNC_SECS
+<span class="lineNum">      65 </span>            : 
+<span class="lineNum">      66 </span>            :    It's unset when we do the final syncing, ie. when mtime is
+<span class="lineNum">      67 </span>            :    older than time() - MAILDIR_SYNC_SECS.
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span>            :    new directory
+<span class="lineNum">      70 </span>            :    -------------
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            :    If new/'s mtime is &gt;= time() - MAILDIR_SYNC_SECS, always synchronize
+<span class="lineNum">      73 </span>            :    it. dirty_cur_time-like feature might save us a few syncs, but
+<span class="lineNum">      74 </span>            :    that might break a client which saves a mail in one connection and
+<span class="lineNum">      75 </span>            :    tries to fetch it in another one. new/ directory is almost always
+<span class="lineNum">      76 </span>            :    empty, so syncing it should be very fast anyway. Actually this can
+<span class="lineNum">      77 </span>            :    still happen if we sync only new/ dir while another client is also
+<span class="lineNum">      78 </span>            :    moving mails from it to cur/ - it takes us a while to see them.
+<span class="lineNum">      79 </span>            :    That's pretty unlikely to happen however, and only way to fix it
+<span class="lineNum">      80 </span>            :    would be to always synchronize cur/ after new/.
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span>            :    Normally we move all mails from new/ to cur/ whenever we sync it. If
+<span class="lineNum">      83 </span>            :    it's not possible for some reason, we mark the mail with &quot;probably
+<span class="lineNum">      84 </span>            :    exists in new/ directory&quot; flag.
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            :    If rename() still fails because of ENOSPC or EDQUOT, we still save
+<span class="lineNum">      87 </span>            :    the flag changes in index with dirty-flag on. When moving the mail
+<span class="lineNum">      88 </span>            :    to cur/ directory, or when we notice it's already moved there, we
+<span class="lineNum">      89 </span>            :    apply the flag changes to the filename, rename it and remove the
+<span class="lineNum">      90 </span>            :    dirty flag. If there's dirty flags, this should be tried every time
+<span class="lineNum">      91 </span>            :    after expunge or when closing the mailbox.
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span>            :    uidlist
+<span class="lineNum">      94 </span>            :    -------
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span>            :    This file contains UID &lt;-&gt; filename mappings. It's updated only when
+<span class="lineNum">      97 </span>            :    new mail arrives, so it may contain filenames that have already been
+<span class="lineNum">      98 </span>            :    deleted. Updating is done by getting uidlist.lock file, writing the
+<span class="lineNum">      99 </span>            :    whole uidlist into it and rename()ing it over the old uidlist. This
+<span class="lineNum">     100 </span>            :    means there's no need to lock the file for reading.
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span>            :    Whenever uidlist is rewritten, it's mtime must be larger than the old
+<span class="lineNum">     103 </span>            :    one's. Use utime() before rename() if needed. Note that inode checking
+<span class="lineNum">     104 </span>            :    wouldn't have been sufficient as inode numbers can be reused.
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span>            :    This file is usually read the first time you need to know filename for
+<span class="lineNum">     107 </span>            :    given UID. After that it's not re-read unless new mails come that we
+<span class="lineNum">     108 </span>            :    don't know about.
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span>            :    broken clients
+<span class="lineNum">     111 </span>            :    --------------
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span>            :    Originally the middle identifier in Maildir filename was specified
+<span class="lineNum">     114 </span>            :    only as &lt;process id&gt;_&lt;delivery counter&gt;. That however created a
+<span class="lineNum">     115 </span>            :    problem with randomized PIDs which made it possible that the same
+<span class="lineNum">     116 </span>            :    PID was reused within one second.
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span>            :    So if within one second a mail was delivered, MUA moved it to cur/
+<span class="lineNum">     119 </span>            :    and another mail was delivered by a new process using same PID as
+<span class="lineNum">     120 </span>            :    the first one, we likely ended up overwriting the first mail when
+<span class="lineNum">     121 </span>            :    the second mail was moved over it.
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span>            :    Nowadays everyone should be giving a bit more specific identifier,
+<span class="lineNum">     124 </span>            :    for example include microseconds in it which Dovecot does.
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span>            :    There's a simple way to prevent this from happening in some cases:
+<span class="lineNum">     127 </span>            :    Don't move the mail from new/ to cur/ if it's mtime is &gt;= time() -
+<span class="lineNum">     128 </span>            :    MAILDIR_SYNC_SECS. The second delivery's link() call then fails
+<span class="lineNum">     129 </span>            :    because the file is already in new/, and it will then use a
+<span class="lineNum">     130 </span>            :    different filename. There's a few problems with this however:
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span>            :       - it requires extra stat() call which is unneeded extra I/O
+<span class="lineNum">     133 </span>            :       - another MUA might still move the mail to cur/
+<span class="lineNum">     134 </span>            :       - if first file's flags are modified by either Dovecot or another
+<span class="lineNum">     135 </span>            :         MUA, it's moved to cur/ (you _could_ just do the dirty-flagging
+<span class="lineNum">     136 </span>            :     but that'd be ugly)
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span>            :    Because this is useful only for very few people and it requires
+<span class="lineNum">     139 </span>            :    extra I/O, I decided not to implement this. It should be however
+<span class="lineNum">     140 </span>            :    quite easy to do since we need to be able to deal with files in new/
+<span class="lineNum">     141 </span>            :    in any case.
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span>            :    It's also possible to never accidentally overwrite a mail by using
+<span class="lineNum">     144 </span>            :    link() + unlink() rather than rename(). This however isn't very
+<span class="lineNum">     145 </span>            :    good idea as it introduces potential race conditions when multiple
+<span class="lineNum">     146 </span>            :    clients are accessing the mailbox:
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span>            :    Trying to move the same mail from new/ to cur/ at the same time:
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span>            :       a) Client 1 uses slightly different filename than client 2,
+<span class="lineNum">     151 </span>            :          for example one sets read-flag on but the other doesn't.
+<span class="lineNum">     152 </span>            :      You have the same mail duplicated now.
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span>            :       b) Client 3 sees the mail between Client 1's and 2's link() calls
+<span class="lineNum">     155 </span>            :          and changes it's flag. You have the same mail duplicated now.
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span>            :    And it gets worse when they're unlink()ing in cur/ directory:
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span>            :       c) Client 1 changes mails's flag and client 2 changes it back
+<span class="lineNum">     160 </span>            :          between 1's link() and unlink(). The mail is now expunged.
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span>            :       d) If you try to deal with the duplicates by unlink()ing another
+<span class="lineNum">     163 </span>            :          one of them, you might end up unlinking both of them.
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span>            :    So, what should we do then if we notice a duplicate? First of all,
+<span class="lineNum">     166 </span>            :    it might not be a duplicate at all, readdir() might have just
+<span class="lineNum">     167 </span>            :    returned it twice because it was just renamed. What we should do is
+<span class="lineNum">     168 </span>            :    create a completely new base name for it and rename() it to that.
+<span class="lineNum">     169 </span>            :    If the call fails with ENOENT, it only means that it wasn't a
+<span class="lineNum">     170 </span>            :    duplicate after all.
+<span class="lineNum">     171 </span>            : */
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">     174 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">     175 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">     176 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">     177 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">     178 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">     179 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">     180 </span>            : #include &quot;nfs-workarounds.h&quot;
+<span class="lineNum">     181 </span>            : #include &quot;maildir-storage.h&quot;
+<span class="lineNum">     182 </span>            : #include &quot;maildir-uidlist.h&quot;
+<span class="lineNum">     183 </span>            : #include &quot;maildir-filename.h&quot;
+<span class="lineNum">     184 </span>            : #include &quot;maildir-sync.h&quot;
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">     187 </span>            : #include &lt;stddef.h&gt;
+<span class="lineNum">     188 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">     189 </span>            : #include &lt;dirent.h&gt;
+<span class="lineNum">     190 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span>            : #define MAILDIR_FILENAME_FLAG_FOUND 128
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span>            : /* When rename()ing many files from new/ to cur/, it's possible that next
+<span class="lineNum">     195 </span>            :    readdir() skips some files. we don't of course wish to lose them, so we
+<span class="lineNum">     196 </span>            :    go and rescan the new/ directory again from beginning until no files are
+<span class="lineNum">     197 </span>            :    left. This value is just an optimization to avoid checking the directory
+<span class="lineNum">     198 </span>            :    twice needlessly. usually only NFS is the problem case. 1 is the safest
+<span class="lineNum">     199 </span>            :    bet here, but I guess 5 will do just fine too. */
+<span class="lineNum">     200 </span>            : #define MAILDIR_RENAME_RESCAN_COUNT 5
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span>            : /* This is mostly to avoid infinite looping when rename() destination already
+<span class="lineNum">     203 </span>            :    exists as the hard link of the file itself. */
+<span class="lineNum">     204 </span>            : #define MAILDIR_SCAN_DIR_MAX_COUNT 5
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span>            : #define DUPE_LINKS_DELETE_SECS 30
+<span class="lineNum">     207 </span>            : 
+<span class="lineNum">     208 </span>            : enum maildir_scan_why {
+<span class="lineNum">     209 </span>            :     WHY_FORCED  = 0x01,
+<span class="lineNum">     210 </span>            :     WHY_FIRSTSYNC   = 0x02,
+<span class="lineNum">     211 </span>            :     WHY_NEWCHANGED  = 0x04,
+<span class="lineNum">     212 </span>            :     WHY_CURCHANGED  = 0x08,
+<span class="lineNum">     213 </span>            :     WHY_DROPRECENT  = 0x10,
+<span class="lineNum">     214 </span>            :     WHY_FINDRECENT  = 0x20,
+<span class="lineNum">     215 </span>            :     WHY_DELAYEDNEW  = 0x40,
+<span class="lineNum">     216 </span>            :     WHY_DELAYEDCUR  = 0x80
+<span class="lineNum">     217 </span>            : };
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span>            : struct maildir_sync_context {
+<span class="lineNum">     220 </span>            :         struct maildir_mailbox *mbox;
+<span class="lineNum">     221 </span>            :     const char *new_dir, *cur_dir;
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span>            :     enum mailbox_sync_flags flags;
+<span class="lineNum">     224 </span>            :     time_t last_touch, last_notify;
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span>            :     struct maildir_uidlist_sync_ctx *uidlist_sync_ctx;
+<span class="lineNum">     227 </span>            :     struct maildir_index_sync_context *index_sync_ctx;
+<span class="lineNum">     228 </span>            : 
+<span class="lineNum">     229 </span>            :     bool partial:1;
+<span class="lineNum">     230 </span>            :     bool locked:1;
+<span class="lineNum">     231 </span>            :     bool racing:1;
+<a name="232"><span class="lineNum">     232 </span>            : };</a>
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 : void maildir_sync_set_racing(struct maildir_sync_context *ctx)</span>
+<span class="lineNum">     235 </span>            : {
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     ctx-&gt;racing = TRUE;</span>
+<a name="237"><span class="lineNum">     237 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 : void maildir_sync_notify(struct maildir_sync_context *ctx)</span>
+<span class="lineNum">     240 </span>            : {
+<span class="lineNum">     241 </span>            :     time_t now;
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :     if (ctx == NULL) {</span>
+<span class="lineNum">     244 </span>            :         /* we got here from maildir-save.c. it has no
+<span class="lineNum">     245 </span>            :            maildir_sync_context,  */
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     247 </span>            :     }
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :     now = time(NULL);</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     if (now - ctx-&gt;last_touch &gt; MAILDIR_LOCK_TOUCH_SECS &amp;&amp; ctx-&gt;locked) {</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         (void)maildir_uidlist_lock_touch(ctx-&gt;mbox-&gt;uidlist);</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         ctx-&gt;last_touch = now;</span>
+<span class="lineNum">     253 </span>            :     }
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     if (now - ctx-&gt;last_notify &gt; MAIL_STORAGE_STAYALIVE_SECS) {</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :         struct mailbox *box = &amp;ctx-&gt;mbox-&gt;box;</span>
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         if (box-&gt;storage-&gt;callbacks.notify_ok != NULL) {</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :             box-&gt;storage-&gt;callbacks.</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :                 notify_ok(box, &quot;Hang in there..&quot;,</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :                       box-&gt;storage-&gt;callback_context);</span>
+<span class="lineNum">     261 </span>            :         }
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         ctx-&gt;last_notify = now;</span>
+<span class="lineNum">     263 </span>            :     }
+<span class="lineNum">     264 </span>            : }
+<a name="265"><span class="lineNum">     265 </span>            : </a>
+<span class="lineNum">     266 </span>            : static struct maildir_sync_context *
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 : maildir_sync_context_new(struct maildir_mailbox *mbox,</span>
+<span class="lineNum">     268 </span>            :              enum mailbox_sync_flags flags)
+<span class="lineNum">     269 </span>            : {
+<span class="lineNum">     270 </span>            :         struct maildir_sync_context *ctx;
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     ctx = t_new(struct maildir_sync_context, 1);</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     ctx-&gt;mbox = mbox;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :     ctx-&gt;new_dir = t_strconcat(mailbox_get_path(&amp;mbox-&gt;box), &quot;/new&quot;, NULL);</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     ctx-&gt;cur_dir = t_strconcat(mailbox_get_path(&amp;mbox-&gt;box), &quot;/cur&quot;, NULL);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     ctx-&gt;last_touch = ioloop_time;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     ctx-&gt;last_notify = ioloop_time;</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     ctx-&gt;flags = flags;</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     return ctx;</span>
+<a name="280"><span class="lineNum">     280 </span>            : }</a>
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 : static void maildir_sync_deinit(struct maildir_sync_context *ctx)</span>
+<span class="lineNum">     283 </span>            : {
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     if (ctx-&gt;uidlist_sync_ctx != NULL)</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         (void)maildir_uidlist_sync_deinit(&amp;ctx-&gt;uidlist_sync_ctx, FALSE);</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     if (ctx-&gt;index_sync_ctx != NULL)</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         maildir_sync_index_rollback(&amp;ctx-&gt;index_sync_ctx);</span>
+<a name="288"><span class="lineNum">     288 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 : static int maildir_fix_duplicate(struct maildir_sync_context *ctx,</span>
+<span class="lineNum">     291 </span>            :                  const char *dir, const char *fname2)
+<span class="lineNum">     292 </span>            : {
+<span class="lineNum">     293 </span>            :     const char *fname1, *path1, *path2;
+<span class="lineNum">     294 </span>            :     const char *new_fname, *new_path;
+<span class="lineNum">     295 </span>            :     struct stat st1, st2;
+<span class="lineNum">     296 </span>            :     uoff_t size;
+<span class="lineNum">     297 </span>            : 
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     fname1 = maildir_uidlist_sync_get_full_filename(ctx-&gt;uidlist_sync_ctx,</span>
+<span class="lineNum">     299 </span>            :                             fname2);
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     i_assert(fname1 != NULL);</span>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     path1 = t_strconcat(dir, &quot;/&quot;, fname1, NULL);</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     path2 = t_strconcat(dir, &quot;/&quot;, fname2, NULL);</span>
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     if (stat(path1, &amp;st1) &lt; 0 || stat(path2, &amp;st2) &lt; 0) {</span>
+<span class="lineNum">     306 </span>            :         /* most likely the files just don't exist anymore.
+<span class="lineNum">     307 </span>            :            don't really care about other errors much. */
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     309 </span>            :     }
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     if (st1.st_ino == st2.st_ino &amp;&amp;</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         CMP_DEV_T(st1.st_dev, st2.st_dev)) {</span>
+<span class="lineNum">     312 </span>            :         /* Files are the same. this means either a race condition
+<span class="lineNum">     313 </span>            :            between stat() calls, or that the files were link()ed. */
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         if (st1.st_nlink &gt; 1 &amp;&amp; st2.st_nlink == st1.st_nlink &amp;&amp;</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :             st1.st_ctime == st2.st_ctime &amp;&amp;</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :             st1.st_ctime &lt; ioloop_time - DUPE_LINKS_DELETE_SECS) {</span>
+<span class="lineNum">     317 </span>            :             /* The file has hard links and it hasn't had any
+<span class="lineNum">     318 </span>            :                changes (such as renames) for a while, so this
+<span class="lineNum">     319 </span>            :                isn't a race condition.
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span>            :                rename()ing one file on top of the other would fix
+<span class="lineNum">     322 </span>            :                this safely, except POSIX decided that rename()
+<span class="lineNum">     323 </span>            :                doesn't work that way. So we'll have unlink() one
+<span class="lineNum">     324 </span>            :                and hope that another process didn't just decide to
+<span class="lineNum">     325 </span>            :                unlink() the other (uidlist lock prevents this from
+<span class="lineNum">     326 </span>            :                happening) */
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :             if (i_unlink(path2) == 0)</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :                 i_warning(&quot;Unlinked a duplicate: %s&quot;, path2);</span>
+<span class="lineNum">     329 </span>            :         }
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     331 </span>            :     }
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :     new_fname = maildir_filename_generate();</span>
+<span class="lineNum">     334 </span>            :     /* preserve S= and W= sizes if they're available.
+<span class="lineNum">     335 </span>            :        (S=size is required for zlib plugin to work) */
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     if (maildir_filename_get_size(fname2, MAILDIR_EXTRA_FILE_SIZE, &amp;size)) {</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :         new_fname = t_strdup_printf(&quot;%s,%c=%&quot;PRIuUOFF_T,</span>
+<span class="lineNum">     338 </span>            :             new_fname, MAILDIR_EXTRA_FILE_SIZE, size);
+<span class="lineNum">     339 </span>            :     }
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :     if (maildir_filename_get_size(fname2, MAILDIR_EXTRA_VIRTUAL_SIZE, &amp;size)) {</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :         new_fname = t_strdup_printf(&quot;%s,%c=%&quot;PRIuUOFF_T,</span>
+<span class="lineNum">     342 </span>            :             new_fname, MAILDIR_EXTRA_VIRTUAL_SIZE, size);
+<span class="lineNum">     343 </span>            :     }
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     new_path = t_strconcat(mailbox_get_path(&amp;ctx-&gt;mbox-&gt;box),</span>
+<span class="lineNum">     345 </span>            :                    &quot;/new/&quot;, new_fname, NULL);
+<span class="lineNum">     346 </span>            : 
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :     if (rename(path2, new_path) == 0)</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :         i_warning(&quot;Fixed a duplicate: %s -&gt; %s&quot;, path2, new_fname);</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     else if (errno != ENOENT) {</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     351 </span>            :             &quot;Couldn't fix a duplicate: rename(%s, %s) failed: %m&quot;,
+<span class="lineNum">     352 </span>            :             path2, new_path);
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     354 </span>            :     }
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     356 </span>            : }
+<a name="357"><span class="lineNum">     357 </span>            : </a>
+<span class="lineNum">     358 </span>            : static int
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 : maildir_rename_empty_basename(struct maildir_sync_context *ctx,</span>
+<span class="lineNum">     360 </span>            :                   const char *dir, const char *fname)
+<span class="lineNum">     361 </span>            : {
+<span class="lineNum">     362 </span>            :     const char *old_path, *new_fname, *new_path;
+<span class="lineNum">     363 </span>            : 
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     old_path = t_strconcat(dir, &quot;/&quot;, fname, NULL);</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     new_fname = maildir_filename_generate();</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     new_path = t_strconcat(mailbox_get_path(&amp;ctx-&gt;mbox-&gt;box),</span>
+<span class="lineNum">     367 </span>            :                    &quot;/new/&quot;, new_fname, NULL);
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :     if (rename(old_path, new_path) == 0)</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :         i_warning(&quot;Fixed broken filename: %s -&gt; %s&quot;, old_path, new_fname);</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :     else if (errno != ENOENT) {</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     372 </span>            :             &quot;Couldn't fix a broken filename: rename(%s, %s) failed: %m&quot;,
+<span class="lineNum">     373 </span>            :             old_path, new_path);
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     375 </span>            :     }
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     377 </span>            : }
+<a name="378"><span class="lineNum">     378 </span>            : </a>
+<span class="lineNum">     379 </span>            : static int
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 : maildir_stat(struct maildir_mailbox *mbox, const char *path, struct stat *st_r)</span>
+<span class="lineNum">     381 </span>            : {
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     struct mailbox *box = &amp;mbox-&gt;box;</span>
+<span class="lineNum">     383 </span>            :     int i;
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :     for (i = 0;; i++) {</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :         if (nfs_safe_stat(path, st_r) == 0)</span>
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         if (errno != ENOENT || i == MAILDIR_DELETE_RETRY_COUNT)</span>
+<span class="lineNum">     389 </span>            :             break;
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         if (!maildir_set_deleted(box))</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     393 </span>            :         /* try again */
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     mailbox_set_critical(box, &quot;stat(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     return -1;</span>
+<span class="lineNum">     398 </span>            : }
+<a name="399"><span class="lineNum">     399 </span>            : </a>
+<span class="lineNum">     400 </span>            : static int
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 : maildir_scan_dir(struct maildir_sync_context *ctx, bool new_dir, bool final,</span>
+<span class="lineNum">     402 </span>            :          enum maildir_scan_why why)
+<span class="lineNum">     403 </span>            : {
+<span class="lineNum">     404 </span>            :     const char *path;
+<span class="lineNum">     405 </span>            :     DIR *dirp;
+<span class="lineNum">     406 </span>            :     string_t *src, *dest;
+<span class="lineNum">     407 </span>            :     struct dirent *dp;
+<span class="lineNum">     408 </span>            :     struct stat st;
+<span class="lineNum">     409 </span>            :     enum maildir_uidlist_rec_flag flags;
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     unsigned int time_diff, i, readdir_count = 0, move_count = 0;</span>
+<span class="lineNum">     411 </span>            :     time_t start_time;
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     int ret = 1;</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     bool move_new, dir_changed = FALSE;</span>
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     path = new_dir ? ctx-&gt;new_dir : ctx-&gt;cur_dir;</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     for (i = 0;; i++) {</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         dirp = opendir(path);</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :         if (dirp != NULL)</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     420 </span>            : 
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :         if (errno != ENOENT || i == MAILDIR_DELETE_RETRY_COUNT) {</span>
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :             if (errno == EACCES) {</span>
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :                 mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box, &quot;%s&quot;,</span>
+<span class="lineNum">     424 </span>            :                     eacces_error_get(&quot;opendir&quot;, path));
+<span class="lineNum">     425 </span>            :             } else {
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :                 mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     427 </span>            :                     &quot;opendir(%s) failed: %m&quot;, path);
+<span class="lineNum">     428 </span>            :             }
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     430 </span>            :         }
+<span class="lineNum">     431 </span>            : 
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         if (!maildir_set_deleted(&amp;ctx-&gt;mbox-&gt;box))</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     434 </span>            :         /* try again */
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     436 </span>            : 
+<span class="lineNum">     437 </span>            : #ifdef HAVE_DIRFD
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     if (fstat(dirfd(dirp), &amp;st) &lt; 0) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     440 </span>            :             &quot;fstat(%s) failed: %m&quot;, path);
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :         (void)closedir(dirp);</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     443 </span>            :     }
+<span class="lineNum">     444 </span>            : #else
+<span class="lineNum">     445 </span>            :     if (maildir_stat(ctx-&gt;mbox, path, &amp;st) &lt; 0) {
+<span class="lineNum">     446 </span>            :         (void)closedir(dirp);
+<span class="lineNum">     447 </span>            :         return -1;
+<span class="lineNum">     448 </span>            :     }
+<span class="lineNum">     449 </span>            : #endif
+<span class="lineNum">     450 </span>            : 
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     start_time = time(NULL);</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     if (new_dir) {</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.new_check_time = start_time;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.new_mtime = st.st_mtime;</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.new_mtime_nsecs = ST_MTIME_NSEC(st);</span>
+<span class="lineNum">     456 </span>            :     } else {
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.cur_check_time = start_time;</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.cur_mtime = st.st_mtime;</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.cur_mtime_nsecs = ST_MTIME_NSEC(st);</span>
+<span class="lineNum">     460 </span>            :     }
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     src = t_str_new(1024);</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 :     dest = t_str_new(1024);</span>
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :     move_new = new_dir &amp;&amp; ctx-&gt;locked &amp;&amp;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :         ((ctx-&gt;mbox-&gt;box.flags &amp; MAILBOX_FLAG_DROP_RECENT) != 0 ||</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :          ctx-&gt;mbox-&gt;storage-&gt;set-&gt;maildir_empty_new);</span>
+<span class="lineNum">     468 </span>            : 
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :     errno = 0;</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :     for (; (dp = readdir(dirp)) != NULL; errno = 0) {</span>
+<span class="lineNum">     471 </span><span class="lineNoCov">          0 :         if (dp-&gt;d_name[0] == '.')</span>
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         if (dp-&gt;d_name[0] == MAILDIR_INFO_SEP) {</span>
+<span class="lineNum">     475 </span>            :             /* don't even try to use file with empty base name */
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :             if (maildir_rename_empty_basename(ctx, path,</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :                               dp-&gt;d_name) &lt; 0)</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     480 </span>            :         }
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :         flags = 0;</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         if (move_new) {</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :             i_assert(dp-&gt;d_name[0] != '\0');</span>
+<span class="lineNum">     485 </span>            : 
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :             str_truncate(src, 0);</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :             str_truncate(dest, 0);</span>
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :             str_printfa(src, &quot;%s/%s&quot;, ctx-&gt;new_dir, dp-&gt;d_name);</span>
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             str_printfa(dest, &quot;%s/%s&quot;, ctx-&gt;cur_dir, dp-&gt;d_name);</span>
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :             if (strchr(dp-&gt;d_name, MAILDIR_INFO_SEP) == NULL) {</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :                 str_append(dest, MAILDIR_FLAGS_FULL_SEP);</span>
+<span class="lineNum">     492 </span>            :             }
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :             if (rename(str_c(src), str_c(dest)) == 0) {</span>
+<span class="lineNum">     494 </span>            :                 /* we moved it - it's \Recent for us */
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :                 dir_changed = TRUE;</span>
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :                 move_count++;</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :                 flags |= MAILDIR_UIDLIST_REC_FLAG_MOVED |</span>
+<span class="lineNum">     498 </span>            :                     MAILDIR_UIDLIST_REC_FLAG_RECENT;
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :             } else if (ENOTFOUND(errno)) {</span>
+<span class="lineNum">     500 </span>            :                 /* someone else moved it already */
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :                 dir_changed = TRUE;</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :                 move_count++;</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :                 flags |= MAILDIR_UIDLIST_REC_FLAG_MOVED |</span>
+<span class="lineNum">     504 </span>            :                     MAILDIR_UIDLIST_REC_FLAG_RECENT;
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :             } else if (ENOSPACE(errno) || errno == EACCES) {</span>
+<span class="lineNum">     506 </span>            :                 /* not enough disk space / read-only maildir,
+<span class="lineNum">     507 </span>            :                    leave here */
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :                 flags |= MAILDIR_UIDLIST_REC_FLAG_NEW_DIR;</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :                 move_new = FALSE;</span>
+<span class="lineNum">     510 </span>            :             } else {
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :                 flags |= MAILDIR_UIDLIST_REC_FLAG_NEW_DIR;</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :                 mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     513 </span>            :                     &quot;rename(%s, %s) failed: %m&quot;,
+<span class="lineNum">     514 </span>            :                     str_c(src), str_c(dest));
+<span class="lineNum">     515 </span>            :             }
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :             if ((move_count % MAILDIR_SLOW_MOVE_COUNT) == 0)</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :                 maildir_sync_notify(ctx);</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :         } else if (new_dir) {</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :             flags |= MAILDIR_UIDLIST_REC_FLAG_NEW_DIR |</span>
+<span class="lineNum">     520 </span>            :                 MAILDIR_UIDLIST_REC_FLAG_RECENT;
+<span class="lineNum">     521 </span>            :         }
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :         readdir_count++;</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         if ((readdir_count % MAILDIR_SLOW_CHECK_COUNT) == 0)</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             maildir_sync_notify(ctx);</span>
+<span class="lineNum">     526 </span>            : 
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :         ret = maildir_uidlist_sync_next(ctx-&gt;uidlist_sync_ctx,</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :                         dp-&gt;d_name, flags);</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :             if (ret &lt; 0)</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     532 </span>            : 
+<span class="lineNum">     533 </span>            :             /* possibly duplicate - try fixing it */
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :             T_BEGIN {</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :                 ret = maildir_fix_duplicate(ctx, path,</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :                                 dp-&gt;d_name);</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :             } T_END;</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :             if (ret &lt; 0)</span>
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     540 </span>            :         }
+<span class="lineNum">     541 </span>            :     }
+<span class="lineNum">     542 </span>            : 
+<span class="lineNum">     543 </span>            : #ifdef __APPLE__
+<span class="lineNum">     544 </span>            :     if (errno == EINVAL &amp;&amp; move_count &gt; 0 &amp;&amp; !final) {
+<span class="lineNum">     545 </span>            :         /* OS X HFS+: readdir() fails sometimes when rename()
+<span class="lineNum">     546 </span>            :            have been done. */
+<span class="lineNum">     547 </span>            :         move_count = MAILDIR_RENAME_RESCAN_COUNT + 1;
+<span class="lineNum">     548 </span>            :     } else
+<span class="lineNum">     549 </span>            : #endif
+<span class="lineNum">     550 </span>            : 
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :     if (errno != 0) {</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     553 </span>            :                      &quot;readdir(%s) failed: %m&quot;, path);
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     555 </span>            :     }
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :     if (closedir(dirp) &lt; 0) {</span>
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :         mailbox_set_critical(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     559 </span>            :                      &quot;closedir(%s) failed: %m&quot;, path);
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     561 </span>            :     }
+<span class="lineNum">     562 </span>            : 
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :     if (dir_changed) {</span>
+<span class="lineNum">     564 </span>            :         /* save the exact new times. the new mtimes should be &gt;=
+<span class="lineNum">     565 </span>            :            &quot;start_time&quot;, but just in case something weird happens and
+<span class="lineNum">     566 </span>            :            mtime doesn't update, use &quot;start_time&quot;. */
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :         if (stat(ctx-&gt;new_dir, &amp;st) == 0) {</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;maildir_hdr.new_check_time =</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :                 I_MAX(st.st_mtime, start_time);</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;maildir_hdr.new_mtime = st.st_mtime;</span>
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;maildir_hdr.new_mtime_nsecs =</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :                 ST_MTIME_NSEC(st);</span>
+<span class="lineNum">     573 </span>            :         }
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         if (stat(ctx-&gt;cur_dir, &amp;st) == 0) {</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;maildir_hdr.new_check_time =</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :                 I_MAX(st.st_mtime, start_time);</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;maildir_hdr.cur_mtime = st.st_mtime;</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :             ctx-&gt;mbox-&gt;maildir_hdr.cur_mtime_nsecs =</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :                 ST_MTIME_NSEC(st);</span>
+<span class="lineNum">     580 </span>            :         }
+<span class="lineNum">     581 </span>            :     }
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :     time_diff = time(NULL) - start_time;</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :     if (time_diff &gt;= MAILDIR_SYNC_TIME_WARN_SECS) {</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :         i_warning(&quot;Maildir: Scanning %s took %u seconds &quot;</span>
+<span class="lineNum">     585 </span>            :               &quot;(%u readdir()s, %u rename()s to cur/, why=0x%x)&quot;,
+<span class="lineNum">     586 </span>            :               path, time_diff, readdir_count, move_count, why);
+<span class="lineNum">     587 </span>            :     }
+<span class="lineNum">     588 </span>            : 
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :     return ret &lt; 0 ? -1 :</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         (move_count &lt;= MAILDIR_RENAME_RESCAN_COUNT || final ? 0 : 1);</span>
+<a name="591"><span class="lineNum">     591 </span>            : }</a>
+<span class="lineNum">     592 </span>            : 
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 : static void maildir_sync_get_header(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">     594 </span>            : {
+<span class="lineNum">     595 </span>            :     const void *data;
+<span class="lineNum">     596 </span>            :     size_t data_size;
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :     mail_index_get_header_ext(mbox-&gt;box.view, mbox-&gt;maildir_ext_id,</span>
+<span class="lineNum">     599 </span>            :                   &amp;data, &amp;data_size);
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :     if (data_size == 0) {</span>
+<span class="lineNum">     601 </span>            :         /* header doesn't exist */
+<span class="lineNum">     602 </span>            :     } else {
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :         memcpy(&amp;mbox-&gt;maildir_hdr, data,</span>
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :                I_MIN(sizeof(mbox-&gt;maildir_hdr), data_size));</span>
+<span class="lineNum">     605 </span>            :     }
+<a name="606"><span class="lineNum">     606 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     607 </span>            : 
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 : int maildir_sync_header_refresh(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">     609 </span>            : {
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :     if (mail_index_refresh(mbox-&gt;box.index) &lt; 0) {</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :         mailbox_set_index_error(&amp;mbox-&gt;box);</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     613 </span>            :     }
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :     maildir_sync_get_header(mbox);</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="616"><span class="lineNum">     616 </span>            : }</a>
+<span class="lineNum">     617 </span>            : 
+<span class="lineNum">     618 </span><span class="lineNoCov">          0 : static int maildir_sync_quick_check(struct maildir_mailbox *mbox, bool undirty,</span>
+<span class="lineNum">     619 </span>            :                     const char *new_dir, const char *cur_dir,
+<span class="lineNum">     620 </span>            :                     bool *new_changed_r, bool *cur_changed_r,
+<span class="lineNum">     621 </span>            :                     enum maildir_scan_why *why_r)
+<span class="lineNum">     622 </span>            : {
+<span class="lineNum">     623 </span>            : #define DIR_DELAYED_REFRESH(hdr, name) \
+<span class="lineNum">     624 </span>            :     ((hdr)-&gt;name ## _check_time &lt;= \
+<span class="lineNum">     625 </span>            :         (hdr)-&gt;name ## _mtime + MAILDIR_SYNC_SECS &amp;&amp; \
+<span class="lineNum">     626 </span>            :      (undirty || \
+<span class="lineNum">     627 </span>            :       (time_t)(hdr)-&gt;name ## _check_time &lt; ioloop_time - MAILDIR_SYNC_SECS))
+<span class="lineNum">     628 </span>            : 
+<span class="lineNum">     629 </span>            : #define DIR_MTIME_CHANGED(st, hdr, name) \
+<span class="lineNum">     630 </span>            :     ((st).st_mtime != (time_t)(hdr)-&gt;name ## _mtime || \
+<span class="lineNum">     631 </span>            :      !ST_NTIMES_EQUAL(ST_MTIME_NSEC(st), (hdr)-&gt;name ## _mtime_nsecs))
+<span class="lineNum">     632 </span>            : 
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :     struct maildir_index_header *hdr = &amp;mbox-&gt;maildir_hdr;</span>
+<span class="lineNum">     634 </span>            :     struct stat new_st, cur_st;
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :     bool refreshed = FALSE, check_new = FALSE, check_cur = FALSE;</span>
+<span class="lineNum">     636 </span>            : 
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :     *why_r = 0;</span>
+<span class="lineNum">     638 </span>            : 
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :     if (mbox-&gt;maildir_hdr.new_mtime == 0) {</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :         maildir_sync_get_header(mbox);</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :         if (mbox-&gt;maildir_hdr.new_mtime == 0) {</span>
+<span class="lineNum">     642 </span>            :             /* first sync */
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :             *why_r |= WHY_FIRSTSYNC;</span>
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :             *new_changed_r = *cur_changed_r = TRUE;</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     646 </span>            :         }
+<span class="lineNum">     647 </span>            :     }
+<span class="lineNum">     648 </span>            : 
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :     *new_changed_r = *cur_changed_r = FALSE;</span>
+<span class="lineNum">     650 </span>            : 
+<span class="lineNum">     651 </span>            :     /* try to avoid stat()ing by first checking delayed changes */
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :     if (DIR_DELAYED_REFRESH(hdr, new) ||</span>
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :         (DIR_DELAYED_REFRESH(hdr, cur) &amp;&amp;</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :          !mbox-&gt;storage-&gt;set-&gt;maildir_very_dirty_syncs)) {</span>
+<span class="lineNum">     655 </span>            :         /* refresh index and try again */
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :         if (maildir_sync_header_refresh(mbox) &lt; 0)</span>
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :         refreshed = TRUE;</span>
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :         if (DIR_DELAYED_REFRESH(hdr, new)) {</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :             *why_r |= WHY_DELAYEDNEW;</span>
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :             *new_changed_r = TRUE;</span>
+<span class="lineNum">     663 </span>            :         }
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :         if (DIR_DELAYED_REFRESH(hdr, cur) &amp;&amp;</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :             !mbox-&gt;storage-&gt;set-&gt;maildir_very_dirty_syncs) {</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :             *why_r |= WHY_DELAYEDCUR;</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :             *cur_changed_r = TRUE;</span>
+<span class="lineNum">     668 </span>            :         }
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :         if (*new_changed_r &amp;&amp; *cur_changed_r)</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     671 </span>            :     }
+<span class="lineNum">     672 </span>            : 
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :     if (!*new_changed_r) {</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :         if (maildir_stat(mbox, new_dir, &amp;new_st) &lt; 0)</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :         check_new = TRUE;</span>
+<span class="lineNum">     677 </span>            :     }
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :     if (!*cur_changed_r) {</span>
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :         if (maildir_stat(mbox, cur_dir, &amp;cur_st) &lt; 0)</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     681 </span><span class="lineNoCov">          0 :         check_cur = TRUE;</span>
+<span class="lineNum">     682 </span>            :     }
+<span class="lineNum">     683 </span>            : 
+<span class="lineNum">     684 </span>            :     for (;;) {
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         if (check_new) {</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :             *new_changed_r = DIR_MTIME_CHANGED(new_st, hdr, new);</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :             if (*new_changed_r)</span>
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :                 *why_r |= WHY_NEWCHANGED;</span>
+<span class="lineNum">     689 </span>            :         }
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :         if (check_cur) {</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :             *cur_changed_r = DIR_MTIME_CHANGED(cur_st, hdr, cur);</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :             if (*cur_changed_r)</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :                 *why_r |= WHY_CURCHANGED;</span>
+<span class="lineNum">     694 </span>            :         }
+<span class="lineNum">     695 </span>            : 
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :         if ((!*new_changed_r &amp;&amp; !*cur_changed_r) || refreshed)</span>
+<span class="lineNum">     697 </span>            :             break;
+<span class="lineNum">     698 </span>            : 
+<span class="lineNum">     699 </span>            :         /* refresh index and try again */
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :         if (maildir_sync_header_refresh(mbox) &lt; 0)</span>
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :         refreshed = TRUE;</span>
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     704 </span>            : 
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="706"><span class="lineNum">     706 </span>            : }</a>
+<span class="lineNum">     707 </span>            : 
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 : static void maildir_sync_update_next_uid(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">     709 </span>            : {
+<span class="lineNum">     710 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     711 </span>            :     uint32_t uid_validity;
+<span class="lineNum">     712 </span>            : 
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(mbox-&gt;box.view);</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     if (hdr-&gt;uid_validity == 0)</span>
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     716 </span>            : 
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     uid_validity = maildir_uidlist_get_uid_validity(mbox-&gt;uidlist);</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     if (uid_validity == hdr-&gt;uid_validity || uid_validity == 0) {</span>
+<span class="lineNum">     719 </span>            :         /* make sure uidlist's next_uid is at least as large as
+<span class="lineNum">     720 </span>            :            index file's. typically this happens only if uidlist gets
+<span class="lineNum">     721 </span>            :            deleted. */
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :         maildir_uidlist_set_uid_validity(mbox-&gt;uidlist,</span>
+<span class="lineNum">     723 </span>            :                          hdr-&gt;uid_validity);
+<span class="lineNum">     724 </span><span class="lineNoCov">          0 :         maildir_uidlist_set_next_uid(mbox-&gt;uidlist,</span>
+<span class="lineNum">     725 </span>            :                          hdr-&gt;next_uid, FALSE);
+<span class="lineNum">     726 </span>            :     }
+<span class="lineNum">     727 </span>            : }
+<a name="728"><span class="lineNum">     728 </span>            : </a>
+<span class="lineNum">     729 </span>            : static bool
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 : have_recent_messages(struct maildir_sync_context *ctx, bool seen_changes)</span>
+<span class="lineNum">     731 </span>            : {
+<span class="lineNum">     732 </span>            :     const struct mail_index_header *hdr;
+<span class="lineNum">     733 </span>            :     uint32_t next_uid;
+<span class="lineNum">     734 </span>            : 
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     hdr = mail_index_get_header(ctx-&gt;mbox-&gt;box.view);</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :     if (!seen_changes) {</span>
+<span class="lineNum">     737 </span>            :         /* index is up to date. get the next-uid from it */
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :         next_uid = hdr-&gt;next_uid;</span>
+<span class="lineNum">     739 </span>            :     } else {
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :         (void)maildir_uidlist_refresh(ctx-&gt;mbox-&gt;uidlist);</span>
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :         next_uid = maildir_uidlist_get_next_uid(ctx-&gt;mbox-&gt;uidlist);</span>
+<span class="lineNum">     742 </span>            :     }
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :     return hdr-&gt;first_recent_uid &lt; next_uid;</span>
+<a name="744"><span class="lineNum">     744 </span>            : }</a>
+<span class="lineNum">     745 </span>            : 
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 : static int maildir_sync_get_changes(struct maildir_sync_context *ctx,</span>
+<span class="lineNum">     747 </span>            :                     bool *new_changed_r, bool *cur_changed_r,
+<span class="lineNum">     748 </span>            :                     enum maildir_scan_why *why_r)
+<span class="lineNum">     749 </span>            : {
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :     struct maildir_mailbox *mbox = ctx-&gt;mbox;</span>
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :     enum mail_index_sync_flags flags = 0;</span>
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :     bool undirty = (ctx-&gt;flags &amp; MAILBOX_SYNC_FLAG_FULL_READ) != 0;</span>
+<span class="lineNum">     753 </span>            : 
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :     *why_r = 0;</span>
+<span class="lineNum">     755 </span>            : 
+<span class="lineNum">     756 </span><span class="lineNoCov">          0 :     if (maildir_sync_quick_check(mbox, undirty, ctx-&gt;new_dir, ctx-&gt;cur_dir,</span>
+<span class="lineNum">     757 </span>            :                      new_changed_r, cur_changed_r, why_r) &lt; 0)
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     759 </span>            : 
+<span class="lineNum">     760 </span>            :     /* if there are files in new/, we'll need to move them. we'll check
+<span class="lineNum">     761 </span>            :        this by seeing if we have any recent messages */
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :     if ((mbox-&gt;box.flags &amp; MAILBOX_FLAG_DROP_RECENT) != 0) {</span>
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :         if (!*new_changed_r &amp;&amp; have_recent_messages(ctx, FALSE)) {</span>
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :             *new_changed_r = TRUE;</span>
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :             *why_r |= WHY_DROPRECENT;</span>
+<span class="lineNum">     766 </span>            :         }
+<span class="lineNum">     767 </span><span class="lineNoCov">          0 :     } else if (*new_changed_r) {</span>
+<span class="lineNum">     768 </span>            :         /* if recent messages have been externally deleted from new/,
+<span class="lineNum">     769 </span>            :            we need to get them out of index. this requires that
+<span class="lineNum">     770 </span>            :            we make sure they weren't just moved to cur/. */
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :         if (!*cur_changed_r &amp;&amp; have_recent_messages(ctx, TRUE)) {</span>
+<span class="lineNum">     772 </span><span class="lineNoCov">          0 :             *cur_changed_r = TRUE;</span>
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :             *why_r |= WHY_FINDRECENT;</span>
+<span class="lineNum">     774 </span>            :         }
+<span class="lineNum">     775 </span>            :     }
+<span class="lineNum">     776 </span>            : 
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :     if (*new_changed_r || *cur_changed_r)</span>
+<span class="lineNum">     778 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     779 </span>            : 
+<span class="lineNum">     780 </span><span class="lineNoCov">          0 :     if ((mbox-&gt;box.flags &amp; MAILBOX_FLAG_DROP_RECENT) != 0)</span>
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :         flags |= MAIL_INDEX_SYNC_FLAG_DROP_RECENT;</span>
+<span class="lineNum">     782 </span>            : 
+<span class="lineNum">     783 </span><span class="lineNoCov">          0 :     if (mbox-&gt;synced) {</span>
+<span class="lineNum">     784 </span>            :         /* refresh index only after the first sync, i.e. avoid wasting
+<span class="lineNum">     785 </span>            :            time on refreshing it immediately after it was just opened */
+<span class="lineNum">     786 </span><span class="lineNoCov">          0 :         mail_index_refresh(mbox-&gt;box.index);</span>
+<span class="lineNum">     787 </span>            :     }
+<span class="lineNum">     788 </span><span class="lineNoCov">          0 :     return mail_index_sync_have_any(mbox-&gt;box.index, flags) ? 1 : 0;</span>
+<span class="lineNum">     789 </span>            : }
+<a name="790"><span class="lineNum">     790 </span>            : </a>
+<span class="lineNum">     791 </span>            : static int ATTR_NULL(3)
+<span class="lineNum">     792 </span><span class="lineNoCov">          0 : maildir_sync_context(struct maildir_sync_context *ctx, bool forced,</span>
+<span class="lineNum">     793 </span>            :              uint32_t *find_uid, bool *lost_files_r)
+<span class="lineNum">     794 </span>            : {
+<span class="lineNum">     795 </span>            :     enum maildir_uidlist_sync_flags sync_flags;
+<span class="lineNum">     796 </span>            :     enum maildir_uidlist_rec_flag flags;
+<span class="lineNum">     797 </span>            :     bool new_changed, cur_changed, lock_failure;
+<span class="lineNum">     798 </span>            :     const char *fname;
+<span class="lineNum">     799 </span>            :     enum maildir_scan_why why;
+<span class="lineNum">     800 </span>            :     int ret;
+<span class="lineNum">     801 </span>            : 
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :     *lost_files_r = FALSE;</span>
+<span class="lineNum">     803 </span>            : 
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :     if (forced) {</span>
+<span class="lineNum">     805 </span><span class="lineNoCov">          0 :         new_changed = cur_changed = TRUE;</span>
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 :         why = WHY_FORCED;</span>
+<span class="lineNum">     807 </span>            :     } else {
+<span class="lineNum">     808 </span><span class="lineNoCov">          0 :         ret = maildir_sync_get_changes(ctx, &amp;new_changed, &amp;cur_changed,</span>
+<span class="lineNum">     809 </span>            :                            &amp;why);
+<span class="lineNum">     810 </span><span class="lineNoCov">          0 :         if (ret &lt;= 0)</span>
+<span class="lineNum">     811 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     812 </span>            :     }
+<span class="lineNum">     813 </span>            : 
+<span class="lineNum">     814 </span>            :     /*
+<span class="lineNum">     815 </span>            :        Locking, locking, locking.. Wasn't maildir supposed to be lockless?
+<span class="lineNum">     816 </span>            : 
+<span class="lineNum">     817 </span>            :        We can get here either as beginning a real maildir sync, or when
+<span class="lineNum">     818 </span>            :        committing changes to maildir but a file was lost (maybe renamed).
+<span class="lineNum">     819 </span>            : 
+<span class="lineNum">     820 </span>            :        So, we're going to need two locks. One for index and one for
+<span class="lineNum">     821 </span>            :        uidlist. To avoid deadlocking do the uidlist lock always first.
+<span class="lineNum">     822 </span>            : 
+<span class="lineNum">     823 </span>            :        uidlist is needed only for figuring out UIDs for newly seen files,
+<span class="lineNum">     824 </span>            :        so theoretically we wouldn't need to lock it unless there are new
+<span class="lineNum">     825 </span>            :        files. It has a few problems though, assuming the index lock didn't
+<span class="lineNum">     826 </span>            :        already protect it (eg. in-memory indexes):
+<span class="lineNum">     827 </span>            : 
+<span class="lineNum">     828 </span>            :        1. Just because you see a new file which doesn't exist in uidlist
+<span class="lineNum">     829 </span>            :        file, doesn't mean that the file really exists anymore, or that
+<span class="lineNum">     830 </span>            :        your readdir() lists all new files. Meaning that this is possible:
+<span class="lineNum">     831 </span>            : 
+<span class="lineNum">     832 </span>            :          A: opendir(), readdir() -&gt; new file ...
+<span class="lineNum">     833 </span>            :          -- new files are written to the maildir --
+<span class="lineNum">     834 </span>            :          B: opendir(), readdir() -&gt; new file, lock uidlist,
+<span class="lineNum">     835 </span>            :         readdir() -&gt; another new file, rewrite uidlist, unlock
+<span class="lineNum">     836 </span>            :          A: ... lock uidlist, readdir() -&gt; nothing left, rewrite uidlist,
+<span class="lineNum">     837 </span>            :         unlock
+<span class="lineNum">     838 </span>            : 
+<span class="lineNum">     839 </span>            :        The second time running A didn't see the two new files. To handle
+<span class="lineNum">     840 </span>            :        this correctly, it must not remove the new unseen files from
+<span class="lineNum">     841 </span>            :        uidlist. This is possible to do, but adds extra complexity.
+<span class="lineNum">     842 </span>            : 
+<span class="lineNum">     843 </span>            :        2. If another process is rename()ing files while we are
+<span class="lineNum">     844 </span>            :        readdir()ing, it's possible that readdir() never lists some files,
+<span class="lineNum">     845 </span>            :        causing Dovecot to assume they were expunged. In next sync they
+<span class="lineNum">     846 </span>            :        would show up again, but client could have already been notified of
+<span class="lineNum">     847 </span>            :        that and they would show up under new UIDs, so the damage is
+<span class="lineNum">     848 </span>            :        already done.
+<span class="lineNum">     849 </span>            : 
+<span class="lineNum">     850 </span>            :        Both of the problems can be avoided if we simply lock the uidlist
+<span class="lineNum">     851 </span>            :        before syncing and keep it until sync is finished. Typically this
+<span class="lineNum">     852 </span>            :        would happen in any case, as there is the index lock..
+<span class="lineNum">     853 </span>            : 
+<span class="lineNum">     854 </span>            :        The second case is still a problem with external changes though,
+<span class="lineNum">     855 </span>            :        because maildir doesn't require any kind of locking. Luckily this
+<span class="lineNum">     856 </span>            :        problem rarely happens except under high amount of modifications.
+<span class="lineNum">     857 </span>            :     */
+<span class="lineNum">     858 </span>            : 
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :     if (!cur_changed) {</span>
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 :         ctx-&gt;partial = TRUE;</span>
+<span class="lineNum">     861 </span><span class="lineNoCov">          0 :         sync_flags = MAILDIR_UIDLIST_SYNC_PARTIAL;</span>
+<span class="lineNum">     862 </span>            :     } else {
+<span class="lineNum">     863 </span><span class="lineNoCov">          0 :         ctx-&gt;partial = FALSE;</span>
+<span class="lineNum">     864 </span><span class="lineNoCov">          0 :         sync_flags = 0;</span>
+<span class="lineNum">     865 </span><span class="lineNoCov">          0 :         if (forced)</span>
+<span class="lineNum">     866 </span><span class="lineNoCov">          0 :             sync_flags |= MAILDIR_UIDLIST_SYNC_FORCE;</span>
+<span class="lineNum">     867 </span><span class="lineNoCov">          0 :         if ((ctx-&gt;flags &amp; MAILBOX_SYNC_FLAG_FAST) != 0)</span>
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :             sync_flags |= MAILDIR_UIDLIST_SYNC_TRYLOCK;</span>
+<span class="lineNum">     869 </span>            :     }
+<span class="lineNum">     870 </span><span class="lineNoCov">          0 :     ret = maildir_uidlist_sync_init(ctx-&gt;mbox-&gt;uidlist, sync_flags,</span>
+<span class="lineNum">     871 </span>            :                     &amp;ctx-&gt;uidlist_sync_ctx);
+<span class="lineNum">     872 </span><span class="lineNoCov">          0 :     lock_failure = ret &lt;= 0;</span>
+<span class="lineNum">     873 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     874 </span><span class="lineNoCov">          0 :         struct mail_storage *storage = ctx-&gt;mbox-&gt;box.storage;</span>
+<span class="lineNum">     875 </span>            : 
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     877 </span>            :             /* timeout */
+<span class="lineNum">     878 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     879 </span>            :         }
+<span class="lineNum">     880 </span>            :         /* locking failed. sync anyway without locking so that it's
+<span class="lineNum">     881 </span>            :            possible to expunge messages when out of quota. */
+<span class="lineNum">     882 </span><span class="lineNoCov">          0 :         if (forced) {</span>
+<span class="lineNum">     883 </span>            :             /* we're already forcing a sync, we're trying to find
+<span class="lineNum">     884 </span>            :                a message that was probably already expunged, don't
+<span class="lineNum">     885 </span>            :                loop for a long time trying to find it. */
+<span class="lineNum">     886 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     887 </span>            :         }
+<span class="lineNum">     888 </span><span class="lineNoCov">          0 :         ret = maildir_uidlist_sync_init(ctx-&gt;mbox-&gt;uidlist, sync_flags |</span>
+<span class="lineNum">     889 </span>            :                         MAILDIR_UIDLIST_SYNC_NOLOCK,
+<span class="lineNum">     890 </span>            :                         &amp;ctx-&gt;uidlist_sync_ctx);
+<span class="lineNum">     891 </span><span class="lineNoCov">          0 :         if (ret &lt;= 0) {</span>
+<span class="lineNum">     892 </span><span class="lineNoCov">          0 :             i_assert(ret != 0);</span>
+<span class="lineNum">     893 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     894 </span>            :         }
+<span class="lineNum">     895 </span>            : 
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :         if (storage-&gt;callbacks.notify_no != NULL) {</span>
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 :             storage-&gt;callbacks.notify_no(&amp;ctx-&gt;mbox-&gt;box,</span>
+<span class="lineNum">     898 </span>            :                 &quot;Internal mailbox synchronization failure, &quot;
+<span class="lineNum">     899 </span>            :                 &quot;showing only old mails.&quot;,
+<span class="lineNum">     900 </span>            :                 storage-&gt;callback_context);
+<span class="lineNum">     901 </span>            :         }
+<span class="lineNum">     902 </span>            :     }
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :     ctx-&gt;locked = maildir_uidlist_is_locked(ctx-&gt;mbox-&gt;uidlist);</span>
+<span class="lineNum">     904 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;locked)</span>
+<span class="lineNum">     905 </span><span class="lineNoCov">          0 :         ctx-&gt;partial = TRUE;</span>
+<span class="lineNum">     906 </span>            : 
+<span class="lineNum">     907 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;mbox-&gt;syncing_commit &amp;&amp; (ctx-&gt;locked || lock_failure)) {</span>
+<span class="lineNum">     908 </span><span class="lineNoCov">          0 :         if (maildir_sync_index_begin(ctx-&gt;mbox, ctx,</span>
+<span class="lineNum">     909 </span>            :                          &amp;ctx-&gt;index_sync_ctx) &lt; 0)
+<span class="lineNum">     910 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     911 </span>            :     }
+<span class="lineNum">     912 </span>            : 
+<span class="lineNum">     913 </span><span class="lineNoCov">          0 :     if (new_changed || cur_changed) {</span>
+<span class="lineNum">     914 </span>            :         /* if we're going to check cur/ dir our current logic requires
+<span class="lineNum">     915 </span>            :            that new/ dir is checked as well. it's a good idea anyway. */
+<span class="lineNum">     916 </span><span class="lineNoCov">          0 :         unsigned int count = 0;</span>
+<span class="lineNum">     917 </span><span class="lineNoCov">          0 :         bool final = FALSE;</span>
+<span class="lineNum">     918 </span>            : 
+<span class="lineNum">     919 </span><span class="lineNoCov">          0 :         while ((ret = maildir_scan_dir(ctx, TRUE, final, why)) &gt; 0) {</span>
+<span class="lineNum">     920 </span>            :             /* rename()d at least some files, which might have
+<span class="lineNum">     921 </span>            :                caused some other files to be missed. check again
+<span class="lineNum">     922 </span>            :                (see MAILDIR_RENAME_RESCAN_COUNT). */
+<span class="lineNum">     923 </span><span class="lineNoCov">          0 :             if (++count &gt;= MAILDIR_SCAN_DIR_MAX_COUNT)</span>
+<span class="lineNum">     924 </span><span class="lineNoCov">          0 :                 final = TRUE;</span>
+<span class="lineNum">     925 </span>            :         }
+<span class="lineNum">     926 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     927 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     928 </span>            : 
+<span class="lineNum">     929 </span><span class="lineNoCov">          0 :         if (cur_changed) {</span>
+<span class="lineNum">     930 </span><span class="lineNoCov">          0 :             if (maildir_scan_dir(ctx, FALSE, TRUE, why) &lt; 0)</span>
+<span class="lineNum">     931 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     932 </span>            :         }
+<span class="lineNum">     933 </span>            : 
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 :         maildir_sync_update_next_uid(ctx-&gt;mbox);</span>
+<span class="lineNum">     935 </span>            : 
+<span class="lineNum">     936 </span>            :         /* finish uidlist syncing, but keep it still locked */
+<span class="lineNum">     937 </span><span class="lineNoCov">          0 :         maildir_uidlist_sync_finish(ctx-&gt;uidlist_sync_ctx);</span>
+<span class="lineNum">     938 </span>            :     }
+<span class="lineNum">     939 </span>            : 
+<span class="lineNum">     940 </span><span class="lineNoCov">          0 :     if (!ctx-&gt;locked) {</span>
+<span class="lineNum">     941 </span>            :         /* make sure we sync the maildir later */
+<span class="lineNum">     942 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.new_mtime = 0;</span>
+<span class="lineNum">     943 </span><span class="lineNoCov">          0 :         ctx-&gt;mbox-&gt;maildir_hdr.cur_mtime = 0;</span>
+<span class="lineNum">     944 </span>            :     }
+<span class="lineNum">     945 </span>            : 
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 :     if (ctx-&gt;index_sync_ctx != NULL) {</span>
+<span class="lineNum">     947 </span>            :         /* NOTE: index syncing here might cause a re-sync due to
+<span class="lineNum">     948 </span>            :            files getting lost, so this function might be called
+<span class="lineNum">     949 </span>            :            reentrantly. */
+<span class="lineNum">     950 </span><span class="lineNoCov">          0 :         ret = maildir_sync_index(ctx-&gt;index_sync_ctx, ctx-&gt;partial);</span>
+<span class="lineNum">     951 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     952 </span><span class="lineNoCov">          0 :             maildir_sync_index_rollback(&amp;ctx-&gt;index_sync_ctx);</span>
+<span class="lineNum">     953 </span><span class="lineNoCov">          0 :         else if (maildir_sync_index_commit(&amp;ctx-&gt;index_sync_ctx) &lt; 0)</span>
+<span class="lineNum">     954 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     955 </span>            : 
+<span class="lineNum">     956 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     957 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     958 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     959 </span><span class="lineNoCov">          0 :             *lost_files_r = TRUE;</span>
+<span class="lineNum">     960 </span>            : 
+<span class="lineNum">     961 </span><span class="lineNoCov">          0 :         i_assert(maildir_uidlist_is_locked(ctx-&gt;mbox-&gt;uidlist) ||</span>
+<span class="lineNum">     962 </span>            :              lock_failure);
+<span class="lineNum">     963 </span>            :     }
+<span class="lineNum">     964 </span>            : 
+<span class="lineNum">     965 </span><span class="lineNoCov">          0 :     if (find_uid != NULL &amp;&amp; *find_uid != 0) {</span>
+<span class="lineNum">     966 </span><span class="lineNoCov">          0 :         ret = maildir_uidlist_lookup(ctx-&gt;mbox-&gt;uidlist,</span>
+<span class="lineNum">     967 </span>            :                          *find_uid, &amp;flags, &amp;fname);
+<span class="lineNum">     968 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     969 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     970 </span><span class="lineNoCov">          0 :         if (ret == 0) {</span>
+<span class="lineNum">     971 </span>            :             /* UID is expunged */
+<span class="lineNum">     972 </span><span class="lineNoCov">          0 :             *find_uid = 0;</span>
+<span class="lineNum">     973 </span><span class="lineNoCov">          0 :         } else if ((flags &amp; MAILDIR_UIDLIST_REC_FLAG_NONSYNCED) == 0) {</span>
+<span class="lineNum">     974 </span><span class="lineNoCov">          0 :             *find_uid = 0;</span>
+<span class="lineNum">     975 </span>            :         } else {
+<span class="lineNum">     976 </span>            :             /* we didn't find it, possibly expunged? */
+<span class="lineNum">     977 </span>            :         }
+<span class="lineNum">     978 </span>            :     }
+<span class="lineNum">     979 </span>            : 
+<span class="lineNum">     980 </span><span class="lineNoCov">          0 :     return maildir_uidlist_sync_deinit(&amp;ctx-&gt;uidlist_sync_ctx, TRUE);</span>
+<a name="981"><span class="lineNum">     981 </span>            : }</a>
+<span class="lineNum">     982 </span>            : 
+<span class="lineNum">     983 </span><span class="lineNoCov">          0 : int maildir_sync_lookup(struct maildir_mailbox *mbox, uint32_t uid,</span>
+<span class="lineNum">     984 </span>            :             enum maildir_uidlist_rec_flag *flags_r,
+<span class="lineNum">     985 </span>            :             const char **fname_r)
+<span class="lineNum">     986 </span>            : {
+<span class="lineNum">     987 </span>            :     int ret;
+<span class="lineNum">     988 </span>            : 
+<span class="lineNum">     989 </span><span class="lineNoCov">          0 :     ret = maildir_uidlist_lookup(mbox-&gt;uidlist, uid, flags_r, fname_r);</span>
+<span class="lineNum">     990 </span><span class="lineNoCov">          0 :     if (ret != 0)</span>
+<span class="lineNum">     991 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     992 </span>            : 
+<span class="lineNum">     993 </span><span class="lineNoCov">          0 :     if (maildir_uidlist_is_open(mbox-&gt;uidlist)) {</span>
+<span class="lineNum">     994 </span>            :         /* refresh uidlist and check again in case it was added
+<span class="lineNum">     995 </span>            :            after the last mailbox sync */
+<span class="lineNum">     996 </span><span class="lineNoCov">          0 :         if (mbox-&gt;sync_uidlist_refreshed) {</span>
+<span class="lineNum">     997 </span>            :             /* we've already refreshed it, don't bother again */
+<span class="lineNum">     998 </span><span class="lineNoCov">          0 :             return ret;</span>
+<span class="lineNum">     999 </span>            :         }
+<span class="lineNum">    1000 </span><span class="lineNoCov">          0 :         mbox-&gt;sync_uidlist_refreshed = TRUE;</span>
+<span class="lineNum">    1001 </span><span class="lineNoCov">          0 :         if (maildir_uidlist_refresh(mbox-&gt;uidlist) &lt; 0)</span>
+<span class="lineNum">    1002 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">    1003 </span>            :     } else {
+<span class="lineNum">    1004 </span>            :         /* the uidlist doesn't exist. */
+<span class="lineNum">    1005 </span><span class="lineNoCov">          0 :         if (maildir_storage_sync_force(mbox, uid) &lt; 0)</span>
+<span class="lineNum">    1006 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">    1007 </span>            :     }
+<span class="lineNum">    1008 </span>            : 
+<span class="lineNum">    1009 </span>            :     /* try again */
+<span class="lineNum">    1010 </span><span class="lineNoCov">          0 :     return maildir_uidlist_lookup(mbox-&gt;uidlist, uid, flags_r, fname_r);</span>
+<a name="1011"><span class="lineNum">    1011 </span>            : }</a>
+<span class="lineNum">    1012 </span>            : 
+<span class="lineNum">    1013 </span><span class="lineNoCov">          0 : static int maildir_sync_run(struct maildir_mailbox *mbox,</span>
+<span class="lineNum">    1014 </span>            :                 enum mailbox_sync_flags flags, bool force_resync,
+<span class="lineNum">    1015 </span>            :                 uint32_t *uid, bool *lost_files_r)
+<span class="lineNum">    1016 </span>            : {
+<span class="lineNum">    1017 </span>            :     struct maildir_sync_context *ctx;
+<span class="lineNum">    1018 </span>            :     bool retry, lost_files;
+<span class="lineNum">    1019 </span>            :     int ret;
+<span class="lineNum">    1020 </span>            : 
+<span class="lineNum">    1021 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">    1022 </span><span class="lineNoCov">          0 :         ctx = maildir_sync_context_new(mbox, flags);</span>
+<span class="lineNum">    1023 </span><span class="lineNoCov">          0 :         ret = maildir_sync_context(ctx, force_resync, uid, lost_files_r);</span>
+<span class="lineNum">    1024 </span><span class="lineNoCov">          0 :         retry = ctx-&gt;racing;</span>
+<span class="lineNum">    1025 </span><span class="lineNoCov">          0 :         maildir_sync_deinit(ctx);</span>
+<span class="lineNum">    1026 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">    1027 </span>            : 
+<span class="lineNum">    1028 </span><span class="lineNoCov">          0 :     if (retry) T_BEGIN {</span>
+<span class="lineNum">    1029 </span>            :         /* we're racing some file. retry the sync again to see if the
+<span class="lineNum">    1030 </span>            :            file is really gone or not. if it is, this is a bit of
+<span class="lineNum">    1031 </span>            :            unnecessary work, but if it's not, this is necessary for
+<span class="lineNum">    1032 </span>            :            e.g. doveadm force-resync to work. */
+<span class="lineNum">    1033 </span><span class="lineNoCov">          0 :         ctx = maildir_sync_context_new(mbox, 0);</span>
+<span class="lineNum">    1034 </span><span class="lineNoCov">          0 :         ret = maildir_sync_context(ctx, TRUE, NULL, &amp;lost_files);</span>
+<span class="lineNum">    1035 </span><span class="lineNoCov">          0 :         maildir_sync_deinit(ctx);</span>
+<span class="lineNum">    1036 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">    1037 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="1038"><span class="lineNum">    1038 </span>            : }</a>
+<span class="lineNum">    1039 </span>            : 
+<span class="lineNum">    1040 </span><span class="lineNoCov">          0 : int maildir_storage_sync_force(struct maildir_mailbox *mbox, uint32_t uid)</span>
+<span class="lineNum">    1041 </span>            : {
+<span class="lineNum">    1042 </span>            :     bool lost_files;
+<span class="lineNum">    1043 </span>            :     int ret;
+<span class="lineNum">    1044 </span>            : 
+<span class="lineNum">    1045 </span><span class="lineNoCov">          0 :     ret = maildir_sync_run(mbox, MAILBOX_SYNC_FLAG_FAST,</span>
+<span class="lineNum">    1046 </span>            :                    TRUE, &amp;uid, &amp;lost_files);
+<span class="lineNum">    1047 </span><span class="lineNoCov">          0 :     if (uid != 0) {</span>
+<span class="lineNum">    1048 </span>            :         /* maybe it's expunged. check again. */
+<span class="lineNum">    1049 </span><span class="lineNoCov">          0 :         ret = maildir_sync_run(mbox, 0, TRUE, NULL, &amp;lost_files);</span>
+<span class="lineNum">    1050 </span>            :     }
+<span class="lineNum">    1051 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="1052"><span class="lineNum">    1052 </span>            : }</a>
+<span class="lineNum">    1053 </span>            : 
+<span class="lineNum">    1054 </span><span class="lineNoCov">          0 : int maildir_sync_refresh_flags_view(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">    1055 </span>            : {
+<span class="lineNum">    1056 </span>            :     struct mail_index_view_sync_ctx *sync_ctx;
+<span class="lineNum">    1057 </span>            :     bool delayed_expunges;
+<span class="lineNum">    1058 </span>            : 
+<span class="lineNum">    1059 </span><span class="lineNoCov">          0 :     mail_index_refresh(mbox-&gt;box.index);</span>
+<span class="lineNum">    1060 </span><span class="lineNoCov">          0 :     if (mbox-&gt;flags_view == NULL)</span>
+<span class="lineNum">    1061 </span><span class="lineNoCov">          0 :         mbox-&gt;flags_view = mail_index_view_open(mbox-&gt;box.index);</span>
+<span class="lineNum">    1062 </span>            : 
+<span class="lineNum">    1063 </span><span class="lineNoCov">          0 :     sync_ctx = mail_index_view_sync_begin(mbox-&gt;flags_view,</span>
+<span class="lineNum">    1064 </span>            :             MAIL_INDEX_VIEW_SYNC_FLAG_FIX_INCONSISTENT);
+<span class="lineNum">    1065 </span><span class="lineNoCov">          0 :     if (mail_index_view_sync_commit(&amp;sync_ctx, &amp;delayed_expunges) &lt; 0) {</span>
+<span class="lineNum">    1066 </span><span class="lineNoCov">          0 :         mailbox_set_index_error(&amp;mbox-&gt;box);</span>
+<span class="lineNum">    1067 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">    1068 </span>            :     }
+<span class="lineNum">    1069 </span>            :     /* make sure the map stays in private memory */
+<span class="lineNum">    1070 </span><span class="lineNoCov">          0 :     if (mbox-&gt;flags_view-&gt;map-&gt;refcount &gt; 1) {</span>
+<span class="lineNum">    1071 </span>            :         struct mail_index_map *map;
+<span class="lineNum">    1072 </span>            : 
+<span class="lineNum">    1073 </span><span class="lineNoCov">          0 :         map = mail_index_map_clone(mbox-&gt;flags_view-&gt;map);</span>
+<span class="lineNum">    1074 </span><span class="lineNoCov">          0 :         mail_index_unmap(&amp;mbox-&gt;flags_view-&gt;map);</span>
+<span class="lineNum">    1075 </span><span class="lineNoCov">          0 :         mbox-&gt;flags_view-&gt;map = map;</span>
+<span class="lineNum">    1076 </span>            :     }
+<span class="lineNum">    1077 </span><span class="lineNoCov">          0 :     mail_index_record_map_move_to_private(mbox-&gt;flags_view-&gt;map);</span>
+<span class="lineNum">    1078 </span><span class="lineNoCov">          0 :     mail_index_map_move_to_memory(mbox-&gt;flags_view-&gt;map);</span>
+<span class="lineNum">    1079 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">    1080 </span>            : }
+<a name="1081"><span class="lineNum">    1081 </span>            : </a>
+<span class="lineNum">    1082 </span>            : struct mailbox_sync_context *
+<span class="lineNum">    1083 </span><span class="lineNoCov">          0 : maildir_storage_sync_init(struct mailbox *box, enum mailbox_sync_flags flags)</span>
+<span class="lineNum">    1084 </span>            : {
+<span class="lineNum">    1085 </span><span class="lineNoCov">          0 :     struct maildir_mailbox *mbox = MAILDIR_MAILBOX(box);</span>
+<span class="lineNum">    1086 </span>            :     bool lost_files, force_resync;
+<span class="lineNum">    1087 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">    1088 </span>            : 
+<span class="lineNum">    1089 </span><span class="lineNoCov">          0 :     force_resync = (flags &amp; MAILBOX_SYNC_FLAG_FORCE_RESYNC) != 0;</span>
+<span class="lineNum">    1090 </span><span class="lineNoCov">          0 :     if (index_mailbox_want_full_sync(&amp;mbox-&gt;box, flags)) {</span>
+<span class="lineNum">    1091 </span><span class="lineNoCov">          0 :         ret = maildir_sync_run(mbox, flags, force_resync,</span>
+<span class="lineNum">    1092 </span>            :                        NULL, &amp;lost_files);
+<span class="lineNum">    1093 </span><span class="lineNoCov">          0 :         i_assert(!maildir_uidlist_is_locked(mbox-&gt;uidlist) ||</span>
+<span class="lineNum">    1094 </span>            :              (box-&gt;flags &amp; MAILBOX_FLAG_KEEP_LOCKED) != 0);
+<span class="lineNum">    1095 </span>            : 
+<span class="lineNum">    1096 </span><span class="lineNoCov">          0 :         if (lost_files) {</span>
+<span class="lineNum">    1097 </span>            :             /* lost some files from new/, see if they're in cur/ */
+<span class="lineNum">    1098 </span><span class="lineNoCov">          0 :             ret = maildir_storage_sync_force(mbox, 0);</span>
+<span class="lineNum">    1099 </span>            :         }
+<span class="lineNum">    1100 </span>            :     }
+<span class="lineNum">    1101 </span>            : 
+<span class="lineNum">    1102 </span><span class="lineNoCov">          0 :     if (mbox-&gt;storage-&gt;set-&gt;maildir_very_dirty_syncs) {</span>
+<span class="lineNum">    1103 </span><span class="lineNoCov">          0 :         if (maildir_sync_refresh_flags_view(mbox) &lt; 0)</span>
+<span class="lineNum">    1104 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">    1105 </span><span class="lineNoCov">          0 :         maildir_uidlist_set_all_nonsynced(mbox-&gt;uidlist);</span>
+<span class="lineNum">    1106 </span>            :     }
+<span class="lineNum">    1107 </span><span class="lineNoCov">          0 :     mbox-&gt;synced = TRUE;</span>
+<span class="lineNum">    1108 </span><span class="lineNoCov">          0 :     mbox-&gt;sync_uidlist_refreshed = FALSE;</span>
+<span class="lineNum">    1109 </span><span class="lineNoCov">          0 :     return index_mailbox_sync_init(box, flags, ret &lt; 0);</span>
+<a name="1110"><span class="lineNum">    1110 </span>            : }</a>
+<span class="lineNum">    1111 </span>            : 
+<span class="lineNum">    1112 </span><span class="lineNoCov">          0 : int maildir_sync_is_synced(struct maildir_mailbox *mbox)</span>
+<span class="lineNum">    1113 </span>            : {
+<span class="lineNum">    1114 </span>            :     bool new_changed, cur_changed;
+<span class="lineNum">    1115 </span>            :     enum maildir_scan_why why;
+<span class="lineNum">    1116 </span>            :     int ret;
+<span class="lineNum">    1117 </span>            : 
+<span class="lineNum">    1118 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">    1119 </span><span class="lineNoCov">          0 :         const char *box_path = mailbox_get_path(&amp;mbox-&gt;box);</span>
+<span class="lineNum">    1120 </span>            :         const char *new_dir, *cur_dir;
+<span class="lineNum">    1121 </span>            : 
+<span class="lineNum">    1122 </span><span class="lineNoCov">          0 :         new_dir = t_strconcat(box_path, &quot;/new&quot;, NULL);</span>
+<span class="lineNum">    1123 </span><span class="lineNoCov">          0 :         cur_dir = t_strconcat(box_path, &quot;/cur&quot;, NULL);</span>
+<span class="lineNum">    1124 </span>            : 
+<span class="lineNum">    1125 </span><span class="lineNoCov">          0 :         ret = maildir_sync_quick_check(mbox, FALSE, new_dir, cur_dir,</span>
+<span class="lineNum">    1126 </span>            :                            &amp;new_changed, &amp;cur_changed,
+<span class="lineNum">    1127 </span>            :                            &amp;why);
+<span class="lineNum">    1128 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">    1129 </span><span class="lineNoCov">          0 :     return ret &lt; 0 ? -1 : (!new_changed &amp;&amp; !cur_changed);</span>
+<span class="lineNum">    1130 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

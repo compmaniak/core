@@ -1,0 +1,523 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - auth/auth.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">auth</a> - auth.c<span style="font-size: 80%;"> (source / <a href="auth.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">232</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;auth-common.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;settings-parser.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;master-service-settings.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;mech.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;userdb.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;passdb.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;passdb-template.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;userdb-template.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;auth.h&quot;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : static const struct auth_userdb_settings userdb_dummy_set = {
+<span class="lineNum">      15 </span>            :     .name = &quot;&quot;,
+<span class="lineNum">      16 </span>            :     .driver = &quot;static&quot;,
+<span class="lineNum">      17 </span>            :     .args = &quot;&quot;,
+<span class="lineNum">      18 </span>            :     .default_fields = &quot;&quot;,
+<span class="lineNum">      19 </span>            :     .override_fields = &quot;&quot;,
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            :     .skip = &quot;never&quot;,
+<span class="lineNum">      22 </span>            :     .result_success = &quot;return-ok&quot;,
+<span class="lineNum">      23 </span>            :     .result_failure = &quot;continue&quot;,
+<span class="lineNum">      24 </span>            :     .result_internalfail = &quot;continue&quot;
+<span class="lineNum">      25 </span>            : };
+<span class="lineNum">      26 </span>            : 
+<a name="27"><span class="lineNum">      27 </span>            : static ARRAY(struct auth *) auths;</a>
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span><span class="lineNoCov">          0 : static enum auth_passdb_skip auth_passdb_skip_parse(const char *str)</span>
+<span class="lineNum">      30 </span>            : {
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;never&quot;) == 0)</span>
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 :         return AUTH_PASSDB_SKIP_NEVER;</span>
+<span class="lineNum">      33 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;authenticated&quot;) == 0)</span>
+<span class="lineNum">      34 </span><span class="lineNoCov">          0 :         return AUTH_PASSDB_SKIP_AUTHENTICATED;</span>
+<span class="lineNum">      35 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;unauthenticated&quot;) == 0)</span>
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 :         return AUTH_PASSDB_SKIP_UNAUTHENTICATED;</span>
+<span class="lineNum">      37 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<a name="38"><span class="lineNum">      38 </span>            : }</a>
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 : static enum auth_userdb_skip auth_userdb_skip_parse(const char *str)</span>
+<span class="lineNum">      41 </span>            : {
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;never&quot;) == 0)</span>
+<span class="lineNum">      43 </span><span class="lineNoCov">          0 :         return AUTH_USERDB_SKIP_NEVER;</span>
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;found&quot;) == 0)</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :         return AUTH_USERDB_SKIP_FOUND;</span>
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;notfound&quot;) == 0)</span>
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :         return AUTH_USERDB_SKIP_NOTFOUND;</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<a name="49"><span class="lineNum">      49 </span>            : }</a>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 : static enum auth_db_rule auth_db_rule_parse(const char *str)</span>
+<span class="lineNum">      52 </span>            : {
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;return&quot;) == 0)</span>
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :         return AUTH_DB_RULE_RETURN;</span>
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;return-ok&quot;) == 0)</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :         return AUTH_DB_RULE_RETURN_OK;</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;return-fail&quot;) == 0)</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :         return AUTH_DB_RULE_RETURN_FAIL;</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;continue&quot;) == 0)</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :         return AUTH_DB_RULE_CONTINUE;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;continue-ok&quot;) == 0)</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :         return AUTH_DB_RULE_CONTINUE_OK;</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     if (strcmp(str, &quot;continue-fail&quot;) == 0)</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :         return AUTH_DB_RULE_CONTINUE_FAIL;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     i_unreached();</span>
+<span class="lineNum">      66 </span>            : }
+<a name="67"><span class="lineNum">      67 </span>            : </a>
+<span class="lineNum">      68 </span>            : static void
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 : auth_passdb_preinit(struct auth *auth, const struct auth_passdb_settings *set,</span>
+<span class="lineNum">      70 </span>            :             struct auth_passdb **passdbs)
+<span class="lineNum">      71 </span>            : {
+<span class="lineNum">      72 </span>            :     struct auth_passdb *auth_passdb, **dest;
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     auth_passdb = p_new(auth-&gt;pool, struct auth_passdb, 1);</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;set = set;</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;skip = auth_passdb_skip_parse(set-&gt;skip);</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;result_success =</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         auth_db_rule_parse(set-&gt;result_success);</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;result_failure =</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :         auth_db_rule_parse(set-&gt;result_failure);</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;result_internalfail =</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         auth_db_rule_parse(set-&gt;result_internalfail);</span>
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;default_fields_tmpl =</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :         passdb_template_build(auth-&gt;pool, set-&gt;default_fields);</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;override_fields_tmpl =</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :         passdb_template_build(auth-&gt;pool, set-&gt;override_fields);</span>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span>            :     /* for backwards compatibility: */
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     if (set-&gt;pass)</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :         auth_passdb-&gt;result_success = AUTH_DB_RULE_CONTINUE;</span>
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     for (dest = passdbs; *dest != NULL; dest = &amp;(*dest)-&gt;next) ;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     *dest = auth_passdb;</span>
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     auth_passdb-&gt;passdb = passdb_preinit(auth-&gt;pool, set);</span>
+<span class="lineNum">      97 </span>            :     /* make sure any %variables in default_fields exist in cache_key */
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     if (auth_passdb-&gt;passdb-&gt;default_cache_key != NULL) {</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :         auth_passdb-&gt;cache_key =</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :             p_strconcat(auth-&gt;pool, auth_passdb-&gt;passdb-&gt;default_cache_key,</span>
+<span class="lineNum">     101 </span>            :                 set-&gt;default_fields, NULL);
+<span class="lineNum">     102 </span>            :     }
+<span class="lineNum">     103 </span>            :     else {
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         auth_passdb-&gt;cache_key = NULL;</span>
+<span class="lineNum">     105 </span>            :     }
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 : }</span>
+<a name="107"><span class="lineNum">     107 </span>            : </a>
+<span class="lineNum">     108 </span>            : static void
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 : auth_userdb_preinit(struct auth *auth, const struct auth_userdb_settings *set)</span>
+<span class="lineNum">     110 </span>            : {
+<span class="lineNum">     111 </span>            :         struct auth_userdb *auth_userdb, **dest;
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     auth_userdb = p_new(auth-&gt;pool, struct auth_userdb, 1);</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;set = set;</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;skip = auth_userdb_skip_parse(set-&gt;skip);</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;result_success =</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         auth_db_rule_parse(set-&gt;result_success);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;result_failure =</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         auth_db_rule_parse(set-&gt;result_failure);</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;result_internalfail =</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         auth_db_rule_parse(set-&gt;result_internalfail);</span>
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;default_fields_tmpl =</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         userdb_template_build(auth-&gt;pool, set-&gt;driver,</span>
+<span class="lineNum">     125 </span>            :                       set-&gt;default_fields);
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;override_fields_tmpl =</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         userdb_template_build(auth-&gt;pool, set-&gt;driver,</span>
+<span class="lineNum">     128 </span>            :                       set-&gt;override_fields);
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     for (dest = &amp;auth-&gt;userdbs; *dest != NULL; dest = &amp;(*dest)-&gt;next) ;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     *dest = auth_userdb;</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     auth_userdb-&gt;userdb = userdb_preinit(auth-&gt;pool, set);</span>
+<span class="lineNum">     134 </span>            :     /* make sure any %variables in default_fields exist in cache_key */
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     if (auth_userdb-&gt;userdb-&gt;default_cache_key != NULL) {</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         auth_userdb-&gt;cache_key =</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :             p_strconcat(auth-&gt;pool, auth_userdb-&gt;userdb-&gt;default_cache_key,</span>
+<span class="lineNum">     138 </span>            :                     set-&gt;default_fields, NULL);
+<span class="lineNum">     139 </span>            :     }
+<span class="lineNum">     140 </span>            :     else {
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         auth_userdb-&gt;cache_key = NULL;</span>
+<span class="lineNum">     142 </span>            :     }
+<a name="143"><span class="lineNum">     143 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 : static bool auth_passdb_list_have_verify_plain(const struct auth *auth)</span>
+<span class="lineNum">     146 </span>            : {
+<span class="lineNum">     147 </span>            :     const struct auth_passdb *passdb;
+<span class="lineNum">     148 </span>            : 
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;passdbs; passdb != NULL; passdb = passdb-&gt;next) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         if (passdb-&gt;passdb-&gt;iface.verify_plain != NULL)</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     152 </span>            :     }
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="154"><span class="lineNum">     154 </span>            : }</a>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : static bool auth_passdb_list_have_lookup_credentials(const struct auth *auth)</span>
+<span class="lineNum">     157 </span>            : {
+<span class="lineNum">     158 </span>            :     const struct auth_passdb *passdb;
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;passdbs; passdb != NULL; passdb = passdb-&gt;next) {</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :         if (passdb-&gt;passdb-&gt;iface.lookup_credentials != NULL)</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     163 </span>            :     }
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="165"><span class="lineNum">     165 </span>            : }</a>
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 : static bool auth_passdb_list_have_set_credentials(const struct auth *auth)</span>
+<span class="lineNum">     168 </span>            : {
+<span class="lineNum">     169 </span>            :     const struct auth_passdb *passdb;
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;masterdbs; passdb != NULL; passdb = passdb-&gt;next) {</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         if (passdb-&gt;passdb-&gt;iface.set_credentials != NULL)</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     174 </span>            :     }
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;passdbs; passdb != NULL; passdb = passdb-&gt;next) {</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :         if (passdb-&gt;passdb-&gt;iface.set_credentials != NULL)</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     178 </span>            :     }
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     180 </span>            : }
+<a name="181"><span class="lineNum">     181 </span>            : </a>
+<span class="lineNum">     182 </span>            : static bool
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 : auth_mech_verify_passdb(const struct auth *auth, const struct mech_module_list *list)</span>
+<span class="lineNum">     184 </span>            : {
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :     switch (list-&gt;module.passdb_need) {</span>
+<span class="lineNum">     186 </span>            :     case MECH_PASSDB_NEED_NOTHING:
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     188 </span>            :     case MECH_PASSDB_NEED_VERIFY_PLAIN:
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         if (!auth_passdb_list_have_verify_plain(auth))</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     192 </span>            :     case MECH_PASSDB_NEED_VERIFY_RESPONSE:
+<span class="lineNum">     193 </span>            :     case MECH_PASSDB_NEED_LOOKUP_CREDENTIALS:
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         if (!auth_passdb_list_have_lookup_credentials(auth))</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     197 </span>            :     case MECH_PASSDB_NEED_SET_CREDENTIALS:
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :         if (!auth_passdb_list_have_lookup_credentials(auth))</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         if (!auth_passdb_list_have_set_credentials(auth))</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :             return FALSE;</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="205"><span class="lineNum">     205 </span>            : }</a>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 : static void auth_mech_list_verify_passdb(const struct auth *auth)</span>
+<span class="lineNum">     208 </span>            : {
+<span class="lineNum">     209 </span>            :     const struct mech_module_list *list;
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     for (list = auth-&gt;reg-&gt;modules; list != NULL; list = list-&gt;next) {</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :         if (!auth_mech_verify_passdb(auth, list))</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     214 </span>            :     }
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     if (list != NULL) {</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         if (auth-&gt;passdbs == NULL) {</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             i_fatal(&quot;No passdbs specified in configuration file. &quot;</span>
+<span class="lineNum">     219 </span>            :                 &quot;%s mechanism needs one&quot;,
+<span class="lineNum">     220 </span>            :                 list-&gt;module.mech_name);
+<span class="lineNum">     221 </span>            :         }
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :         i_fatal(&quot;%s mechanism can't be supported with given passdbs&quot;,</span>
+<span class="lineNum">     223 </span>            :             list-&gt;module.mech_name);
+<span class="lineNum">     224 </span>            :     }
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 : }</span>
+<a name="226"><span class="lineNum">     226 </span>            : </a>
+<span class="lineNum">     227 </span>            : static struct auth * ATTR_NULL(2)
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 : auth_preinit(const struct auth_settings *set, const char *service, pool_t pool,</span>
+<span class="lineNum">     229 </span>            :          const struct mechanisms_register *reg)
+<span class="lineNum">     230 </span>            : {
+<span class="lineNum">     231 </span>            :     struct auth_passdb_settings *const *passdbs;
+<span class="lineNum">     232 </span>            :     struct auth_userdb_settings *const *userdbs;
+<span class="lineNum">     233 </span>            :     struct auth *auth;
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     unsigned int i, count, db_count, passdb_count, last_passdb = 0;</span>
+<span class="lineNum">     235 </span>            : 
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     auth = p_new(pool, struct auth, 1);</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     auth-&gt;pool = pool;</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     auth-&gt;service = p_strdup(pool, service);</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :     auth-&gt;set = set;</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     auth-&gt;reg = reg;</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;set-&gt;passdbs))</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :         passdbs = array_get(&amp;set-&gt;passdbs, &amp;db_count);</span>
+<span class="lineNum">     244 </span>            :     else {
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         passdbs = NULL;</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         db_count = 0;</span>
+<span class="lineNum">     247 </span>            :     }
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span>            :     /* initialize passdbs first and count them */
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     for (passdb_count = 0, i = 0; i &lt; db_count; i++) {</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         if (passdbs[i]-&gt;master)</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span>            :         /* passdb { skip=unauthenticated } as the first passdb doesn't
+<span class="lineNum">     255 </span>            :            make sense, since user is never authenticated at that point.
+<span class="lineNum">     256 </span>            :            skip over them silently. */
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         if (auth-&gt;passdbs == NULL &amp;&amp;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :             auth_passdb_skip_parse(passdbs[i]-&gt;skip) == AUTH_PASSDB_SKIP_UNAUTHENTICATED)</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         auth_passdb_preinit(auth, passdbs[i], &amp;auth-&gt;passdbs);</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         passdb_count++;</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :         last_passdb = i;</span>
+<span class="lineNum">     264 </span>            :     }
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     if (passdb_count != 0 &amp;&amp; passdbs[last_passdb]-&gt;pass)</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         i_fatal(&quot;Last passdb can't have pass=yes&quot;);</span>
+<span class="lineNum">     267 </span>            : 
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; db_count; i++) {</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :         if (!passdbs[i]-&gt;master)</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span>            :         /* skip skip=unauthenticated, as explained above */
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :         if (auth-&gt;masterdbs == NULL &amp;&amp;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :             auth_passdb_skip_parse(passdbs[i]-&gt;skip) == AUTH_PASSDB_SKIP_UNAUTHENTICATED)</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">     276 </span>            : 
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         if (passdbs[i]-&gt;deny)</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :             i_fatal(&quot;Master passdb can't have deny=yes&quot;);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         if (passdbs[i]-&gt;pass &amp;&amp; passdb_count == 0) {</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :             i_fatal(&quot;Master passdb can't have pass=yes &quot;</span>
+<span class="lineNum">     281 </span>            :                 &quot;if there are no passdbs&quot;);
+<span class="lineNum">     282 </span>            :         }
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :         auth_passdb_preinit(auth, passdbs[i], &amp;auth-&gt;masterdbs);</span>
+<span class="lineNum">     284 </span>            :     }
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     if (array_is_created(&amp;set-&gt;userdbs)) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         userdbs = array_get(&amp;set-&gt;userdbs, &amp;count);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; count; i++)</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :             auth_userdb_preinit(auth, userdbs[i]);</span>
+<span class="lineNum">     290 </span>            :     }
+<span class="lineNum">     291 </span>            : 
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :     if (auth-&gt;userdbs == NULL) {</span>
+<span class="lineNum">     293 </span>            :         /* use a dummy userdb static. */
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         auth_userdb_preinit(auth, &amp;userdb_dummy_set);</span>
+<span class="lineNum">     295 </span>            :     }
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     return auth;</span>
+<a name="297"><span class="lineNum">     297 </span>            : }</a>
+<span class="lineNum">     298 </span>            : 
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 : static void auth_passdb_init(struct auth_passdb *passdb)</span>
+<span class="lineNum">     300 </span>            : {
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     passdb_init(passdb-&gt;passdb);</span>
+<span class="lineNum">     302 </span>            : 
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     i_assert(passdb-&gt;passdb-&gt;default_pass_scheme != NULL ||</span>
+<span class="lineNum">     304 </span>            :          passdb-&gt;cache_key == NULL);
+<a name="305"><span class="lineNum">     305 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 : static void auth_init(struct auth *auth)</span>
+<span class="lineNum">     308 </span>            : {
+<span class="lineNum">     309 </span>            :     struct auth_passdb *passdb;
+<span class="lineNum">     310 </span>            :     struct auth_userdb *userdb;
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;masterdbs; passdb != NULL; passdb = passdb-&gt;next)</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :         auth_passdb_init(passdb);</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;passdbs; passdb != NULL; passdb = passdb-&gt;next)</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         auth_passdb_init(passdb);</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :     for (userdb = auth-&gt;userdbs; userdb != NULL; userdb = userdb-&gt;next)</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         userdb_init(userdb-&gt;userdb);</span>
+<a name="318"><span class="lineNum">     318 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     319 </span>            : 
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 : static void auth_deinit(struct auth *auth)</span>
+<span class="lineNum">     321 </span>            : {
+<span class="lineNum">     322 </span>            :     struct auth_passdb *passdb;
+<span class="lineNum">     323 </span>            :     struct auth_userdb *userdb;
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;masterdbs; passdb != NULL; passdb = passdb-&gt;next)</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :         passdb_deinit(passdb-&gt;passdb);</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :     for (passdb = auth-&gt;passdbs; passdb != NULL; passdb = passdb-&gt;next)</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         passdb_deinit(passdb-&gt;passdb);</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     for (userdb = auth-&gt;userdbs; userdb != NULL; userdb = userdb-&gt;next)</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         userdb_deinit(userdb-&gt;userdb);</span>
+<a name="331"><span class="lineNum">     331 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 : struct auth *auth_find_service(const char *name)</span>
+<span class="lineNum">     334 </span>            : {
+<span class="lineNum">     335 </span>            :     struct auth *const *a;
+<span class="lineNum">     336 </span>            :     unsigned int i, count;
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :     a = array_get(&amp;auths, &amp;count);</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :     if (name != NULL) {</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         for (i = 1; i &lt; count; i++) {</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :             if (strcmp(a[i]-&gt;service, name) == 0)</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :                 return a[i];</span>
+<span class="lineNum">     343 </span>            :         }
+<span class="lineNum">     344 </span>            :         /* not found. maybe we can instead find a !service */
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         for (i = 1; i &lt; count; i++) {</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :             if (a[i]-&gt;service[0] == '!' &amp;&amp;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :                 strcmp(a[i]-&gt;service + 1, name) != 0)</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :                 return a[i];</span>
+<span class="lineNum">     349 </span>            :         }
+<span class="lineNum">     350 </span>            :     }
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     return a[0];</span>
+<a name="352"><span class="lineNum">     352 </span>            : }</a>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 : struct auth *auth_default_service(void)</span>
+<span class="lineNum">     355 </span>            : {
+<span class="lineNum">     356 </span>            :     struct auth *const *a;
+<span class="lineNum">     357 </span>            :     unsigned int count;
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     a = array_get(&amp;auths, &amp;count);</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     return a[0];</span>
+<a name="361"><span class="lineNum">     361 </span>            : }</a>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 : void auths_preinit(const struct auth_settings *set, pool_t pool,</span>
+<span class="lineNum">     364 </span>            :            const struct mechanisms_register *reg,
+<span class="lineNum">     365 </span>            :            const char *const *services)
+<span class="lineNum">     366 </span>            : {
+<span class="lineNum">     367 </span>            :     struct master_service_settings_output set_output;
+<span class="lineNum">     368 </span>            :     const struct auth_settings *service_set;
+<span class="lineNum">     369 </span>            :     struct auth *auth, *const *authp;
+<span class="lineNum">     370 </span>            :     unsigned int i;
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     const char *not_service = NULL;</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     bool check_default = TRUE;</span>
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     i_array_init(&amp;auths, 8);</span>
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     auth = auth_preinit(set, NULL, pool, reg);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :     array_append(&amp;auths, &amp;auth, 1);</span>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :     for (i = 0; services[i] != NULL; i++) {</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         if (services[i][0] == '!') {</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :             if (not_service != NULL) {</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :                 i_fatal(&quot;Can't have multiple protocol &quot;</span>
+<span class="lineNum">     383 </span>            :                     &quot;!services (seen %s and %s)&quot;,
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :                     not_service, services[i]);</span>
+<span class="lineNum">     385 </span>            :             }
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :             not_service = services[i];</span>
+<span class="lineNum">     387 </span>            :         }
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         service_set = auth_settings_read(services[i], pool,</span>
+<span class="lineNum">     389 </span>            :                          &amp;set_output);
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :         auth = auth_preinit(service_set, services[i], pool, reg);</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         array_append(&amp;auths, &amp;auth, 1);</span>
+<span class="lineNum">     392 </span>            :     }
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     if (not_service != NULL &amp;&amp; str_array_find(services, not_service+1))</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :         check_default = FALSE;</span>
+<span class="lineNum">     396 </span>            : 
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     array_foreach(&amp;auths, authp) {</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         if ((*authp)-&gt;service != NULL || check_default)</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :             auth_mech_list_verify_passdb(*authp);</span>
+<span class="lineNum">     400 </span>            :     }
+<a name="401"><span class="lineNum">     401 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     402 </span>            : 
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 : void auths_init(void)</span>
+<span class="lineNum">     404 </span>            : {
+<span class="lineNum">     405 </span>            :     struct auth *const *auth;
+<span class="lineNum">     406 </span>            : 
+<span class="lineNum">     407 </span>            :     /* sanity checks */
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     i_assert(auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_USER_IDX].key == 'u');</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     i_assert(auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_USERNAME_IDX].key == 'n');</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     i_assert(auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_DOMAIN_IDX].key == 'd');</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     i_assert(auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT].key == '\0' &amp;&amp;</span>
+<span class="lineNum">     412 </span>            :          auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT].long_key == NULL);
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     i_assert(auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT-1].key != '\0' ||</span>
+<span class="lineNum">     414 </span>            :          auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT-1].long_key != NULL);
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :     array_foreach(&amp;auths, auth)</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :         auth_init(*auth);</span>
+<a name="418"><span class="lineNum">     418 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 : void auths_deinit(void)</span>
+<span class="lineNum">     421 </span>            : {
+<span class="lineNum">     422 </span>            :     struct auth *const *auth;
+<span class="lineNum">     423 </span>            : 
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     array_foreach(&amp;auths, auth)</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :         auth_deinit(*auth);</span>
+<a name="426"><span class="lineNum">     426 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     427 </span>            : 
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 : void auths_free(void)</span>
+<span class="lineNum">     429 </span>            : {
+<span class="lineNum">     430 </span>            :     struct auth **auth;
+<span class="lineNum">     431 </span>            :     unsigned int i, count;
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span>            :     /* deinit in reverse order, because modules have been allocated by
+<span class="lineNum">     434 </span>            :        the first auth pool that used them */
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     auth = array_get_modifiable(&amp;auths, &amp;count);</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     for (i = count; i &gt; 0; i--)</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         pool_unref(&amp;auth[i-1]-&gt;pool);</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     array_free(&amp;auths);</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

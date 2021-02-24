@@ -1,0 +1,667 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/hash.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - hash.c<span style="font-size: 80%;"> (source / <a href="hash.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">252</td>
+            <td class="headerCovTableEntry">283</td>
+            <td class="headerCovTableEntryMed">89.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">29</td>
+            <td class="headerCovTableEntry">31</td>
+            <td class="headerCovTableEntryHi">93.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /* @UNSAFE: whole file */
+<span class="lineNum">       4 </span>            : 
+<span class="lineNum">       5 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;hash.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;primes.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : #define HASH_TABLE_MIN_SIZE 67
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #undef hash_table_create
+<span class="lineNum">      14 </span>            : #undef hash_table_create_direct
+<span class="lineNum">      15 </span>            : #undef hash_table_destroy
+<span class="lineNum">      16 </span>            : #undef hash_table_clear
+<span class="lineNum">      17 </span>            : #undef hash_table_lookup
+<span class="lineNum">      18 </span>            : #undef hash_table_lookup_full
+<span class="lineNum">      19 </span>            : #undef hash_table_insert
+<span class="lineNum">      20 </span>            : #undef hash_table_update
+<span class="lineNum">      21 </span>            : #undef hash_table_try_remove
+<span class="lineNum">      22 </span>            : #undef hash_table_count
+<span class="lineNum">      23 </span>            : #undef hash_table_iterate_init
+<span class="lineNum">      24 </span>            : #undef hash_table_iterate
+<span class="lineNum">      25 </span>            : #undef hash_table_freeze
+<span class="lineNum">      26 </span>            : #undef hash_table_thaw
+<span class="lineNum">      27 </span>            : #undef hash_table_copy
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : struct hash_node {
+<span class="lineNum">      30 </span>            :     struct hash_node *next;
+<span class="lineNum">      31 </span>            :     void *key;
+<span class="lineNum">      32 </span>            :     void *value;
+<span class="lineNum">      33 </span>            : };
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : struct hash_table {
+<span class="lineNum">      36 </span>            :     pool_t node_pool;
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :     int frozen;
+<span class="lineNum">      39 </span>            :     unsigned int initial_size, nodes_count, removed_count;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :     unsigned int size;
+<span class="lineNum">      42 </span>            :     struct hash_node *nodes;
+<span class="lineNum">      43 </span>            :     struct hash_node *free_nodes;
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            :     hash_callback_t *hash_cb;
+<span class="lineNum">      46 </span>            :     hash_cmp_callback_t *key_compare_cb;
+<span class="lineNum">      47 </span>            : };
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            : struct hash_iterate_context {
+<span class="lineNum">      50 </span>            :     struct hash_table *table;
+<span class="lineNum">      51 </span>            :     struct hash_node *next;
+<span class="lineNum">      52 </span>            :     unsigned int pos;
+<span class="lineNum">      53 </span>            : };
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            : enum hash_table_operation{
+<span class="lineNum">      56 </span>            :     HASH_TABLE_OP_INSERT,
+<span class="lineNum">      57 </span>            :     HASH_TABLE_OP_UPDATE,
+<span class="lineNum">      58 </span>            :     HASH_TABLE_OP_RESIZE
+<span class="lineNum">      59 </span>            : };
+<span class="lineNum">      60 </span>            : 
+<a name="61"><span class="lineNum">      61 </span>            : static bool hash_table_resize(struct hash_table *table, bool grow);</a>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">       1861 : void hash_table_create(struct hash_table **table_r, pool_t node_pool,</span>
+<span class="lineNum">      64 </span>            :                unsigned int initial_size, hash_callback_t *hash_cb,
+<span class="lineNum">      65 </span>            :                hash_cmp_callback_t *key_compare_cb)
+<span class="lineNum">      66 </span>            : {
+<span class="lineNum">      67 </span>            :     struct hash_table *table;
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span><span class="lineCov">       1861 :     pool_ref(node_pool);</span>
+<span class="lineNum">      70 </span><span class="lineCov">       1861 :     table = i_new(struct hash_table, 1);</span>
+<span class="lineNum">      71 </span><span class="lineCov">       1861 :     table-&gt;node_pool = node_pool;</span>
+<span class="lineNum">      72 </span><span class="lineCov">       1861 :     table-&gt;initial_size =</span>
+<span class="lineNum">      73 </span><span class="lineCov">       1861 :         I_MAX(primes_closest(initial_size), HASH_TABLE_MIN_SIZE);</span>
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">       1861 :     table-&gt;hash_cb = hash_cb;</span>
+<span class="lineNum">      76 </span><span class="lineCov">       1861 :     table-&gt;key_compare_cb = key_compare_cb;</span>
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span><span class="lineCov">       1861 :     table-&gt;size = table-&gt;initial_size;</span>
+<span class="lineNum">      79 </span><span class="lineCov">       1861 :     table-&gt;nodes = i_new(struct hash_node, table-&gt;size);</span>
+<span class="lineNum">      80 </span><span class="lineCov">       1861 :     *table_r = table;</span>
+<a name="81"><span class="lineNum">      81 </span><span class="lineCov">       1861 : }</span></a>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">     907243 : static unsigned int direct_hash(const void *p)</span>
+<span class="lineNum">      84 </span>            : {
+<span class="lineNum">      85 </span>            :     /* NOTE: may truncate the value, but that doesn't matter. */
+<span class="lineNum">      86 </span><span class="lineCov">     907243 :     return POINTER_CAST_TO(p, unsigned int);</span>
+<a name="87"><span class="lineNum">      87 </span>            : }</a>
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span><span class="lineCov">     598428 : static int direct_cmp(const void *p1, const void *p2)</span>
+<span class="lineNum">      90 </span>            : {
+<span class="lineNum">      91 </span><span class="lineCov">     598428 :     return p1 == p2 ? 0 : 1;</span>
+<a name="92"><span class="lineNum">      92 </span>            : }</a>
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineCov">        539 : void hash_table_create_direct(struct hash_table **table_r, pool_t node_pool,</span>
+<span class="lineNum">      95 </span>            :                   unsigned int initial_size)
+<span class="lineNum">      96 </span>            : {
+<span class="lineNum">      97 </span><span class="lineCov">        539 :     hash_table_create(table_r, node_pool, initial_size,</span>
+<span class="lineNum">      98 </span>            :               direct_hash, direct_cmp);
+<a name="99"><span class="lineNum">      99 </span><span class="lineCov">        539 : }</span></a>
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineCov">     160819 : static void free_node(struct hash_table *table, struct hash_node *node)</span>
+<span class="lineNum">     102 </span>            : {
+<span class="lineNum">     103 </span><span class="lineCov">     160819 :     if (!table-&gt;node_pool-&gt;alloconly_pool)</span>
+<span class="lineNum">     104 </span><span class="lineCov">     111402 :         p_free(table-&gt;node_pool, node);</span>
+<span class="lineNum">     105 </span>            :     else {
+<span class="lineNum">     106 </span><span class="lineCov">      49417 :         node-&gt;next = table-&gt;free_nodes;</span>
+<span class="lineNum">     107 </span><span class="lineCov">      49417 :         table-&gt;free_nodes = node;</span>
+<span class="lineNum">     108 </span>            :     }
+<a name="109"><span class="lineNum">     109 </span><span class="lineCov">     160819 : }</span></a>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">         26 : static void destroy_node_list(struct hash_table *table, struct hash_node *node)</span>
+<span class="lineNum">     112 </span>            : {
+<span class="lineNum">     113 </span>            :     struct hash_node *next;
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineCov">         52 :     while (node != NULL) {</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :         next = node-&gt;next;</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         p_free(table-&gt;node_pool, node);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :         node = next;</span>
+<span class="lineNum">     119 </span>            :     }
+<a name="120"><span class="lineNum">     120 </span><span class="lineCov">         26 : }</span></a>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineCov">         26 : static void hash_table_destroy_nodes(struct hash_table *table)</span>
+<span class="lineNum">     123 </span>            : {
+<span class="lineNum">     124 </span>            :     unsigned int i;
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">      91330 :     for (i = 0; i &lt; table-&gt;size; i++) {</span>
+<span class="lineNum">     127 </span><span class="lineCov">      91304 :         if (table-&gt;nodes[i].next != NULL)</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :             destroy_node_list(table, table-&gt;nodes[i].next);</span>
+<span class="lineNum">     129 </span>            :     }
+<a name="130"><span class="lineNum">     130 </span><span class="lineCov">         26 : }</span></a>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineCov">       1860 : void hash_table_destroy(struct hash_table **_table)</span>
+<span class="lineNum">     133 </span>            : {
+<span class="lineNum">     134 </span><span class="lineCov">       1860 :     struct hash_table *table = *_table;</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineCov">       1860 :     *_table = NULL;</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineCov">       1860 :     i_assert(table-&gt;frozen == 0);</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineCov">       1860 :     if (!table-&gt;node_pool-&gt;alloconly_pool) {</span>
+<span class="lineNum">     141 </span><span class="lineCov">         26 :         hash_table_destroy_nodes(table);</span>
+<span class="lineNum">     142 </span><span class="lineCov">         26 :         destroy_node_list(table, table-&gt;free_nodes);</span>
+<span class="lineNum">     143 </span>            :     }
+<span class="lineNum">     144 </span>            : 
+<span class="lineNum">     145 </span><span class="lineCov">       1860 :     pool_unref(&amp;table-&gt;node_pool);</span>
+<span class="lineNum">     146 </span><span class="lineCov">       1860 :     i_free(table-&gt;nodes);</span>
+<span class="lineNum">     147 </span><span class="lineCov">       1860 :     i_free(table);</span>
+<a name="148"><span class="lineNum">     148 </span><span class="lineCov">       1860 : }</span></a>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineCov">          1 : void hash_table_clear(struct hash_table *table, bool free_nodes)</span>
+<span class="lineNum">     151 </span>            : {
+<span class="lineNum">     152 </span><span class="lineCov">          1 :     i_assert(table-&gt;frozen == 0);</span>
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineCov">          1 :     if (!table-&gt;node_pool-&gt;alloconly_pool)</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         hash_table_destroy_nodes(table);</span>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineCov">          1 :     if (free_nodes) {</span>
+<span class="lineNum">     158 </span><span class="lineCov">          1 :         if (!table-&gt;node_pool-&gt;alloconly_pool)</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :             destroy_node_list(table, table-&gt;free_nodes);</span>
+<span class="lineNum">     160 </span><span class="lineCov">          1 :                 table-&gt;free_nodes = NULL;</span>
+<span class="lineNum">     161 </span>            :     }
+<span class="lineNum">     162 </span>            : 
+<span class="lineNum">     163 </span><span class="lineCov">          1 :     memset(table-&gt;nodes, 0, sizeof(struct hash_node) * table-&gt;size);</span>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineCov">          1 :     table-&gt;nodes_count = 0;</span>
+<span class="lineNum">     166 </span><span class="lineCov">          1 :     table-&gt;removed_count = 0;</span>
+<span class="lineNum">     167 </span><span class="lineCov">          1 : }</span>
+<a name="168"><span class="lineNum">     168 </span>            : </a>
+<span class="lineNum">     169 </span>            : static struct hash_node *
+<span class="lineNum">     170 </span><span class="lineCov">     406096 : hash_table_lookup_node(const struct hash_table *table,</span>
+<span class="lineNum">     171 </span>            :                const void *key, unsigned int hash)
+<span class="lineNum">     172 </span>            : {
+<span class="lineNum">     173 </span>            :     struct hash_node *node;
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineCov">     406096 :     node = &amp;table-&gt;nodes[hash % table-&gt;size];</span>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span>            :     do {
+<span class="lineNum">     178 </span><span class="lineCov">     487170 :         if (node-&gt;key != NULL) {</span>
+<span class="lineNum">     179 </span><span class="lineCov">     430820 :             if (table-&gt;key_compare_cb(node-&gt;key, key) == 0)</span>
+<span class="lineNum">     180 </span><span class="lineCov">     279316 :                 return node;</span>
+<span class="lineNum">     181 </span>            :         }
+<span class="lineNum">     182 </span><span class="lineCov">     207854 :         node = node-&gt;next;</span>
+<span class="lineNum">     183 </span><span class="lineCov">     207854 :     } while (node != NULL);</span>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">     126780 :     return NULL;</span>
+<a name="186"><span class="lineNum">     186 </span>            : }</a>
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineCov">     167566 : void *hash_table_lookup(const struct hash_table *table, const void *key)</span>
+<span class="lineNum">     189 </span>            : {
+<span class="lineNum">     190 </span>            :     struct hash_node *node;
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span><span class="lineCov">     167566 :     node = hash_table_lookup_node(table, key, table-&gt;hash_cb(key));</span>
+<span class="lineNum">     193 </span><span class="lineCov">     167566 :     return node != NULL ? node-&gt;value : NULL;</span>
+<a name="194"><span class="lineNum">     194 </span>            : }</a>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineCov">        265 : bool hash_table_lookup_full(const struct hash_table *table,</span>
+<span class="lineNum">     197 </span>            :                 const void *lookup_key,
+<span class="lineNum">     198 </span>            :                 void **orig_key, void **value)
+<span class="lineNum">     199 </span>            : {
+<span class="lineNum">     200 </span>            :     struct hash_node *node;
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineCov">        265 :     node = hash_table_lookup_node(table, lookup_key,</span>
+<span class="lineNum">     203 </span><span class="lineCov">        265 :                       table-&gt;hash_cb(lookup_key));</span>
+<span class="lineNum">     204 </span><span class="lineCov">        265 :     if (node == NULL)</span>
+<span class="lineNum">     205 </span><span class="lineCov">         29 :         return FALSE;</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineCov">        236 :     *orig_key = node-&gt;key;</span>
+<span class="lineNum">     208 </span><span class="lineCov">        236 :     *value = node-&gt;value;</span>
+<span class="lineNum">     209 </span><span class="lineCov">        236 :     return TRUE;</span>
+<span class="lineNum">     210 </span>            : }
+<a name="211"><span class="lineNum">     211 </span>            : </a>
+<span class="lineNum">     212 </span>            : static void
+<span class="lineNum">     213 </span><span class="lineCov">     512608 : hash_table_insert_node(struct hash_table *table, void *key, void *value,</span>
+<span class="lineNum">     214 </span>            :                  enum hash_table_operation opcode)
+<span class="lineNum">     215 </span>            : {
+<span class="lineNum">     216 </span>            :     struct hash_node *node, *prev;
+<span class="lineNum">     217 </span>            :     unsigned int hash;
+<span class="lineNum">     218 </span><span class="lineCov">     512608 :     bool check_existing = TRUE;</span>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineCov">     512608 :     i_assert(key != NULL);</span>
+<span class="lineNum">     221 </span>            : 
+<span class="lineNum">     222 </span><span class="lineCov">     512608 :     if(opcode == HASH_TABLE_OP_RESIZE)</span>
+<span class="lineNum">     223 </span><span class="lineCov">     271606 :         check_existing = FALSE;</span>
+<span class="lineNum">     224 </span><span class="lineCov">     512608 :     hash = table-&gt;hash_cb(key);</span>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineCov">     512608 :     if (check_existing &amp;&amp; table-&gt;removed_count &gt; 0) {</span>
+<span class="lineNum">     227 </span>            :         /* there may be holes, have to check everything */
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         node = hash_table_lookup_node(table, key, hash);</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         if (node != NULL) {</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             i_assert(opcode == HASH_TABLE_OP_UPDATE);</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :             node-&gt;value = value;</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     233 </span>            :         }
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         check_existing = FALSE;</span>
+<span class="lineNum">     236 </span>            :     }
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span>            :     /* a) primary node */
+<span class="lineNum">     239 </span><span class="lineCov">     512608 :     node = &amp;table-&gt;nodes[hash % table-&gt;size];</span>
+<span class="lineNum">     240 </span><span class="lineCov">     512608 :     if (node-&gt;key == NULL) {</span>
+<span class="lineNum">     241 </span><span class="lineCov">     351495 :         table-&gt;nodes_count++;</span>
+<span class="lineNum">     242 </span>            : 
+<span class="lineNum">     243 </span><span class="lineCov">     351495 :         node-&gt;key = key;</span>
+<span class="lineNum">     244 </span><span class="lineCov">     351495 :         node-&gt;value = value;</span>
+<span class="lineNum">     245 </span><span class="lineCov">     351495 :         return;</span>
+<span class="lineNum">     246 </span>            :     }
+<span class="lineNum">     247 </span><span class="lineCov">     161113 :     if (check_existing) {</span>
+<span class="lineNum">     248 </span><span class="lineCov">     132975 :         if (table-&gt;key_compare_cb(node-&gt;key, key) == 0) {</span>
+<span class="lineNum">     249 </span><span class="lineCov">          9 :             i_assert(opcode == HASH_TABLE_OP_UPDATE);</span>
+<span class="lineNum">     250 </span><span class="lineCov">          9 :             node-&gt;value = value;</span>
+<span class="lineNum">     251 </span><span class="lineCov">          9 :             return;</span>
+<span class="lineNum">     252 </span>            :         }
+<span class="lineNum">     253 </span>            :     }
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span>            :     /* b) collisions list */
+<span class="lineNum">     256 </span><span class="lineCov">     161104 :     prev = node; node = node-&gt;next;</span>
+<span class="lineNum">     257 </span><span class="lineCov">     364552 :     while (node != NULL) {</span>
+<span class="lineNum">     258 </span><span class="lineCov">      42355 :         if (node-&gt;key == NULL)</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineCov">      42355 :         if (check_existing) {</span>
+<span class="lineNum">     262 </span><span class="lineCov">      39708 :             if (table-&gt;key_compare_cb(node-&gt;key, key) == 0) {</span>
+<span class="lineNum">     263 </span><span class="lineCov">         11 :                 i_assert(opcode == HASH_TABLE_OP_UPDATE);</span>
+<span class="lineNum">     264 </span><span class="lineCov">         11 :                 node-&gt;value = value;</span>
+<span class="lineNum">     265 </span><span class="lineCov">         11 :                 return;</span>
+<span class="lineNum">     266 </span>            :             }
+<span class="lineNum">     267 </span>            :         }
+<span class="lineNum">     268 </span><span class="lineCov">      42344 :         prev = node;</span>
+<span class="lineNum">     269 </span><span class="lineCov">      42344 :         node = node-&gt;next;</span>
+<span class="lineNum">     270 </span>            :     }
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineCov">     161093 :     if (node == NULL) {</span>
+<span class="lineNum">     273 </span><span class="lineCov">     161093 :         if (table-&gt;frozen == 0 &amp;&amp; hash_table_resize(table, TRUE)) {</span>
+<span class="lineNum">     274 </span>            :             /* resized table, try again */
+<span class="lineNum">     275 </span><span class="lineCov">         24 :             hash_table_insert_node(table, key, value, HASH_TABLE_OP_RESIZE);</span>
+<span class="lineNum">     276 </span><span class="lineCov">         24 :             return;</span>
+<span class="lineNum">     277 </span>            :         }
+<span class="lineNum">     278 </span>            : 
+<span class="lineNum">     279 </span><span class="lineCov">     161069 :         if (table-&gt;free_nodes == NULL)</span>
+<span class="lineNum">     280 </span><span class="lineCov">     129552 :             node = p_new(table-&gt;node_pool, struct hash_node, 1);</span>
+<span class="lineNum">     281 </span>            :         else {
+<span class="lineNum">     282 </span><span class="lineCov">      31517 :             node = table-&gt;free_nodes;</span>
+<span class="lineNum">     283 </span><span class="lineCov">      31517 :             table-&gt;free_nodes = node-&gt;next;</span>
+<span class="lineNum">     284 </span><span class="lineCov">      31517 :             node-&gt;next = NULL;</span>
+<span class="lineNum">     285 </span>            :         }
+<span class="lineNum">     286 </span><span class="lineCov">     161069 :         prev-&gt;next = node;</span>
+<span class="lineNum">     287 </span>            :     }
+<span class="lineNum">     288 </span>            : 
+<span class="lineNum">     289 </span><span class="lineCov">     161069 :     node-&gt;key = key;</span>
+<span class="lineNum">     290 </span><span class="lineCov">     161069 :     node-&gt;value = value;</span>
+<span class="lineNum">     291 </span>            : 
+<span class="lineNum">     292 </span><span class="lineCov">     161069 :     table-&gt;nodes_count++;</span>
+<a name="293"><span class="lineNum">     293 </span>            : }</a>
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineCov">     240143 : void hash_table_insert(struct hash_table *table, void *key, void *value)</span>
+<span class="lineNum">     296 </span>            : {
+<span class="lineNum">     297 </span><span class="lineCov">     240143 :     hash_table_insert_node(table, key, value, HASH_TABLE_OP_INSERT);</span>
+<a name="298"><span class="lineNum">     298 </span><span class="lineCov">     240143 : }</span></a>
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineCov">        859 : void hash_table_update(struct hash_table *table, void *key, void *value)</span>
+<span class="lineNum">     301 </span>            : {
+<span class="lineNum">     302 </span><span class="lineCov">        859 :     hash_table_insert_node(table, key, value, HASH_TABLE_OP_UPDATE);</span>
+<span class="lineNum">     303 </span><span class="lineCov">        859 : }</span>
+<a name="304"><span class="lineNum">     304 </span>            : </a>
+<span class="lineNum">     305 </span>            : static void
+<span class="lineNum">     306 </span><span class="lineCov">     238222 : hash_table_compress(struct hash_table *table, struct hash_node *root)</span>
+<span class="lineNum">     307 </span>            : {
+<span class="lineNum">     308 </span>            :     struct hash_node *node, *next;
+<span class="lineNum">     309 </span>            : 
+<span class="lineNum">     310 </span><span class="lineCov">     238222 :     i_assert(table-&gt;frozen == 0);</span>
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span>            :     /* remove deleted nodes from the list */
+<span class="lineNum">     313 </span><span class="lineCov">     568300 :     for (node = root; node-&gt;next != NULL; ) {</span>
+<span class="lineNum">     314 </span><span class="lineCov">      91856 :         next = node-&gt;next;</span>
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span><span class="lineCov">      91856 :         if (next-&gt;key == NULL) {</span>
+<span class="lineNum">     317 </span><span class="lineCov">      21758 :             node-&gt;next = next-&gt;next;</span>
+<span class="lineNum">     318 </span><span class="lineCov">      21758 :             free_node(table, next);</span>
+<span class="lineNum">     319 </span>            :         } else {
+<span class="lineNum">     320 </span><span class="lineCov">      70098 :             node = next;</span>
+<span class="lineNum">     321 </span>            :         }
+<span class="lineNum">     322 </span>            :     }
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span>            :     /* update root */
+<span class="lineNum">     325 </span><span class="lineCov">     238222 :     if (root-&gt;key == NULL &amp;&amp; root-&gt;next != NULL) {</span>
+<span class="lineNum">     326 </span><span class="lineCov">      56158 :         next = root-&gt;next;</span>
+<span class="lineNum">     327 </span><span class="lineCov">      56158 :         *root = *next;</span>
+<span class="lineNum">     328 </span><span class="lineCov">      56158 :         free_node(table, next);</span>
+<span class="lineNum">     329 </span>            :     }
+<a name="330"><span class="lineNum">     330 </span><span class="lineCov">     238222 : }</span></a>
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 : static void hash_table_compress_removed(struct hash_table *table)</span>
+<span class="lineNum">     333 </span>            : {
+<span class="lineNum">     334 </span>            :     unsigned int i;
+<span class="lineNum">     335 </span>            : 
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; table-&gt;size; i++)</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :         hash_table_compress(table, &amp;table-&gt;nodes[i]);</span>
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         table-&gt;removed_count = 0;</span>
+<a name="340"><span class="lineNum">     340 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     341 </span>            : 
+<span class="lineNum">     342 </span><span class="lineCov">     238265 : bool hash_table_try_remove(struct hash_table *table, const void *key)</span>
+<span class="lineNum">     343 </span>            : {
+<span class="lineNum">     344 </span>            :     struct hash_node *node;
+<span class="lineNum">     345 </span>            :     unsigned int hash;
+<span class="lineNum">     346 </span>            : 
+<span class="lineNum">     347 </span><span class="lineCov">     238265 :     hash = table-&gt;hash_cb(key);</span>
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineCov">     238265 :     node = hash_table_lookup_node(table, key, hash);</span>
+<span class="lineNum">     350 </span><span class="lineCov">     238265 :     if (unlikely(node == NULL))</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineCov">     238265 :     node-&gt;key = NULL;</span>
+<span class="lineNum">     354 </span><span class="lineCov">     238265 :     table-&gt;nodes_count--;</span>
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span><span class="lineCov">     238265 :     if (table-&gt;frozen != 0)</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :         table-&gt;removed_count++;</span>
+<span class="lineNum">     358 </span><span class="lineCov">     238265 :     else if (!hash_table_resize(table, FALSE))</span>
+<span class="lineNum">     359 </span><span class="lineCov">     238222 :         hash_table_compress(table, &amp;table-&gt;nodes[hash % table-&gt;size]);</span>
+<span class="lineNum">     360 </span><span class="lineCov">     238265 :     return TRUE;</span>
+<a name="361"><span class="lineNum">     361 </span>            : }</a>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineCov">          7 : unsigned int hash_table_count(const struct hash_table *table)</span>
+<span class="lineNum">     364 </span>            : {
+<span class="lineNum">     365 </span><span class="lineCov">          7 :     return table-&gt;nodes_count;</span>
+<a name="366"><span class="lineNum">     366 </span>            : }</a>
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span><span class="lineCov">        548 : struct hash_iterate_context *hash_table_iterate_init(struct hash_table *table)</span>
+<span class="lineNum">     369 </span>            : {
+<span class="lineNum">     370 </span>            :     struct hash_iterate_context *ctx;
+<span class="lineNum">     371 </span>            : 
+<span class="lineNum">     372 </span><span class="lineCov">        548 :     hash_table_freeze(table);</span>
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineCov">        548 :     ctx = i_new(struct hash_iterate_context, 1);</span>
+<span class="lineNum">     375 </span><span class="lineCov">        548 :     ctx-&gt;table = table;</span>
+<span class="lineNum">     376 </span><span class="lineCov">        548 :     ctx-&gt;next = &amp;table-&gt;nodes[0];</span>
+<span class="lineNum">     377 </span><span class="lineCov">        548 :     return ctx;</span>
+<span class="lineNum">     378 </span>            : }
+<a name="379"><span class="lineNum">     379 </span>            : </a>
+<span class="lineNum">     380 </span>            : static struct hash_node *
+<span class="lineNum">     381 </span><span class="lineCov">      36016 : hash_table_iterate_next(struct hash_iterate_context *ctx,</span>
+<span class="lineNum">     382 </span>            :             struct hash_node *node)
+<span class="lineNum">     383 </span>            : {
+<span class="lineNum">     384 </span>            :     do {
+<span class="lineNum">     385 </span><span class="lineCov">      36016 :         node = node-&gt;next;</span>
+<span class="lineNum">     386 </span><span class="lineCov">      36016 :         if (node == NULL) {</span>
+<span class="lineNum">     387 </span><span class="lineCov">      35953 :             if (++ctx-&gt;pos == ctx-&gt;table-&gt;size) {</span>
+<span class="lineNum">     388 </span><span class="lineCov">        527 :                 ctx-&gt;pos--;</span>
+<span class="lineNum">     389 </span><span class="lineCov">        527 :                 return NULL;</span>
+<span class="lineNum">     390 </span>            :             }
+<span class="lineNum">     391 </span><span class="lineCov">      35426 :             node = &amp;ctx-&gt;table-&gt;nodes[ctx-&gt;pos];</span>
+<span class="lineNum">     392 </span>            :         }
+<span class="lineNum">     393 </span><span class="lineCov">      35489 :     } while (node-&gt;key == NULL);</span>
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span><span class="lineCov">        321 :     return node;</span>
+<a name="396"><span class="lineNum">     396 </span>            : }</a>
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span><span class="lineCov">        827 : bool hash_table_iterate(struct hash_iterate_context *ctx,</span>
+<span class="lineNum">     399 </span>            :             void **key_r, void **value_r)
+<span class="lineNum">     400 </span>            : {
+<span class="lineNum">     401 </span>            :     struct hash_node *node;
+<span class="lineNum">     402 </span>            : 
+<span class="lineNum">     403 </span><span class="lineCov">        827 :     node = ctx-&gt;next;</span>
+<span class="lineNum">     404 </span><span class="lineCov">        827 :     if (node != NULL &amp;&amp; node-&gt;key == NULL)</span>
+<span class="lineNum">     405 </span><span class="lineCov">        548 :         node = hash_table_iterate_next(ctx, node);</span>
+<span class="lineNum">     406 </span><span class="lineCov">        827 :     if (node == NULL) {</span>
+<span class="lineNum">     407 </span><span class="lineCov">        527 :         *key_r = *value_r = NULL;</span>
+<span class="lineNum">     408 </span><span class="lineCov">        527 :         return FALSE;</span>
+<span class="lineNum">     409 </span>            :     }
+<span class="lineNum">     410 </span><span class="lineCov">        300 :     *key_r = node-&gt;key;</span>
+<span class="lineNum">     411 </span><span class="lineCov">        300 :     *value_r = node-&gt;value;</span>
+<span class="lineNum">     412 </span>            : 
+<span class="lineNum">     413 </span><span class="lineCov">        300 :     ctx-&gt;next = hash_table_iterate_next(ctx, node);</span>
+<span class="lineNum">     414 </span><span class="lineCov">        300 :     return TRUE;</span>
+<a name="415"><span class="lineNum">     415 </span>            : }</a>
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineCov">        548 : void hash_table_iterate_deinit(struct hash_iterate_context **_ctx)</span>
+<span class="lineNum">     418 </span>            : {
+<span class="lineNum">     419 </span><span class="lineCov">        548 :     struct hash_iterate_context *ctx = *_ctx;</span>
+<span class="lineNum">     420 </span>            : 
+<span class="lineNum">     421 </span><span class="lineCov">        548 :     *_ctx = NULL;</span>
+<span class="lineNum">     422 </span><span class="lineCov">        548 :     hash_table_thaw(ctx-&gt;table);</span>
+<span class="lineNum">     423 </span><span class="lineCov">        548 :     i_free(ctx);</span>
+<a name="424"><span class="lineNum">     424 </span><span class="lineCov">        548 : }</span></a>
+<span class="lineNum">     425 </span>            : 
+<span class="lineNum">     426 </span><span class="lineCov">        548 : void hash_table_freeze(struct hash_table *table)</span>
+<span class="lineNum">     427 </span>            : {
+<span class="lineNum">     428 </span><span class="lineCov">        548 :     table-&gt;frozen++;</span>
+<a name="429"><span class="lineNum">     429 </span><span class="lineCov">        548 : }</span></a>
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span><span class="lineCov">        548 : void hash_table_thaw(struct hash_table *table)</span>
+<span class="lineNum">     432 </span>            : {
+<span class="lineNum">     433 </span><span class="lineCov">        548 :     i_assert(table-&gt;frozen &gt; 0);</span>
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span><span class="lineCov">        548 :     if (--table-&gt;frozen &gt; 0)</span>
+<span class="lineNum">     436 </span><span class="lineCov">        548 :         return;</span>
+<span class="lineNum">     437 </span>            : 
+<span class="lineNum">     438 </span><span class="lineCov">        548 :     if (table-&gt;removed_count &gt; 0) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         if (!hash_table_resize(table, FALSE))</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :             hash_table_compress_removed(table);</span>
+<span class="lineNum">     441 </span>            :     }
+<a name="442"><span class="lineNum">     442 </span>            : }</a>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineCov">     371225 : static bool hash_table_resize(struct hash_table *table, bool grow)</span>
+<span class="lineNum">     445 </span>            : {
+<span class="lineNum">     446 </span>            :     struct hash_node *old_nodes, *node, *next;
+<span class="lineNum">     447 </span>            :     unsigned int next_size, old_size, i;
+<span class="lineNum">     448 </span>            :     float nodes_per_list;
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span><span class="lineCov">     371225 :     i_assert(table-&gt;frozen == 0);</span>
+<span class="lineNum">     451 </span>            : 
+<span class="lineNum">     452 </span><span class="lineCov">     371225 :         nodes_per_list = (float) table-&gt;nodes_count / (float) table-&gt;size;</span>
+<span class="lineNum">     453 </span><span class="lineCov">     371225 :     if (nodes_per_list &gt; 0.3 &amp;&amp; nodes_per_list &lt; 2.0)</span>
+<span class="lineNum">     454 </span><span class="lineCov">     370484 :         return FALSE;</span>
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineCov">        741 :     next_size = I_MAX(primes_closest(table-&gt;nodes_count+1),</span>
+<span class="lineNum">     457 </span>            :               table-&gt;initial_size);
+<span class="lineNum">     458 </span><span class="lineCov">        741 :     if (next_size == table-&gt;size)</span>
+<span class="lineNum">     459 </span><span class="lineCov">        674 :         return FALSE;</span>
+<span class="lineNum">     460 </span>            : 
+<span class="lineNum">     461 </span><span class="lineCov">         67 :     if (grow &amp;&amp; table-&gt;size &gt;= next_size)</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span>            :     /* recreate primary table */
+<span class="lineNum">     465 </span><span class="lineCov">         67 :     old_size = table-&gt;size;</span>
+<span class="lineNum">     466 </span><span class="lineCov">         67 :     old_nodes = table-&gt;nodes;</span>
+<span class="lineNum">     467 </span>            : 
+<span class="lineNum">     468 </span><span class="lineCov">         67 :     table-&gt;size = I_MAX(next_size, HASH_TABLE_MIN_SIZE);</span>
+<span class="lineNum">     469 </span><span class="lineCov">         67 :     table-&gt;nodes = i_new(struct hash_node, table-&gt;size);</span>
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span><span class="lineCov">         67 :     table-&gt;nodes_count = 0;</span>
+<span class="lineNum">     472 </span><span class="lineCov">         67 :     table-&gt;removed_count = 0;</span>
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span><span class="lineCov">         67 :     table-&gt;frozen++;</span>
+<span class="lineNum">     475 </span>            : 
+<span class="lineNum">     476 </span>            :     /* move the data */
+<span class="lineNum">     477 </span><span class="lineCov">     499420 :     for (i = 0; i &lt; old_size; i++) {</span>
+<span class="lineNum">     478 </span><span class="lineCov">     499353 :         node = &amp;old_nodes[i];</span>
+<span class="lineNum">     479 </span><span class="lineCov">     499353 :         if (node-&gt;key != NULL) {</span>
+<span class="lineNum">     480 </span><span class="lineCov">     188682 :             hash_table_insert_node(table, node-&gt;key,</span>
+<span class="lineNum">     481 </span>            :                            node-&gt;value, HASH_TABLE_OP_RESIZE);
+<span class="lineNum">     482 </span>            :         }
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span><span class="lineCov">     582256 :         for (node = node-&gt;next; node != NULL; node = next) {</span>
+<span class="lineNum">     485 </span><span class="lineCov">      82903 :             next = node-&gt;next;</span>
+<span class="lineNum">     486 </span>            : 
+<span class="lineNum">     487 </span><span class="lineCov">      82903 :             if (node-&gt;key != NULL) {</span>
+<span class="lineNum">     488 </span><span class="lineCov">      82900 :                 hash_table_insert_node(table, node-&gt;key,</span>
+<span class="lineNum">     489 </span>            :                                node-&gt;value, HASH_TABLE_OP_RESIZE);
+<span class="lineNum">     490 </span>            :             }
+<span class="lineNum">     491 </span><span class="lineCov">      82903 :             free_node(table, node);</span>
+<span class="lineNum">     492 </span>            :         }
+<span class="lineNum">     493 </span>            :     }
+<span class="lineNum">     494 </span>            : 
+<span class="lineNum">     495 </span><span class="lineCov">         67 :     table-&gt;frozen--;</span>
+<span class="lineNum">     496 </span>            : 
+<span class="lineNum">     497 </span><span class="lineCov">         67 :     i_free(old_nodes);</span>
+<span class="lineNum">     498 </span><span class="lineCov">         67 :     return TRUE;</span>
+<a name="499"><span class="lineNum">     499 </span>            : }</a>
+<span class="lineNum">     500 </span>            : 
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 : void hash_table_copy(struct hash_table *dest, struct hash_table *src)</span>
+<span class="lineNum">     502 </span>            : {
+<span class="lineNum">     503 </span>            :     struct hash_iterate_context *iter;
+<span class="lineNum">     504 </span>            :     void *key, *value;
+<span class="lineNum">     505 </span>            : 
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :     hash_table_freeze(dest);</span>
+<span class="lineNum">     507 </span>            : 
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     iter = hash_table_iterate_init(src);</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     while (hash_table_iterate(iter, &amp;key, &amp;value))</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         hash_table_insert(dest, key, value);</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :     hash_table_iterate_deinit(&amp;iter);</span>
+<span class="lineNum">     512 </span>            : 
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     hash_table_thaw(dest);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 : }</span>
+<a name="515"><span class="lineNum">     515 </span>            : </a>
+<span class="lineNum">     516 </span>            : /* a char* hash function from ASU -- from glib */
+<span class="lineNum">     517 </span><span class="lineCov">       2540 : unsigned int str_hash(const char *p)</span>
+<span class="lineNum">     518 </span>            : {
+<span class="lineNum">     519 </span><span class="lineCov">       2540 :         const unsigned char *s = (const unsigned char *)p;</span>
+<span class="lineNum">     520 </span><span class="lineCov">       2540 :     unsigned int g, h = 0;</span>
+<span class="lineNum">     521 </span>            : 
+<span class="lineNum">     522 </span><span class="lineCov">      22420 :     while (*s != '\0') {</span>
+<span class="lineNum">     523 </span><span class="lineCov">      17340 :         h = (h &lt;&lt; 4) + *s;</span>
+<span class="lineNum">     524 </span><span class="lineCov">      17340 :         if ((g = h &amp; 0xf0000000UL) != 0) {</span>
+<span class="lineNum">     525 </span><span class="lineCov">       5228 :             h = h ^ (g &gt;&gt; 24);</span>
+<span class="lineNum">     526 </span><span class="lineCov">       5228 :             h = h ^ g;</span>
+<span class="lineNum">     527 </span>            :         }
+<span class="lineNum">     528 </span><span class="lineCov">      17340 :         s++;</span>
+<span class="lineNum">     529 </span>            :     }
+<span class="lineNum">     530 </span>            : 
+<span class="lineNum">     531 </span><span class="lineCov">       2540 :     return h;</span>
+<span class="lineNum">     532 </span>            : }
+<a name="533"><span class="lineNum">     533 </span>            : </a>
+<span class="lineNum">     534 </span>            : /* a char* hash function from ASU -- from glib */
+<span class="lineNum">     535 </span><span class="lineCov">        274 : unsigned int strcase_hash(const char *p)</span>
+<span class="lineNum">     536 </span>            : {
+<span class="lineNum">     537 </span><span class="lineCov">        274 :         const unsigned char *s = (const unsigned char *)p;</span>
+<span class="lineNum">     538 </span><span class="lineCov">        274 :     unsigned int g, h = 0;</span>
+<span class="lineNum">     539 </span>            : 
+<span class="lineNum">     540 </span><span class="lineCov">       3020 :     while (*s != '\0') {</span>
+<span class="lineNum">     541 </span><span class="lineCov">       2472 :         h = (h &lt;&lt; 4) + i_toupper(*s);</span>
+<span class="lineNum">     542 </span><span class="lineCov">       2472 :         if ((g = h &amp; 0xf0000000UL) != 0) {</span>
+<span class="lineNum">     543 </span><span class="lineCov">       1012 :             h = h ^ (g &gt;&gt; 24);</span>
+<span class="lineNum">     544 </span><span class="lineCov">       1012 :             h = h ^ g;</span>
+<span class="lineNum">     545 </span>            :         }
+<span class="lineNum">     546 </span><span class="lineCov">       2472 :         s++;</span>
+<span class="lineNum">     547 </span>            :     }
+<span class="lineNum">     548 </span>            : 
+<span class="lineNum">     549 </span><span class="lineCov">        274 :     return h;</span>
+<a name="550"><span class="lineNum">     550 </span>            : }</a>
+<span class="lineNum">     551 </span>            : 
+<span class="lineNum">     552 </span><span class="lineCov">       6325 : unsigned int mem_hash(const void *p, unsigned int size)</span>
+<span class="lineNum">     553 </span>            : {
+<span class="lineNum">     554 </span><span class="lineCov">       6325 :     const unsigned char *s = p;</span>
+<span class="lineNum">     555 </span><span class="lineCov">       6325 :     unsigned int i, g, h = 0;</span>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span><span class="lineCov">     112489 :     for (i = 0; i &lt; size; i++) {</span>
+<span class="lineNum">     558 </span><span class="lineCov">     106164 :         h = (h &lt;&lt; 4) + *s;</span>
+<span class="lineNum">     559 </span><span class="lineCov">     106164 :         if ((g = h &amp; 0xf0000000UL) != 0) {</span>
+<span class="lineNum">     560 </span><span class="lineCov">      13750 :             h = h ^ (g &gt;&gt; 24);</span>
+<span class="lineNum">     561 </span><span class="lineCov">      13750 :             h = h ^ g;</span>
+<span class="lineNum">     562 </span>            :         }
+<span class="lineNum">     563 </span><span class="lineCov">     106164 :         s++;</span>
+<span class="lineNum">     564 </span>            :     }
+<span class="lineNum">     565 </span><span class="lineCov">       6325 :     return h;</span>
+<a name="566"><span class="lineNum">     566 </span>            : }</a>
+<span class="lineNum">     567 </span>            : 
+<span class="lineNum">     568 </span><span class="lineCov">        650 : unsigned int strfastcase_hash(const char *p)</span>
+<span class="lineNum">     569 </span>            : {
+<span class="lineNum">     570 </span><span class="lineCov">        650 :     const unsigned char *s = (const unsigned char *)p;</span>
+<span class="lineNum">     571 </span><span class="lineCov">        650 :     unsigned int g, h = 0;</span>
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineCov">       5479 :     while (*s != '\0') {</span>
+<span class="lineNum">     574 </span><span class="lineCov">       4179 :         h = (h &lt;&lt; 4) + ((*s) &amp; ~0x20);</span>
+<span class="lineNum">     575 </span><span class="lineCov">       4179 :         if ((g = h &amp; 0xf0000000UL) != 0) {</span>
+<span class="lineNum">     576 </span><span class="lineCov">        756 :             h = h ^ (g &gt;&gt; 24);</span>
+<span class="lineNum">     577 </span><span class="lineCov">        756 :             h = h ^ g;</span>
+<span class="lineNum">     578 </span>            :         }
+<span class="lineNum">     579 </span><span class="lineCov">       4179 :         s++;</span>
+<span class="lineNum">     580 </span>            :     }
+<span class="lineNum">     581 </span>            : 
+<span class="lineNum">     582 </span><span class="lineCov">        650 :     return h;</span>
+<span class="lineNum">     583 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

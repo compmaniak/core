@@ -1,0 +1,547 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-storage/index/index-mailbox-size.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">lib-storage/index</a> - index-mailbox-size.c<span style="font-size: 80%;"> (source / <a href="index-mailbox-size.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">213</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;mail-search-build.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;index-storage.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;index-mailbox-size.h&quot;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : /*
+<span class="lineNum">      13 </span>            :    Saving new mails: After transaction is committed and synced, trigger
+<span class="lineNum">      14 </span>            :    vsize updating. Lock vsize updates. Check if the message count +
+<span class="lineNum">      15 </span>            :    last-indexed-uid are still valid. If they are, add all the missing new
+<span class="lineNum">      16 </span>            :    mails. Unlock.
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            :    Fetching vsize: Lock vsize updates. Check if the message count +
+<span class="lineNum">      19 </span>            :    last-indexed-uid are still valid. If not, set them to zero. Add all
+<span class="lineNum">      20 </span>            :    the missing mails. Unlock.
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            :    Expunging mails: Check if syncing would expunge any mails. If so, lock the
+<span class="lineNum">      23 </span>            :    vsize updates before locking syncing (to avoid deadlocks). Check if the
+<span class="lineNum">      24 </span>            :    message count + last-indexed-uid are still valid. If not, unlock vsize and
+<span class="lineNum">      25 </span>            :    do nothing else. Otherwise, for each expunged mail whose UID &lt;=
+<span class="lineNum">      26 </span>            :    last-indexed-uid, decrease the message count and the vsize in memory. After
+<span class="lineNum">      27 </span>            :    syncing is successfully committed, write the changes to header. Unlock.
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            :    Note that the final expunge handling with some mailbox formats is done while
+<span class="lineNum">      30 </span>            :    syncing is no longer locked. Because of this we need to have the vsize
+<span class="lineNum">      31 </span>            :    locking. The final vsize header update requires committing a transaction,
+<span class="lineNum">      32 </span>            :    which internally is the same as a sync lock. So to avoid deadlocks we always
+<span class="lineNum">      33 </span>            :    need to lock vsize updates before sync.
+<span class="lineNum">      34 </span>            : */
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : #define VSIZE_LOCK_SUFFIX &quot;dovecot-vsize.lock&quot;
+<span class="lineNum">      37 </span>            : #define VSIZE_UPDATE_MAX_LOCK_SECS 10
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : #define INDEXER_SOCKET_NAME &quot;indexer&quot;
+<span class="lineNum">      40 </span>            : #define INDEXER_HANDSHAKE &quot;VERSION\tindexer\t1\t0\n&quot;
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : struct mailbox_vsize_update {
+<span class="lineNum">      43 </span>            :     struct mailbox *box;
+<span class="lineNum">      44 </span>            :     struct mail_index_view *view;
+<span class="lineNum">      45 </span>            :     struct mailbox_index_vsize vsize_hdr, orig_vsize_hdr;
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            :     struct file_lock *lock;
+<span class="lineNum">      48 </span>            :     bool lock_failed;
+<span class="lineNum">      49 </span>            :     bool rebuild;
+<span class="lineNum">      50 </span>            :     bool written;
+<span class="lineNum">      51 </span>            :     bool finish_in_background;
+<a name="52"><span class="lineNum">      52 </span>            : };</a>
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 : static void vsize_header_refresh(struct mailbox_vsize_update *update)</span>
+<span class="lineNum">      55 </span>            : {
+<span class="lineNum">      56 </span>            :     const void *data;
+<span class="lineNum">      57 </span>            :     size_t size;
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     if (update-&gt;view != NULL)</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :         mail_index_view_close(&amp;update-&gt;view);</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     (void)mail_index_refresh(update-&gt;box-&gt;index);</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     update-&gt;view = mail_index_view_open(update-&gt;box-&gt;index);</span>
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     mail_index_get_header_ext(update-&gt;view, update-&gt;box-&gt;vsize_hdr_ext_id,</span>
+<span class="lineNum">      65 </span>            :                   &amp;data, &amp;size);
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     if (size &gt; 0) {</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :         memcpy(&amp;update-&gt;orig_vsize_hdr, data,</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :                I_MIN(size, sizeof(update-&gt;orig_vsize_hdr)));</span>
+<span class="lineNum">      69 </span>            :     }
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     if (size == sizeof(update-&gt;vsize_hdr))</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         memcpy(&amp;update-&gt;vsize_hdr, data, sizeof(update-&gt;vsize_hdr));</span>
+<span class="lineNum">      72 </span>            :     else {
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :         if (size != 0) {</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :             mailbox_set_critical(update-&gt;box,</span>
+<span class="lineNum">      75 </span>            :                 &quot;vsize-hdr has invalid size: %&quot;PRIuSIZE_T,
+<span class="lineNum">      76 </span>            :                 size);
+<span class="lineNum">      77 </span>            :         }
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :         update-&gt;rebuild = TRUE;</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :         i_zero(&amp;update-&gt;vsize_hdr);</span>
+<span class="lineNum">      80 </span>            :     }
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 : }</span>
+<a name="82"><span class="lineNum">      82 </span>            : </a>
+<span class="lineNum">      83 </span>            : static void
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 : index_mailbox_vsize_check_rebuild(struct mailbox_vsize_update *update)</span>
+<span class="lineNum">      85 </span>            : {
+<span class="lineNum">      86 </span>            :     uint32_t seq1, seq2;
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     if (update-&gt;vsize_hdr.highest_uid == 0)</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     if (!mail_index_lookup_seq_range(update-&gt;view, 1,</span>
+<span class="lineNum">      91 </span>            :                      update-&gt;vsize_hdr.highest_uid,
+<span class="lineNum">      92 </span>            :                      &amp;seq1, &amp;seq2))
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :         seq2 = 0;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     if (update-&gt;vsize_hdr.message_count != seq2) {</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :         if (update-&gt;vsize_hdr.message_count &lt; seq2) {</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :             mailbox_set_critical(update-&gt;box,</span>
+<span class="lineNum">      98 </span>            :                 &quot;vsize-hdr has invalid message-count (%u &lt; %u)&quot;,
+<span class="lineNum">      99 </span>            :                 update-&gt;vsize_hdr.message_count, seq2);
+<span class="lineNum">     100 </span>            :         } else {
+<span class="lineNum">     101 </span>            :             /* some messages have been expunged, rescan */
+<span class="lineNum">     102 </span>            :         }
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         i_zero(&amp;update-&gt;vsize_hdr);</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         update-&gt;rebuild = TRUE;</span>
+<span class="lineNum">     105 </span>            :     }
+<span class="lineNum">     106 </span>            : }
+<a name="107"><span class="lineNum">     107 </span>            : </a>
+<span class="lineNum">     108 </span>            : struct mailbox_vsize_update *
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 : index_mailbox_vsize_update_init(struct mailbox *box)</span>
+<span class="lineNum">     110 </span>            : {
+<span class="lineNum">     111 </span>            :     struct mailbox_vsize_update *update;
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     i_assert(box-&gt;opened);</span>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     update = i_new(struct mailbox_vsize_update, 1);</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     update-&gt;box = box;</span>
+<span class="lineNum">     117 </span>            : 
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     vsize_header_refresh(update);</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     return update;</span>
+<a name="120"><span class="lineNum">     120 </span>            : }</a>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 : static bool vsize_update_lock_full(struct mailbox_vsize_update *update,</span>
+<span class="lineNum">     123 </span>            :                    unsigned int lock_secs)
+<span class="lineNum">     124 </span>            : {
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     struct mailbox *box = update-&gt;box;</span>
+<span class="lineNum">     126 </span>            :     const char *error;
+<span class="lineNum">     127 </span>            :     int ret;
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     if (update-&gt;lock != NULL)</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     if (update-&gt;lock_failed)</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     if (MAIL_INDEX_IS_IN_MEMORY(box-&gt;index))</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     ret = mailbox_lock_file_create(box, VSIZE_LOCK_SUFFIX, lock_secs,</span>
+<span class="lineNum">     137 </span>            :                        &amp;update-&gt;lock, &amp;error);
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     139 </span>            :         /* don't log lock timeouts, because we're somewhat expecting
+<span class="lineNum">     140 </span>            :            them. Especially when lock_secs is 0. */
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :         if (ret &lt; 0)</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :             mailbox_set_critical(box, &quot;%s&quot;, error);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         update-&gt;lock_failed = TRUE;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     145 </span>            :     }
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     update-&gt;rebuild = FALSE;</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     vsize_header_refresh(update);</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     index_mailbox_vsize_check_rebuild(update);</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="150"><span class="lineNum">     150 </span>            : }</a>
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 : bool index_mailbox_vsize_update_try_lock(struct mailbox_vsize_update *update)</span>
+<span class="lineNum">     153 </span>            : {
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     return vsize_update_lock_full(update, 0);</span>
+<a name="155"><span class="lineNum">     155 </span>            : }</a>
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 : bool index_mailbox_vsize_update_wait_lock(struct mailbox_vsize_update *update)</span>
+<span class="lineNum">     158 </span>            : {
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     return vsize_update_lock_full(update, VSIZE_UPDATE_MAX_LOCK_SECS);</span>
+<a name="160"><span class="lineNum">     160 </span>            : }</a>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 : bool index_mailbox_vsize_want_updates(struct mailbox_vsize_update *update)</span>
+<span class="lineNum">     163 </span>            : {
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     return update-&gt;vsize_hdr.highest_uid &gt; 0;</span>
+<span class="lineNum">     165 </span>            : }
+<a name="166"><span class="lineNum">     166 </span>            : </a>
+<span class="lineNum">     167 </span>            : static void
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 : index_mailbox_vsize_update_write(struct mailbox_vsize_update *update)</span>
+<span class="lineNum">     169 </span>            : {
+<span class="lineNum">     170 </span>            :     struct mail_index_transaction *trans;
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     if (update-&gt;written)</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     update-&gt;written = TRUE;</span>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     if (update-&gt;rebuild == FALSE &amp;&amp;</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :         memcmp(&amp;update-&gt;orig_vsize_hdr, &amp;update-&gt;vsize_hdr,</span>
+<span class="lineNum">     178 </span>            :            sizeof(update-&gt;vsize_hdr)) == 0) {
+<span class="lineNum">     179 </span>            :         /* no changes */
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     181 </span>            :     }
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     trans = mail_index_transaction_begin(update-&gt;view,</span>
+<span class="lineNum">     183 </span>            :                 MAIL_INDEX_TRANSACTION_FLAG_EXTERNAL);
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     mail_index_update_header_ext(trans, update-&gt;box-&gt;vsize_hdr_ext_id,</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :                      0, &amp;update-&gt;vsize_hdr,</span>
+<span class="lineNum">     186 </span>            :                      sizeof(update-&gt;vsize_hdr));
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :     (void)mail_index_transaction_commit(&amp;trans);</span>
+<a name="188"><span class="lineNum">     188 </span>            : }</a>
+<span class="lineNum">     189 </span>            : 
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 : static void index_mailbox_vsize_notify_indexer(struct mailbox *box)</span>
+<span class="lineNum">     191 </span>            : {
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     string_t *str = t_str_new(256);</span>
+<span class="lineNum">     193 </span>            :     const char *path;
+<span class="lineNum">     194 </span>            :     int fd;
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     path = t_strconcat(box-&gt;storage-&gt;user-&gt;set-&gt;base_dir,</span>
+<span class="lineNum">     197 </span>            :                &quot;/&quot;INDEXER_SOCKET_NAME, NULL);
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     fd = net_connect_unix(path);</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     if (fd == -1) {</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box,</span>
+<span class="lineNum">     201 </span>            :             &quot;Can't start vsize building on background: &quot;
+<span class="lineNum">     202 </span>            :             &quot;net_connect_unix(%s) failed: %m&quot;, path);
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     204 </span>            :     }
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     str_append(str, INDEXER_HANDSHAKE);</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :     str_append(str, &quot;APPEND\t0\t&quot;);</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     str_append_tabescaped(str, box-&gt;storage-&gt;user-&gt;username);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     str_append_c(str, '\t');</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     str_append_tabescaped(str, box-&gt;vname);</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     if (write_full(fd, str_data(str), str_len(str)) &lt; 0) {</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :         mailbox_set_critical(box,</span>
+<span class="lineNum">     214 </span>            :             &quot;Can't start vsize building on background: &quot;
+<span class="lineNum">     215 </span>            :             &quot;write(%s) failed: %m&quot;, path);
+<span class="lineNum">     216 </span>            :     }
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     i_close_fd(&amp;fd);</span>
+<a name="218"><span class="lineNum">     218 </span>            : }</a>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 : void index_mailbox_vsize_update_deinit(struct mailbox_vsize_update **_update)</span>
+<span class="lineNum">     221 </span>            : {
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     struct mailbox_vsize_update *update = *_update;</span>
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     *_update = NULL;</span>
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     if (update-&gt;lock != NULL || update-&gt;rebuild)</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         index_mailbox_vsize_update_write(update);</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     if (update-&gt;lock != NULL)</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         file_lock_free(&amp;update-&gt;lock);</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     if (update-&gt;finish_in_background)</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :         index_mailbox_vsize_notify_indexer(update-&gt;box);</span>
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     mail_index_view_close(&amp;update-&gt;view);</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     i_free(update);</span>
+<a name="235"><span class="lineNum">     235 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 : void index_mailbox_vsize_hdr_expunge(struct mailbox_vsize_update *update,</span>
+<span class="lineNum">     238 </span>            :                      uint32_t uid, uoff_t vsize)
+<span class="lineNum">     239 </span>            : {
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :     i_assert(update-&gt;lock != NULL);</span>
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :     if (uid &gt; update-&gt;vsize_hdr.highest_uid)</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     if (update-&gt;vsize_hdr.message_count == 0) {</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         mailbox_set_critical(update-&gt;box,</span>
+<span class="lineNum">     246 </span>            :             &quot;vsize-hdr's message_count shrank below 0&quot;);
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         i_zero(&amp;update-&gt;vsize_hdr);</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     249 </span>            :     }
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     update-&gt;vsize_hdr.message_count--;</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :     if (update-&gt;vsize_hdr.vsize &lt; vsize) {</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         mailbox_set_critical(update-&gt;box,</span>
+<span class="lineNum">     253 </span>            :             &quot;vsize-hdr's vsize shrank below 0&quot;);
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         i_zero(&amp;update-&gt;vsize_hdr);</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     256 </span>            :     }
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :     update-&gt;vsize_hdr.vsize -= vsize;</span>
+<span class="lineNum">     258 </span>            : }
+<a name="259"><span class="lineNum">     259 </span>            : </a>
+<span class="lineNum">     260 </span>            : static int
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 : index_mailbox_vsize_hdr_add_missing(struct mailbox_vsize_update *update,</span>
+<span class="lineNum">     262 </span>            :                     bool require_result)
+<span class="lineNum">     263 </span>            : {
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     struct mailbox_index_vsize *vsize_hdr = &amp;update-&gt;vsize_hdr;</span>
+<span class="lineNum">     265 </span>            :     struct mailbox_transaction_context *trans;
+<span class="lineNum">     266 </span>            :     struct mail_search_context *search_ctx;
+<span class="lineNum">     267 </span>            :     struct mail_search_args *search_args;
+<span class="lineNum">     268 </span>            :     struct mailbox_status status;
+<span class="lineNum">     269 </span>            :     struct mail *mail;
+<span class="lineNum">     270 </span>            :     unsigned int mails_left;
+<span class="lineNum">     271 </span>            :     uint32_t seq1, seq2;
+<span class="lineNum">     272 </span>            :     uoff_t vsize;
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     mailbox_get_open_status(update-&gt;box, STATUS_UIDNEXT, &amp;status);</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     if (vsize_hdr-&gt;highest_uid + 1 &gt;= status.uidnext) {</span>
+<span class="lineNum">     277 </span>            :         /* nothing to do - we should have usually caught this already
+<span class="lineNum">     278 </span>            :            before locking */
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     280 </span>            :     }
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span>            :     /* note that update-&gt;view may be more up-to-date than box-&gt;view.
+<span class="lineNum">     283 </span>            :        we'll just add whatever new mails are in box-&gt;view. if we'll notice
+<span class="lineNum">     284 </span>            :        that some of the new mails are missing, we'll need to stop there
+<span class="lineNum">     285 </span>            :        since that expunge will be applied later on to the vsize header. */
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     search_args = mail_search_build_init();</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     if (!mail_index_lookup_seq_range(update-&gt;box-&gt;view,</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :                      vsize_hdr-&gt;highest_uid + 1,</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :                      status.uidnext-1, &amp;seq1, &amp;seq2)) {</span>
+<span class="lineNum">     290 </span>            :         /* nothing existed, but update uidnext */
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         vsize_hdr-&gt;highest_uid = status.uidnext - 1;</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         mail_search_args_unref(&amp;search_args);</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     294 </span>            :     }
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     mail_search_build_add_seqset(search_args, seq1, seq2);</span>
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     trans = mailbox_transaction_begin(update-&gt;box, 0, &quot;vsize update&quot;);</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     search_ctx = mailbox_search_init(trans, search_args, NULL,</span>
+<span class="lineNum">     299 </span>            :                      MAIL_FETCH_VIRTUAL_SIZE, NULL);
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     if (!require_result)</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         mails_left = 0;</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     else if (update-&gt;box-&gt;storage-&gt;set-&gt;mail_vsize_bg_after_count == 0)</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :         mails_left = UINT_MAX;</span>
+<span class="lineNum">     304 </span>            :     else
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         mails_left = update-&gt;box-&gt;storage-&gt;set-&gt;mail_vsize_bg_after_count;</span>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     while (mailbox_search_next(search_ctx, &amp;mail)) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         if (mails_left == 0) {</span>
+<span class="lineNum">     309 </span>            :             /* if there are any more mails whose vsize can't be
+<span class="lineNum">     310 </span>            :                looked up from cache, abort and finish on
+<span class="lineNum">     311 </span>            :                background. */
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :             mail-&gt;lookup_abort = MAIL_LOOKUP_ABORT_NOT_IN_CACHE;</span>
+<span class="lineNum">     313 </span>            :         }
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         ret = mail_get_virtual_size(mail, &amp;vsize);</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         mail-&gt;lookup_abort = MAIL_LOOKUP_ABORT_NEVER;</span>
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         if (ret &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :             mailbox_get_last_mail_error(update-&gt;box) == MAIL_ERROR_LOOKUP_ABORTED) {</span>
+<span class="lineNum">     319 </span>            :             /* abort and finish on background */
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :             i_assert(mails_left == 0);</span>
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :             mail_storage_set_error(update-&gt;box-&gt;storage, MAIL_ERROR_INUSE,</span>
+<span class="lineNum">     323 </span>            :                 &quot;Finishing vsize calculation on background&quot;);
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :             if (require_result)</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :                 update-&gt;finish_in_background = TRUE;</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     327 </span>            :         }
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         if (mail-&gt;mail_stream_opened || mail-&gt;mail_metadata_accessed) {</span>
+<span class="lineNum">     329 </span>            :             /* slow vsize lookup */
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :             i_assert(mails_left &gt; 0);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :             mails_left--;</span>
+<span class="lineNum">     332 </span>            :         }
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             if (mail-&gt;expunged)</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     339 </span>            :         }
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         vsize_hdr-&gt;vsize += vsize;</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :         vsize_hdr-&gt;highest_uid = mail-&gt;uid;</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :         vsize_hdr-&gt;message_count++;</span>
+<span class="lineNum">     343 </span>            :     }
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :     if (mailbox_search_deinit(&amp;search_ctx) &lt; 0)</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     mail_search_args_unref(&amp;search_args);</span>
+<span class="lineNum">     347 </span>            : 
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     349 </span>            :         /* success, cache all */
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :         vsize_hdr-&gt;highest_uid = status.uidnext - 1;</span>
+<span class="lineNum">     351 </span>            :     } else {
+<span class="lineNum">     352 </span>            :         /* search failed, cache only up to highest seen uid */
+<span class="lineNum">     353 </span>            :     }
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     (void)mailbox_transaction_commit(&amp;trans);</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="356"><span class="lineNum">     356 </span>            : }</a>
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 : int index_mailbox_get_virtual_size(struct mailbox *box,</span>
+<span class="lineNum">     359 </span>            :                    struct mailbox_metadata *metadata_r)
+<span class="lineNum">     360 </span>            : {
+<span class="lineNum">     361 </span>            :     struct mailbox_vsize_update *update;
+<span class="lineNum">     362 </span>            :     struct mailbox_status status;
+<span class="lineNum">     363 </span>            :     int ret;
+<span class="lineNum">     364 </span>            : 
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     mailbox_get_open_status(box, STATUS_MESSAGES | STATUS_UIDNEXT, &amp;status);</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     update = index_mailbox_vsize_update_init(box);</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     if (update-&gt;vsize_hdr.highest_uid + 1 == status.uidnext &amp;&amp;</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :         update-&gt;vsize_hdr.message_count == status.messages) {</span>
+<span class="lineNum">     369 </span>            :         /* up to date */
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :         metadata_r-&gt;virtual_size = update-&gt;vsize_hdr.vsize;</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         index_mailbox_vsize_update_deinit(&amp;update);</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     373 </span>            :     }
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span>            :     /* we need to update it - lock it if possible. if not, update it
+<span class="lineNum">     376 </span>            :        anyway internally even though we won't be saving the result. */
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :     (void)index_mailbox_vsize_update_wait_lock(update);</span>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :     ret = index_mailbox_vsize_hdr_add_missing(update, TRUE);</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     metadata_r-&gt;virtual_size = update-&gt;vsize_hdr.vsize;</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     index_mailbox_vsize_update_deinit(&amp;update);</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="383"><span class="lineNum">     383 </span>            : }</a>
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 : int index_mailbox_get_physical_size(struct mailbox *box,</span>
+<span class="lineNum">     386 </span>            :                     struct mailbox_metadata *metadata_r)
+<span class="lineNum">     387 </span>            : {
+<span class="lineNum">     388 </span>            :     struct mailbox_transaction_context *trans;
+<span class="lineNum">     389 </span>            :     struct mail_search_context *ctx;
+<span class="lineNum">     390 </span>            :     struct mail *mail;
+<span class="lineNum">     391 </span>            :     struct mail_search_args *search_args;
+<span class="lineNum">     392 </span>            :     uoff_t size;
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :     int ret = 0;</span>
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span>            :     /* if physical size = virtual size always for the storage, we can
+<span class="lineNum">     396 </span>            :        use the optimized vsize code for this */
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     if (box-&gt;mail_vfuncs-&gt;get_physical_size ==</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         box-&gt;mail_vfuncs-&gt;get_virtual_size) {</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :         if (index_mailbox_get_virtual_size(box, metadata_r) &lt; 0)</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :         metadata_r-&gt;physical_size = metadata_r-&gt;virtual_size;</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     403 </span>            :     }
+<span class="lineNum">     404 </span>            :     /* do it the slow way (we could implement similar logic as for vsize,
+<span class="lineNum">     405 </span>            :        but for now it's not really needed) */
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     if (mailbox_sync(box, MAILBOX_SYNC_FLAG_FULL_READ) &lt; 0)</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     408 </span>            : 
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     trans = mailbox_transaction_begin(box, 0, &quot;mailbox physical size&quot;);</span>
+<span class="lineNum">     410 </span>            : 
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     search_args = mail_search_build_init();</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     mail_search_build_add_all(search_args);</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     ctx = mailbox_search_init(trans, search_args, NULL,</span>
+<span class="lineNum">     414 </span>            :                   MAIL_FETCH_PHYSICAL_SIZE, NULL);
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     mail_search_args_unref(&amp;search_args);</span>
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :     metadata_r-&gt;physical_size = 0;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     while (mailbox_search_next(ctx, &amp;mail)) {</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :         if (mail_get_physical_size(mail, &amp;size) == 0)</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :             metadata_r-&gt;physical_size += size;</span>
+<span class="lineNum">     421 </span>            :         else {
+<span class="lineNum">     422 </span>            :             const char *errstr;
+<span class="lineNum">     423 </span>            :             enum mail_error error;
+<span class="lineNum">     424 </span>            : 
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :             errstr = mailbox_get_last_internal_error(box, &amp;error);</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :             if (error != MAIL_ERROR_EXPUNGED) {</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :                 i_error(&quot;Couldn't get size of mail UID %u in %s: %s&quot;,</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :                     mail-&gt;uid, box-&gt;vname, errstr);</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :                 ret = -1;</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     431 </span>            :             }
+<span class="lineNum">     432 </span>            :         }
+<span class="lineNum">     433 </span>            :     }
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     if (mailbox_search_deinit(&amp;ctx) &lt; 0) {</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :         i_error(&quot;Listing mails in %s failed: %s&quot;,</span>
+<span class="lineNum">     436 </span>            :             box-&gt;vname, mailbox_get_last_internal_error(box, NULL));
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         ret = -1;</span>
+<span class="lineNum">     438 </span>            :     }
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :     (void)mailbox_transaction_commit(&amp;trans);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :     return ret;</span>
+<a name="441"><span class="lineNum">     441 </span>            : }</a>
+<span class="lineNum">     442 </span>            : 
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 : void index_mailbox_vsize_update_appends(struct mailbox *box)</span>
+<span class="lineNum">     444 </span>            : {
+<span class="lineNum">     445 </span>            :     struct mailbox_vsize_update *update;
+<span class="lineNum">     446 </span>            :     struct mailbox_status status;
+<span class="lineNum">     447 </span>            : 
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :     update = index_mailbox_vsize_update_init(box);</span>
+<span class="lineNum">     449 </span>            : 
+<span class="lineNum">     450 </span>            :     /* update here only if we don't need to rebuild the whole vsize. */
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     index_mailbox_vsize_check_rebuild(update);</span>
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     if (index_mailbox_vsize_want_updates(update)) {</span>
+<span class="lineNum">     453 </span>            :         /* Get the UIDNEXT only after checking that vsize updating is
+<span class="lineNum">     454 </span>            :            even potentially wanted for this mailbox. We especially
+<span class="lineNum">     455 </span>            :            don't want to do this with imapc, because it could trigger
+<span class="lineNum">     456 </span>            :            a remote STATUS (UIDNEXT) call. */
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         mailbox_get_open_status(update-&gt;box, STATUS_UIDNEXT, &amp;status);</span>
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :         if (update-&gt;vsize_hdr.highest_uid + 1 != status.uidnext &amp;&amp;</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :             index_mailbox_vsize_update_try_lock(update))</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :             (void)index_mailbox_vsize_hdr_add_missing(update, FALSE);</span>
+<span class="lineNum">     461 </span>            :     }
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     index_mailbox_vsize_update_deinit(&amp;update);</span>
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

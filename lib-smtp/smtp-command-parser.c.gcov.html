@@ -1,0 +1,633 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-smtp/smtp-command-parser.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-smtp</a> - smtp-command-parser.c<span style="font-size: 80%;"> (source / <a href="smtp-command-parser.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">182</td>
+            <td class="headerCovTableEntry">257</td>
+            <td class="headerCovTableEntryLo">70.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntryMed">75.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream-failure-at.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream-sized.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream-dot.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : #include &quot;smtp-parser.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;smtp-command-parser.h&quot;
+<span class="lineNum">      11 </span>            : 
+<span class="lineNum">      12 </span>            : #include &lt;ctype.h&gt;
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #define SMTP_COMMAND_PARSER_MAX_COMMAND_LENGTH 32
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            : enum smtp_command_parser_state {
+<span class="lineNum">      17 </span>            :     SMTP_COMMAND_PARSE_STATE_INIT = 0,
+<span class="lineNum">      18 </span>            :     SMTP_COMMAND_PARSE_STATE_SKIP_LINE,
+<span class="lineNum">      19 </span>            :     SMTP_COMMAND_PARSE_STATE_COMMAND,
+<span class="lineNum">      20 </span>            :     SMTP_COMMAND_PARSE_STATE_SP,
+<span class="lineNum">      21 </span>            :     SMTP_COMMAND_PARSE_STATE_PARAMETERS,
+<span class="lineNum">      22 </span>            :     SMTP_COMMAND_PARSE_STATE_CR,
+<span class="lineNum">      23 </span>            :     SMTP_COMMAND_PARSE_STATE_LF,
+<span class="lineNum">      24 </span>            :     SMTP_COMMAND_PARSE_STATE_ERROR,
+<span class="lineNum">      25 </span>            : };
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : struct smtp_command_parser_state_data {
+<span class="lineNum">      28 </span>            :     enum smtp_command_parser_state state;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            :     char *cmd_name;
+<span class="lineNum">      31 </span>            :     char *cmd_params;
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            :     uoff_t poff;
+<span class="lineNum">      34 </span>            : };
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : struct smtp_command_parser {
+<span class="lineNum">      37 </span>            :     struct istream *input;
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            :     struct smtp_command_limits limits;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            :     const unsigned char *cur, *end;
+<span class="lineNum">      42 </span>            :     struct istream *data;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     struct smtp_command_parser_state_data state;
+<span class="lineNum">      45 </span>            : 
+<span class="lineNum">      46 </span>            :     enum smtp_command_parse_error error_code;
+<span class="lineNum">      47 </span>            :     char *error;
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            :     bool auth_response:1;
+<span class="lineNum">      50 </span>            : };
+<a name="51"><span class="lineNum">      51 </span>            : </a>
+<span class="lineNum">      52 </span>            : static inline void ATTR_FORMAT(3, 4)
+<span class="lineNum">      53 </span><span class="lineCov">         20 : smtp_command_parser_error(struct smtp_command_parser *parser,</span>
+<span class="lineNum">      54 </span>            :               enum smtp_command_parse_error code,
+<span class="lineNum">      55 </span>            :               const char *format, ...)
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span>            :     va_list args;
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span><span class="lineCov">         20 :     parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_ERROR;</span>
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineCov">         20 :     i_free(parser-&gt;error);</span>
+<span class="lineNum">      62 </span><span class="lineCov">         20 :     parser-&gt;error_code = code;</span>
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span><span class="lineCov">         20 :     va_start(args, format);</span>
+<span class="lineNum">      65 </span><span class="lineCov">         20 :     parser-&gt;error = i_strdup_vprintf(format, args);</span>
+<span class="lineNum">      66 </span><span class="lineCov">         20 :     va_end(args);</span>
+<span class="lineNum">      67 </span><span class="lineCov">         20 : }</span>
+<a name="68"><span class="lineNum">      68 </span>            : </a>
+<span class="lineNum">      69 </span>            : struct smtp_command_parser *
+<span class="lineNum">      70 </span><span class="lineCov">         20 : smtp_command_parser_init(struct istream *input,</span>
+<span class="lineNum">      71 </span>            :              const struct smtp_command_limits *limits)
+<span class="lineNum">      72 </span>            : {
+<span class="lineNum">      73 </span>            :     struct smtp_command_parser *parser;
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">         20 :     parser = i_new(struct smtp_command_parser, 1);</span>
+<span class="lineNum">      76 </span><span class="lineCov">         20 :     parser-&gt;input = input;</span>
+<span class="lineNum">      77 </span><span class="lineCov">         20 :     i_stream_ref(input);</span>
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineCov">         20 :     if (limits != NULL)</span>
+<span class="lineNum">      80 </span><span class="lineCov">         20 :         parser-&gt;limits = *limits;</span>
+<span class="lineNum">      81 </span><span class="lineCov">         20 :     if (parser-&gt;limits.max_parameters_size == 0) {</span>
+<span class="lineNum">      82 </span><span class="lineCov">         18 :         parser-&gt;limits.max_parameters_size =</span>
+<span class="lineNum">      83 </span>            :             SMTP_COMMAND_DEFAULT_MAX_PARAMETERS_SIZE;
+<span class="lineNum">      84 </span>            :     }
+<span class="lineNum">      85 </span><span class="lineCov">         20 :     if (parser-&gt;limits.max_auth_size == 0) {</span>
+<span class="lineNum">      86 </span><span class="lineCov">         18 :         parser-&gt;limits.max_auth_size =</span>
+<span class="lineNum">      87 </span>            :             SMTP_COMMAND_DEFAULT_MAX_AUTH_SIZE;
+<span class="lineNum">      88 </span>            :     }
+<span class="lineNum">      89 </span><span class="lineCov">         20 :     if (parser-&gt;limits.max_data_size == 0) {</span>
+<span class="lineNum">      90 </span><span class="lineCov">         20 :         parser-&gt;limits.max_data_size =</span>
+<span class="lineNum">      91 </span>            :             SMTP_COMMAND_DEFAULT_MAX_DATA_SIZE;
+<span class="lineNum">      92 </span>            :     }
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span><span class="lineCov">         20 :     return parser;</span>
+<a name="95"><span class="lineNum">      95 </span>            : }</a>
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineCov">         20 : void smtp_command_parser_deinit(struct smtp_command_parser **_parser)</span>
+<span class="lineNum">      98 </span>            : {
+<span class="lineNum">      99 </span><span class="lineCov">         20 :     struct smtp_command_parser *parser = *_parser;</span>
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineCov">         20 :     i_stream_unref(&amp;parser-&gt;data);</span>
+<span class="lineNum">     102 </span><span class="lineCov">         20 :     i_free(parser-&gt;state.cmd_name);</span>
+<span class="lineNum">     103 </span><span class="lineCov">         20 :     i_free(parser-&gt;state.cmd_params);</span>
+<span class="lineNum">     104 </span><span class="lineCov">         20 :     i_free(parser-&gt;error);</span>
+<span class="lineNum">     105 </span><span class="lineCov">         20 :     i_stream_unref(&amp;parser-&gt;input);</span>
+<span class="lineNum">     106 </span><span class="lineCov">         20 :     i_free(parser);</span>
+<span class="lineNum">     107 </span><span class="lineCov">         20 :     *_parser = NULL;</span>
+<span class="lineNum">     108 </span><span class="lineCov">         20 : }</span>
+<a name="109"><span class="lineNum">     109 </span>            : </a>
+<span class="lineNum">     110 </span>            : static void
+<span class="lineNum">     111 </span><span class="lineCov">         20 : smtp_command_parser_restart(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     112 </span>            : {
+<span class="lineNum">     113 </span><span class="lineCov">         20 :     i_free(parser-&gt;state.cmd_name);</span>
+<span class="lineNum">     114 </span><span class="lineCov">         20 :     i_free(parser-&gt;state.cmd_params);</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineCov">         20 :     i_zero(&amp;parser-&gt;state);</span>
+<a name="117"><span class="lineNum">     117 </span><span class="lineCov">         20 : }</span></a>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 : void smtp_command_parser_set_stream(struct smtp_command_parser *parser,</span>
+<span class="lineNum">     120 </span>            :     struct istream *input)
+<span class="lineNum">     121 </span>            : {
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;parser-&gt;input);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     if (input != NULL) {</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         parser-&gt;input = input;</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         i_stream_ref(parser-&gt;input);</span>
+<span class="lineNum">     126 </span>            :     }
+<a name="127"><span class="lineNum">     127 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">          6 : static inline const char *_chr_sanitize(unsigned char c)</span>
+<span class="lineNum">     130 </span>            : {
+<span class="lineNum">     131 </span><span class="lineCov">          6 :     if (c &gt;= 0x20 &amp;&amp; c &lt; 0x7F)</span>
+<span class="lineNum">     132 </span><span class="lineCov">          3 :         return t_strdup_printf(&quot;`%c'&quot;, c);</span>
+<span class="lineNum">     133 </span><span class="lineCov">          3 :     if (c == 0x0a)</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         return &quot;&lt;LF&gt;&quot;;</span>
+<span class="lineNum">     135 </span><span class="lineCov">          3 :     if (c == 0x0d)</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :         return &quot;&lt;CR&gt;&quot;;</span>
+<span class="lineNum">     137 </span><span class="lineCov">          3 :     return t_strdup_printf(&quot;&lt;0x%02x&gt;&quot;, c);</span>
+<a name="138"><span class="lineNum">     138 </span>            : }</a>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span><span class="lineCov">         14 : static int smtp_command_parse_identifier(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     141 </span>            : {
+<span class="lineNum">     142 </span>            :     const unsigned char *p;
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span>            :     /* The commands themselves are alphabetic characters.
+<span class="lineNum">     145 </span>            :      */
+<span class="lineNum">     146 </span><span class="lineCov">         14 :     p = parser-&gt;cur + parser-&gt;state.poff;</span>
+<span class="lineNum">     147 </span><span class="lineCov">         14 :     i_assert(p &lt;= parser-&gt;end);</span>
+<span class="lineNum">     148 </span><span class="lineCov">        112 :     while (p &lt; parser-&gt;end &amp;&amp; i_isalpha(*p))</span>
+<span class="lineNum">     149 </span><span class="lineCov">         84 :         p++;</span>
+<span class="lineNum">     150 </span><span class="lineCov">         14 :     if ((p - parser-&gt;cur) &gt; SMTP_COMMAND_PARSER_MAX_COMMAND_LENGTH) {</span>
+<span class="lineNum">     151 </span><span class="lineCov">          1 :         smtp_command_parser_error(parser,</span>
+<span class="lineNum">     152 </span>            :             SMTP_COMMAND_PARSE_ERROR_BAD_COMMAND,
+<span class="lineNum">     153 </span>            :             &quot;Command name is too long&quot;);
+<span class="lineNum">     154 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     155 </span>            :     }
+<span class="lineNum">     156 </span><span class="lineCov">         13 :     parser-&gt;state.poff = p - parser-&gt;cur;</span>
+<span class="lineNum">     157 </span><span class="lineCov">         13 :     if (p == parser-&gt;end)</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     159 </span><span class="lineCov">         13 :     parser-&gt;state.cmd_name = str_ucase(i_strdup_until(parser-&gt;cur, p));</span>
+<span class="lineNum">     160 </span><span class="lineCov">         13 :     parser-&gt;cur = p;</span>
+<span class="lineNum">     161 </span><span class="lineCov">         13 :     parser-&gt;state.poff = 0;</span>
+<span class="lineNum">     162 </span><span class="lineCov">         13 :     return 1;</span>
+<a name="163"><span class="lineNum">     163 </span>            : }</a>
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span><span class="lineCov">         15 : static int smtp_command_parse_parameters(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     166 </span>            : {
+<span class="lineNum">     167 </span>            :     const unsigned char *p, *mp;
+<span class="lineNum">     168 </span><span class="lineCov">         30 :     uoff_t max_size = (parser-&gt;auth_response ?</span>
+<span class="lineNum">     169 </span><span class="lineCov">         15 :         parser-&gt;limits.max_auth_size :</span>
+<span class="lineNum">     170 </span>            :         parser-&gt;limits.max_parameters_size);
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span>            :     /* We assume parameters to match textstr
+<span class="lineNum">     173 </span>            :        =&gt; HT, SP, Printable US-ASCII
+<span class="lineNum">     174 </span>            :      */
+<span class="lineNum">     175 </span><span class="lineCov">         15 :     p = parser-&gt;cur + parser-&gt;state.poff;</span>
+<span class="lineNum">     176 </span><span class="lineCov">        437 :     while (p &lt; parser-&gt;end &amp;&amp; smtp_char_is_textstr(*p))</span>
+<span class="lineNum">     177 </span><span class="lineCov">        407 :         p++;</span>
+<span class="lineNum">     178 </span><span class="lineCov">         15 :     if (max_size &gt; 0 &amp;&amp; (uoff_t)(p - parser-&gt;cur) &gt; max_size) {</span>
+<span class="lineNum">     179 </span><span class="lineCov">          2 :         smtp_command_parser_error(parser,</span>
+<span class="lineNum">     180 </span>            :             SMTP_COMMAND_PARSE_ERROR_LINE_TOO_LONG,
+<span class="lineNum">     181 </span>            :             &quot;%s line is too long&quot;,
+<span class="lineNum">     182 </span><span class="lineCov">          2 :             (parser-&gt;auth_response ?</span>
+<span class="lineNum">     183 </span>            :                 &quot;AUTH response&quot; : &quot;Command&quot;));
+<span class="lineNum">     184 </span><span class="lineCov">          2 :         return -1;</span>
+<span class="lineNum">     185 </span>            :     }
+<span class="lineNum">     186 </span><span class="lineCov">         13 :     parser-&gt;state.poff = p - parser-&gt;cur;</span>
+<span class="lineNum">     187 </span><span class="lineCov">         13 :     if (p == parser-&gt;end)</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     189 </span>            : 
+<span class="lineNum">     190 </span>            :     /* In the interest of improved interoperability, SMTP receivers SHOULD
+<span class="lineNum">     191 </span>            :        tolerate trailing white space before the terminating &lt;CRLF&gt;.
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span>            :        WSP =  SP / HTAB ; white space
+<span class="lineNum">     194 </span>            : 
+<span class="lineNum">     195 </span>            :        --&gt; Trim the end of the buffer
+<span class="lineNum">     196 </span>            :      */
+<span class="lineNum">     197 </span><span class="lineCov">         13 :     mp = p;</span>
+<span class="lineNum">     198 </span><span class="lineCov">         13 :     if (mp &gt; parser-&gt;cur) {</span>
+<span class="lineNum">     199 </span><span class="lineCov">         36 :         while (mp &gt; parser-&gt;cur &amp;&amp; (*(mp-1) == ' ' || *(mp-1) == '\t'))</span>
+<span class="lineNum">     200 </span><span class="lineCov">         12 :             mp--;</span>
+<span class="lineNum">     201 </span>            :     }
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineCov">         13 :     if (!parser-&gt;auth_response &amp;&amp; mp &gt; parser-&gt;cur &amp;&amp; *parser-&gt;cur == ' ') {</span>
+<span class="lineNum">     204 </span><span class="lineCov">          1 :         smtp_command_parser_error(parser,</span>
+<span class="lineNum">     205 </span>            :             SMTP_COMMAND_PARSE_ERROR_BAD_COMMAND,
+<span class="lineNum">     206 </span>            :             &quot;Duplicate space after command name&quot;);
+<span class="lineNum">     207 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     208 </span>            :     }
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span><span class="lineCov">         12 :     parser-&gt;state.cmd_params = i_strdup_until(parser-&gt;cur, mp);</span>
+<span class="lineNum">     211 </span><span class="lineCov">         12 :     parser-&gt;cur = p;</span>
+<span class="lineNum">     212 </span><span class="lineCov">         12 :     parser-&gt;state.poff = 0;</span>
+<span class="lineNum">     213 </span><span class="lineCov">         12 :     return 1;</span>
+<span class="lineNum">     214 </span>            : }
+<a name="215"><span class="lineNum">     215 </span>            : </a>
+<span class="lineNum">     216 </span>            : static int
+<span class="lineNum">     217 </span><span class="lineCov">         28 : smtp_command_parse_line(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     218 </span>            : {
+<span class="lineNum">     219 </span>            :     int ret;
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span>            :     /* RFC 5321, Section 4.1.1:
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span>            :        SMTP commands are character strings terminated by &lt;CRLF&gt;. The
+<span class="lineNum">     224 </span>            :        commands themselves are alphabetic characters terminated by &lt;SP&gt; if
+<span class="lineNum">     225 </span>            :        parameters follow and &lt;CRLF&gt; otherwise. (In the interest of improved
+<span class="lineNum">     226 </span>            :        interoperability, SMTP receivers SHOULD tolerate trailing white space
+<span class="lineNum">     227 </span>            :        before the terminating &lt;CRLF&gt;.)
+<span class="lineNum">     228 </span>            :      */
+<span class="lineNum">     229 </span>            :     for (;;) {
+<span class="lineNum">     230 </span><span class="lineCov">         28 :         switch (parser-&gt;state.state) {</span>
+<span class="lineNum">     231 </span>            :         case SMTP_COMMAND_PARSE_STATE_INIT:
+<span class="lineNum">     232 </span><span class="lineCov">         20 :             smtp_command_parser_restart(parser);</span>
+<span class="lineNum">     233 </span><span class="lineCov">         20 :             if (parser-&gt;auth_response) {</span>
+<span class="lineNum">     234 </span>            :                 /* parse AUTH response as bare parameters */
+<span class="lineNum">     235 </span><span class="lineCov">          6 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     236 </span>            :                     SMTP_COMMAND_PARSE_STATE_PARAMETERS;
+<span class="lineNum">     237 </span>            :             } else {
+<span class="lineNum">     238 </span><span class="lineCov">         14 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     239 </span>            :                     SMTP_COMMAND_PARSE_STATE_COMMAND;
+<span class="lineNum">     240 </span>            :             }
+<span class="lineNum">     241 </span><span class="lineCov">         20 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     243 </span><span class="lineCov">         20 :             if (parser-&gt;auth_response)</span>
+<span class="lineNum">     244 </span><span class="lineCov">          6 :                 break;</span>
+<span class="lineNum">     245 </span>            :             /* fall through */
+<span class="lineNum">     246 </span>            :         case SMTP_COMMAND_PARSE_STATE_COMMAND:
+<span class="lineNum">     247 </span><span class="lineCov">         14 :             if ((ret=smtp_command_parse_identifier(parser)) &lt;= 0)</span>
+<span class="lineNum">     248 </span><span class="lineCov">          1 :                 return ret;</span>
+<span class="lineNum">     249 </span><span class="lineCov">         13 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_SP;</span>
+<span class="lineNum">     250 </span><span class="lineCov">         13 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     252 </span>            :             /* fall through */
+<span class="lineNum">     253 </span>            :         case SMTP_COMMAND_PARSE_STATE_SP:
+<span class="lineNum">     254 </span><span class="lineCov">         13 :             if (*parser-&gt;cur == '\r') {</span>
+<span class="lineNum">     255 </span><span class="lineCov">          2 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     256 </span>            :                     SMTP_COMMAND_PARSE_STATE_CR;
+<span class="lineNum">     257 </span><span class="lineCov">          2 :                 break;</span>
+<span class="lineNum">     258 </span><span class="lineCov">         11 :             } else if (*parser-&gt;cur == '\n') {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :                 parser-&gt;state.state =</span>
+<span class="lineNum">     260 </span>            :                     SMTP_COMMAND_PARSE_STATE_LF;
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     262 </span><span class="lineCov">         11 :             } else if (*parser-&gt;cur != ' ') {</span>
+<span class="lineNum">     263 </span><span class="lineCov">          2 :                 smtp_command_parser_error(parser,</span>
+<span class="lineNum">     264 </span>            :                     SMTP_COMMAND_PARSE_ERROR_BAD_COMMAND,
+<span class="lineNum">     265 </span>            :                     &quot;Unexpected character %s in command name&quot;,
+<span class="lineNum">     266 </span><span class="lineCov">          2 :                     _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     267 </span><span class="lineCov">          2 :                 return -1;</span>
+<span class="lineNum">     268 </span>            :             }
+<span class="lineNum">     269 </span><span class="lineCov">          9 :             parser-&gt;cur++;</span>
+<span class="lineNum">     270 </span><span class="lineCov">          9 :             parser-&gt;state.state =</span>
+<span class="lineNum">     271 </span>            :                 SMTP_COMMAND_PARSE_STATE_PARAMETERS;
+<span class="lineNum">     272 </span><span class="lineCov">          9 :             if (parser-&gt;cur &gt;= parser-&gt;end)</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     274 </span>            :             /* fall through */
+<span class="lineNum">     275 </span>            :         case SMTP_COMMAND_PARSE_STATE_PARAMETERS:
+<span class="lineNum">     276 </span><span class="lineCov">         15 :             if ((ret=smtp_command_parse_parameters(parser)) &lt;= 0)</span>
+<span class="lineNum">     277 </span><span class="lineCov">          3 :                 return ret;</span>
+<span class="lineNum">     278 </span><span class="lineCov">         12 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_CR;</span>
+<span class="lineNum">     279 </span><span class="lineCov">         12 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     281 </span>            :             /* fall through */
+<span class="lineNum">     282 </span>            :         case SMTP_COMMAND_PARSE_STATE_CR:
+<span class="lineNum">     283 </span><span class="lineCov">         14 :             if (*parser-&gt;cur == '\r') {</span>
+<span class="lineNum">     284 </span><span class="lineCov">         12 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     285 </span><span class="lineCov">          2 :             } else if (*parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     286 </span><span class="lineCov">          4 :                 smtp_command_parser_error(parser,</span>
+<span class="lineNum">     287 </span>            :                     SMTP_COMMAND_PARSE_ERROR_BAD_COMMAND,
+<span class="lineNum">     288 </span>            :                     &quot;Unexpected character %s in %s&quot;,
+<span class="lineNum">     289 </span><span class="lineCov">          2 :                     _chr_sanitize(*parser-&gt;cur),</span>
+<span class="lineNum">     290 </span><span class="lineCov">          2 :                     (parser-&gt;auth_response ?</span>
+<span class="lineNum">     291 </span>            :                         &quot;AUTH response&quot; :
+<span class="lineNum">     292 </span>            :                         &quot;command parameters&quot;));
+<span class="lineNum">     293 </span><span class="lineCov">          2 :                 return -1;</span>
+<span class="lineNum">     294 </span>            :             }
+<span class="lineNum">     295 </span><span class="lineCov">         12 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_LF;</span>
+<span class="lineNum">     296 </span><span class="lineCov">         12 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     298 </span>            :             /* fall through */
+<span class="lineNum">     299 </span>            :         case SMTP_COMMAND_PARSE_STATE_LF:
+<span class="lineNum">     300 </span><span class="lineCov">         12 :             if (*parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     301 </span><span class="lineCov">          4 :                 smtp_command_parser_error(parser,</span>
+<span class="lineNum">     302 </span>            :                     SMTP_COMMAND_PARSE_ERROR_BAD_COMMAND,
+<span class="lineNum">     303 </span>            :                     &quot;Expected LF after CR at end of %s, &quot;
+<span class="lineNum">     304 </span>            :                     &quot;but found %s&quot;,
+<span class="lineNum">     305 </span><span class="lineCov">          2 :                     (parser-&gt;auth_response ?</span>
+<span class="lineNum">     306 </span>            :                         &quot;AUTH response&quot; : &quot;command&quot;),
+<span class="lineNum">     307 </span><span class="lineCov">          2 :                     _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     308 </span><span class="lineCov">          2 :                 return -1;</span>
+<span class="lineNum">     309 </span>            :             }
+<span class="lineNum">     310 </span><span class="lineCov">         10 :             parser-&gt;cur++;</span>
+<span class="lineNum">     311 </span><span class="lineCov">         10 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_INIT;</span>
+<span class="lineNum">     312 </span><span class="lineCov">         10 :             return 1;</span>
+<span class="lineNum">     313 </span>            :         case SMTP_COMMAND_PARSE_STATE_ERROR:
+<span class="lineNum">     314 </span>            :             /* skip until end of line */
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :             while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp;</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :                    *parser-&gt;cur != '\n')</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :             parser-&gt;cur++;</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_INIT;</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     323 </span>            :         default:
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     325 </span>            :         }
+<span class="lineNum">     326 </span><span class="lineCov">          8 :     }</span>
+<span class="lineNum">     327 </span>            : 
+<span class="lineNum">     328 </span>            :     i_unreached();
+<span class="lineNum">     329 </span>            :     return -1;
+<a name="330"><span class="lineNum">     330 </span>            : }</a>
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineCov">         30 : static int smtp_command_parse(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     333 </span>            : {
+<span class="lineNum">     334 </span>            :     const unsigned char *begin;
+<span class="lineNum">     335 </span><span class="lineCov">         30 :     size_t size, old_bytes = 0;</span>
+<span class="lineNum">     336 </span>            :     int ret;
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span><span class="lineCov">         60 :     while ((ret = i_stream_read_data(parser-&gt;input, &amp;begin, &amp;size,</span>
+<span class="lineNum">     339 </span>            :                      old_bytes)) &gt; 0) {
+<span class="lineNum">     340 </span><span class="lineCov">         20 :         parser-&gt;cur = begin;</span>
+<span class="lineNum">     341 </span><span class="lineCov">         20 :         parser-&gt;end = parser-&gt;cur + size;</span>
+<span class="lineNum">     342 </span>            : 
+<span class="lineNum">     343 </span><span class="lineCov">         20 :         ret = smtp_command_parse_line(parser);</span>
+<span class="lineNum">     344 </span><span class="lineCov">         20 :         i_stream_skip(parser-&gt;input, parser-&gt;cur - begin);</span>
+<span class="lineNum">     345 </span><span class="lineCov">         20 :         if (ret != 0)</span>
+<span class="lineNum">     346 </span><span class="lineCov">         20 :             return ret;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :         old_bytes = i_stream_get_data_size(parser-&gt;input);</span>
+<span class="lineNum">     348 </span>            :     }
+<span class="lineNum">     349 </span>            : 
+<span class="lineNum">     350 </span><span class="lineCov">         10 :     if (ret == -2) {</span>
+<span class="lineNum">     351 </span>            :         /* should not really happen */
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :         smtp_command_parser_error(parser,</span>
+<span class="lineNum">     353 </span>            :             SMTP_COMMAND_PARSE_ERROR_LINE_TOO_LONG,
+<span class="lineNum">     354 </span>            :             &quot;%s line is too long&quot;,
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :             (parser-&gt;auth_response ?</span>
+<span class="lineNum">     356 </span>            :                 &quot;AUTH response&quot; : &quot;Command&quot;));
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     358 </span>            :     }
+<span class="lineNum">     359 </span><span class="lineCov">         10 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     360 </span><span class="lineCov">         10 :         i_assert(parser-&gt;input-&gt;eof);</span>
+<span class="lineNum">     361 </span><span class="lineCov">         10 :         if (parser-&gt;input-&gt;stream_errno == 0) {</span>
+<span class="lineNum">     362 </span><span class="lineCov">         10 :             if (parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_INIT)</span>
+<span class="lineNum">     363 </span><span class="lineCov">         10 :                 ret = -2;</span>
+<span class="lineNum">     364 </span><span class="lineCov">         10 :             smtp_command_parser_error(parser,</span>
+<span class="lineNum">     365 </span>            :                 SMTP_COMMAND_PARSE_ERROR_BROKEN_COMMAND,
+<span class="lineNum">     366 </span>            :                 &quot;Premature end of input&quot;);
+<span class="lineNum">     367 </span>            :         } else {
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :             smtp_command_parser_error(parser,</span>
+<span class="lineNum">     369 </span>            :                 SMTP_COMMAND_PARSE_ERROR_BROKEN_STREAM,
+<span class="lineNum">     370 </span>            :                 &quot;Stream error: %s&quot;,
+<span class="lineNum">     371 </span>            :                 i_stream_get_error(parser-&gt;input));
+<span class="lineNum">     372 </span>            :         }
+<span class="lineNum">     373 </span>            :     }
+<span class="lineNum">     374 </span><span class="lineCov">         10 :     return ret;</span>
+<a name="375"><span class="lineNum">     375 </span>            : }</a>
+<span class="lineNum">     376 </span>            : 
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 : bool smtp_command_parser_pending_data(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     378 </span>            : {
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :     if (parser-&gt;data == NULL)</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     return i_stream_have_bytes_left(parser-&gt;data);</span>
+<span class="lineNum">     382 </span>            : }
+<a name="383"><span class="lineNum">     383 </span>            : </a>
+<span class="lineNum">     384 </span>            : static int
+<span class="lineNum">     385 </span><span class="lineCov">         30 : smtp_command_parse_finish_data(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     386 </span>            : {
+<span class="lineNum">     387 </span>            :     const unsigned char *data;
+<span class="lineNum">     388 </span>            :     size_t size;
+<span class="lineNum">     389 </span>            :     int ret;
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span><span class="lineCov">         30 :     parser-&gt;error_code = SMTP_COMMAND_PARSE_ERROR_NONE;</span>
+<span class="lineNum">     392 </span><span class="lineCov">         30 :     parser-&gt;error = NULL;</span>
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineCov">         30 :     if (parser-&gt;data == NULL)</span>
+<span class="lineNum">     395 </span><span class="lineCov">         30 :         return 1;</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     if (parser-&gt;data-&gt;eof) {</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;parser-&gt;data);</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     399 </span>            :     }
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     while ((ret = i_stream_read_data(parser-&gt;data, &amp;data, &amp;size, 0)) &gt; 0)</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         i_stream_skip(parser-&gt;data, size);</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :     if (ret == 0 || parser-&gt;data-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :         switch (parser-&gt;data-&gt;stream_errno) {</span>
+<span class="lineNum">     405 </span>            :         case 0:
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     407 </span>            :         case EIO:
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :             smtp_command_parser_error(parser,</span>
+<span class="lineNum">     409 </span>            :                 SMTP_COMMAND_PARSE_ERROR_BROKEN_COMMAND,
+<span class="lineNum">     410 </span>            :                 &quot;Invalid command data&quot;);
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     412 </span>            :         case EMSGSIZE:
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :             smtp_command_parser_error(parser,</span>
+<span class="lineNum">     414 </span>            :                 SMTP_COMMAND_PARSE_ERROR_DATA_TOO_LARGE,
+<span class="lineNum">     415 </span>            :                 &quot;Command data too large&quot;);
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     417 </span>            :         default:
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :             smtp_command_parser_error(parser,</span>
+<span class="lineNum">     419 </span>            :                 SMTP_COMMAND_PARSE_ERROR_BROKEN_STREAM,
+<span class="lineNum">     420 </span>            :                 &quot;Stream error while skipping command data: &quot;
+<span class="lineNum">     421 </span>            :                 &quot;%s&quot;, i_stream_get_error(parser-&gt;data));
+<span class="lineNum">     422 </span>            :         }
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     424 </span>            :     }
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;parser-&gt;data);</span>
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="427"><span class="lineNum">     427 </span>            : }</a>
+<span class="lineNum">     428 </span>            : 
+<span class="lineNum">     429 </span><span class="lineCov">         21 : int smtp_command_parse_next(struct smtp_command_parser *parser,</span>
+<span class="lineNum">     430 </span>            :                 const char **cmd_name_r, const char **cmd_params_r,
+<span class="lineNum">     431 </span>            :                 enum smtp_command_parse_error *error_code_r,
+<span class="lineNum">     432 </span>            :                 const char **error_r)
+<span class="lineNum">     433 </span>            : {
+<span class="lineNum">     434 </span>            :     int ret;
+<span class="lineNum">     435 </span>            : 
+<span class="lineNum">     436 </span><span class="lineCov">         21 :     i_assert(!parser-&gt;auth_response ||</span>
+<span class="lineNum">     437 </span>            :         parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_INIT ||
+<span class="lineNum">     438 </span>            :         parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_ERROR);
+<span class="lineNum">     439 </span><span class="lineCov">         21 :     parser-&gt;auth_response = FALSE;</span>
+<span class="lineNum">     440 </span>            : 
+<span class="lineNum">     441 </span><span class="lineCov">         21 :     *error_code_r = parser-&gt;error_code = SMTP_COMMAND_PARSE_ERROR_NONE;</span>
+<span class="lineNum">     442 </span><span class="lineCov">         21 :     *error_r = NULL;</span>
+<span class="lineNum">     443 </span>            : 
+<span class="lineNum">     444 </span><span class="lineCov">         21 :     i_free_and_null(parser-&gt;error);</span>
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span>            :     /* make sure we finished streaming payload from previous command
+<span class="lineNum">     447 </span>            :        before we continue. */
+<span class="lineNum">     448 </span><span class="lineCov">         21 :     if ((ret = smtp_command_parse_finish_data(parser)) &lt;= 0) {</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :             *error_code_r = parser-&gt;error_code;</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :             *error_r = parser-&gt;error;</span>
+<span class="lineNum">     452 </span>            :         }
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     454 </span>            :     }
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineCov">         21 :     if ((ret=smtp_command_parse(parser)) &lt;= 0) {</span>
+<span class="lineNum">     457 </span><span class="lineCov">         14 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     458 </span><span class="lineCov">         14 :             *error_code_r = parser-&gt;error_code;</span>
+<span class="lineNum">     459 </span><span class="lineCov">         14 :             *error_r = parser-&gt;error;</span>
+<span class="lineNum">     460 </span><span class="lineCov">         14 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_ERROR;</span>
+<span class="lineNum">     461 </span>            :         }
+<span class="lineNum">     462 </span><span class="lineCov">         14 :         return ret;</span>
+<span class="lineNum">     463 </span>            :     }
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span><span class="lineCov">          7 :     i_assert(parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_INIT);</span>
+<span class="lineNum">     466 </span><span class="lineCov">          7 :     *cmd_name_r = parser-&gt;state.cmd_name;</span>
+<span class="lineNum">     467 </span><span class="lineCov">         14 :     *cmd_params_r = (parser-&gt;state.cmd_params == NULL ?</span>
+<span class="lineNum">     468 </span><span class="lineCov">          7 :         &quot;&quot; : parser-&gt;state.cmd_params);</span>
+<span class="lineNum">     469 </span><span class="lineCov">          7 :     return 1;</span>
+<span class="lineNum">     470 </span>            : }
+<a name="471"><span class="lineNum">     471 </span>            : </a>
+<span class="lineNum">     472 </span>            : struct istream *
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 : smtp_command_parse_data_with_size(struct smtp_command_parser *parser,</span>
+<span class="lineNum">     474 </span>            :     uoff_t size)
+<span class="lineNum">     475 </span>            : {
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     i_assert(parser-&gt;data == NULL);</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :     if (size &gt; parser-&gt;limits.max_data_size) {</span>
+<span class="lineNum">     478 </span>            :         /* not supposed to happen; command should check size */
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :         parser-&gt;data = i_stream_create_error_str(EMSGSIZE, </span>
+<span class="lineNum">     480 </span>            :             &quot;Command data size exceeds maximum&quot;);
+<span class="lineNum">     481 </span>            :     } else {
+<span class="lineNum">     482 </span>            :         // FIXME: make exact_size stream type
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         parser-&gt;data = i_stream_create_min_sized(</span>
+<span class="lineNum">     484 </span>            :             i_stream_create_limit(parser-&gt;input, size), size);
+<span class="lineNum">     485 </span>            :     }
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :     i_stream_ref(parser-&gt;data);</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :     return parser-&gt;data;</span>
+<span class="lineNum">     488 </span>            : }
+<a name="489"><span class="lineNum">     489 </span>            : </a>
+<span class="lineNum">     490 </span>            : struct istream *
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 : smtp_command_parse_data_with_dot(struct smtp_command_parser *parser)</span>
+<span class="lineNum">     492 </span>            : {
+<span class="lineNum">     493 </span>            :     struct istream *data;
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :     i_assert(parser-&gt;data == NULL);</span>
+<span class="lineNum">     495 </span>            : 
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     data = i_stream_create_dot(parser-&gt;input, TRUE);</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     if (parser-&gt;limits.max_data_size != (uoff_t)-1) {</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :         parser-&gt;data = i_stream_create_failure_at(</span>
+<span class="lineNum">     499 </span>            :             data, parser-&gt;limits.max_data_size, EMSGSIZE,
+<span class="lineNum">     500 </span>            :             &quot;Command data size exceeds maximum&quot;);
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;data);</span>
+<span class="lineNum">     502 </span>            :     } else {
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :         parser-&gt;data = data;</span>
+<span class="lineNum">     504 </span>            :     }
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :     i_stream_ref(parser-&gt;data);</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :     return parser-&gt;data;</span>
+<a name="507"><span class="lineNum">     507 </span>            : }</a>
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineCov">          9 : int smtp_command_parse_auth_response(struct smtp_command_parser *parser,</span>
+<span class="lineNum">     510 </span>            :                 const char **line_r,
+<span class="lineNum">     511 </span>            :                 enum smtp_command_parse_error *error_code_r,
+<span class="lineNum">     512 </span>            :                 const char **error_r)
+<span class="lineNum">     513 </span>            : {
+<span class="lineNum">     514 </span>            :     int ret;
+<span class="lineNum">     515 </span>            : 
+<span class="lineNum">     516 </span><span class="lineCov">          9 :     i_assert(parser-&gt;auth_response ||</span>
+<span class="lineNum">     517 </span>            :         parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_INIT ||
+<span class="lineNum">     518 </span>            :         parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_ERROR);
+<span class="lineNum">     519 </span><span class="lineCov">          9 :     parser-&gt;auth_response = TRUE;</span>
+<span class="lineNum">     520 </span>            : 
+<span class="lineNum">     521 </span><span class="lineCov">          9 :     *error_code_r = parser-&gt;error_code = SMTP_COMMAND_PARSE_ERROR_NONE;</span>
+<span class="lineNum">     522 </span><span class="lineCov">          9 :     *error_r = NULL;</span>
+<span class="lineNum">     523 </span>            : 
+<span class="lineNum">     524 </span><span class="lineCov">          9 :     i_free_and_null(parser-&gt;error);</span>
+<span class="lineNum">     525 </span>            : 
+<span class="lineNum">     526 </span>            :     /* make sure we finished streaming payload from previous command
+<span class="lineNum">     527 </span>            :        before we continue. */
+<span class="lineNum">     528 </span><span class="lineCov">          9 :     if ((ret = smtp_command_parse_finish_data(parser)) &lt;= 0) {</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :             *error_code_r = parser-&gt;error_code;</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :             *error_r = parser-&gt;error;</span>
+<span class="lineNum">     532 </span>            :         }
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     534 </span>            :     }
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineCov">          9 :     if ((ret=smtp_command_parse(parser)) &lt;= 0) {</span>
+<span class="lineNum">     537 </span><span class="lineCov">          6 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     538 </span><span class="lineCov">          6 :             *error_code_r = parser-&gt;error_code;</span>
+<span class="lineNum">     539 </span><span class="lineCov">          6 :             *error_r = parser-&gt;error;</span>
+<span class="lineNum">     540 </span><span class="lineCov">          6 :             parser-&gt;state.state = SMTP_COMMAND_PARSE_STATE_ERROR;</span>
+<span class="lineNum">     541 </span>            :         }
+<span class="lineNum">     542 </span><span class="lineCov">          6 :         return ret;</span>
+<span class="lineNum">     543 </span>            :     }
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineCov">          3 :     i_assert(parser-&gt;state.state == SMTP_COMMAND_PARSE_STATE_INIT);</span>
+<span class="lineNum">     546 </span><span class="lineCov">          3 :     *line_r = parser-&gt;state.cmd_params;</span>
+<span class="lineNum">     547 </span><span class="lineCov">          3 :     parser-&gt;auth_response = FALSE;</span>
+<span class="lineNum">     548 </span><span class="lineCov">          3 :     return 1;</span>
+<span class="lineNum">     549 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

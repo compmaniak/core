@@ -1,0 +1,423 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - plugins/var-expand-crypt/var-expand-crypt-plugin.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">plugins/var-expand-crypt</a> - var-expand-crypt-plugin.c<span style="font-size: 80%;"> (source / <a href="var-expand-crypt-plugin.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">124</td>
+            <td class="headerCovTableEntry">171</td>
+            <td class="headerCovTableEntryLo">72.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryMed">77.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2003-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;hex-binary.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;base64.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;var-expand.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;var-expand-private.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;dcrypt.h&quot;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : #define VAR_EXPAND_CRYPT_DEFAULT_ALGO &quot;AES-256-CBC&quot;
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : struct module;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : enum crypt_field_format {
+<span class="lineNum">      18 </span>            :     FORMAT_HEX,
+<span class="lineNum">      19 </span>            :     FORMAT_BASE64
+<span class="lineNum">      20 </span>            : };
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : struct var_expand_crypt_context {
+<span class="lineNum">      23 </span>            :     struct var_expand_context *ctx;
+<span class="lineNum">      24 </span>            :     const char *algo;
+<span class="lineNum">      25 </span>            :     string_t *iv;
+<span class="lineNum">      26 </span>            :     string_t *enckey;
+<span class="lineNum">      27 </span>            :     enum crypt_field_format format;
+<span class="lineNum">      28 </span>            :     bool enc_result_only:1;
+<span class="lineNum">      29 </span>            : };
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : static bool var_expand_crypt_initialize(const char **error_r);
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : void var_expand_crypt_init(struct module *module);
+<span class="lineNum">      34 </span>            : void var_expand_crypt_deinit(void);
+<span class="lineNum">      35 </span>            : void auth_var_expand_crypt_init(struct module *module);
+<span class="lineNum">      36 </span>            : void auth_var_expand_crypt_deinit(void);
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            : static bool has_been_init;
+<a name="39"><span class="lineNum">      39 </span>            : </a>
+<span class="lineNum">      40 </span>            : static int
+<span class="lineNum">      41 </span><span class="lineCov">       2008 : var_expand_crypt_settings(struct var_expand_crypt_context *ctx,</span>
+<span class="lineNum">      42 </span>            :               const char *const *args, const char **error_r)
+<span class="lineNum">      43 </span>            : {
+<span class="lineNum">      44 </span><span class="lineCov">       8036 :     while(args != NULL &amp;&amp; *args != NULL) {</span>
+<span class="lineNum">      45 </span><span class="lineCov">       4020 :         const char *k = t_strcut(*args, '=');</span>
+<span class="lineNum">      46 </span><span class="lineCov">       4020 :         const char *value = strchr(*args, '=');</span>
+<span class="lineNum">      47 </span><span class="lineCov">       4020 :         if (value == NULL) {</span>
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :             args++;</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :             continue;</span>
+<span class="lineNum">      50 </span>            :         } else {
+<span class="lineNum">      51 </span><span class="lineCov">       4020 :             value++;</span>
+<span class="lineNum">      52 </span>            :         }
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span><span class="lineCov">       4020 :         if (strcmp(k, &quot;iv&quot;) == 0) {</span>
+<span class="lineNum">      55 </span><span class="lineCov">          5 :             str_truncate(ctx-&gt;iv, 0);</span>
+<span class="lineNum">      56 </span><span class="lineCov">         10 :             if (var_expand_with_funcs(ctx-&gt;iv, value, ctx-&gt;ctx-&gt;table,</span>
+<span class="lineNum">      57 </span><span class="lineCov">          5 :                           ctx-&gt;ctx-&gt;func_table,</span>
+<span class="lineNum">      58 </span><span class="lineCov">          5 :                           ctx-&gt;ctx-&gt;context, error_r) &lt; 0) {</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      60 </span>            :             }
+<span class="lineNum">      61 </span><span class="lineCov">          5 :             const char *hexiv = t_strdup(str_c(ctx-&gt;iv));</span>
+<span class="lineNum">      62 </span>            :             /* try to decode IV */
+<span class="lineNum">      63 </span><span class="lineCov">          5 :             str_truncate(ctx-&gt;iv, 0);</span>
+<span class="lineNum">      64 </span><span class="lineCov">          5 :             hex_to_binary(hexiv, ctx-&gt;iv);</span>
+<span class="lineNum">      65 </span><span class="lineCov">       4020 :         } if (strcmp(k, &quot;noiv&quot;) == 0) {</span>
+<span class="lineNum">      66 </span><span class="lineCov">          1 :             ctx-&gt;enc_result_only = strcasecmp(value, &quot;yes&quot;)==0;</span>
+<span class="lineNum">      67 </span><span class="lineCov">       4020 :         } if (strcmp(k, &quot;algo&quot;) == 0) {</span>
+<span class="lineNum">      68 </span><span class="lineCov">       2008 :             ctx-&gt;algo = value;</span>
+<span class="lineNum">      69 </span><span class="lineCov">       2012 :         } else if (strcmp(k, &quot;key&quot;) == 0) {</span>
+<span class="lineNum">      70 </span><span class="lineCov">       2006 :             str_truncate(ctx-&gt;enckey, 0);</span>
+<span class="lineNum">      71 </span><span class="lineCov">       6018 :             if (var_expand_with_funcs(ctx-&gt;enckey, value,</span>
+<span class="lineNum">      72 </span><span class="lineCov">       2006 :                           ctx-&gt;ctx-&gt;table,</span>
+<span class="lineNum">      73 </span><span class="lineCov">       2006 :                           ctx-&gt;ctx-&gt;func_table,</span>
+<span class="lineNum">      74 </span><span class="lineCov">       2006 :                           ctx-&gt;ctx-&gt;context,</span>
+<span class="lineNum">      75 </span>            :                           error_r) &lt; 0) {
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      77 </span>            :             }
+<span class="lineNum">      78 </span><span class="lineCov">       2006 :             const char *hexkey = t_strdup(str_c(ctx-&gt;enckey));</span>
+<span class="lineNum">      79 </span><span class="lineCov">       2006 :             str_truncate(ctx-&gt;enckey, 0);</span>
+<span class="lineNum">      80 </span><span class="lineCov">       2006 :             hex_to_binary(hexkey, ctx-&gt;enckey);</span>
+<span class="lineNum">      81 </span><span class="lineCov">          6 :         } else if (strcmp(k, &quot;format&quot;) == 0) {</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :             if (strcmp(value, &quot;hex&quot;) == 0) {</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :                 ctx-&gt;format = FORMAT_HEX;</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :             } else if (strcmp(value, &quot;base64&quot;) == 0) {</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :                 ctx-&gt;format = FORMAT_BASE64;</span>
+<span class="lineNum">      86 </span>            :             } else {
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :                 *error_r = t_strdup_printf(</span>
+<span class="lineNum">      88 </span>            :                     &quot;Cannot parse hash arguments:&quot;
+<span class="lineNum">      89 </span>            :                     &quot;'%s' is not supported format&quot;,
+<span class="lineNum">      90 </span>            :                     value);
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      92 </span>            :             }
+<span class="lineNum">      93 </span>            :         }
+<span class="lineNum">      94 </span><span class="lineCov">       4020 :         args++;</span>
+<span class="lineNum">      95 </span>            :     }
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineCov">       2008 :     if (ctx-&gt;algo == NULL) {</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :         ctx-&gt;algo = &quot;AES-256-CBC&quot;;</span>
+<span class="lineNum">      99 </span>            :     }
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineCov">       2008 :     return 0;</span>
+<span class="lineNum">     102 </span>            : }
+<a name="103"><span class="lineNum">     103 </span>            : </a>
+<span class="lineNum">     104 </span>            : static int
+<span class="lineNum">     105 </span><span class="lineCov">       2006 : var_expand_crypt(struct dcrypt_context_symmetric *dctx, buffer_t *key, buffer_t *iv,</span>
+<span class="lineNum">     106 </span>            :          const buffer_t *input, buffer_t *output, const char **error_r)
+<span class="lineNum">     107 </span>            : {
+<span class="lineNum">     108 </span>            :     /* make sure IV is correct */
+<span class="lineNum">     109 </span><span class="lineCov">       2006 :     if (iv-&gt;used == 0) {</span>
+<span class="lineNum">     110 </span><span class="lineCov">       1000 :         dcrypt_ctx_sym_set_key_iv_random(dctx);</span>
+<span class="lineNum">     111 </span>            :         /* acquire IV */
+<span class="lineNum">     112 </span><span class="lineCov">       1000 :         dcrypt_ctx_sym_get_iv(dctx, iv);</span>
+<span class="lineNum">     113 </span><span class="lineCov">       1006 :     } else if (dcrypt_ctx_sym_get_iv_length(dctx) != iv-&gt;used) {</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;crypt: IV length invalid (%&quot;PRIuSIZE_T&quot; != %u)&quot;,</span>
+<span class="lineNum">     115 </span>            :                        iv-&gt;used,
+<span class="lineNum">     116 </span>            :                        dcrypt_ctx_sym_get_iv_length(dctx));
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     118 </span>            :     } else {
+<span class="lineNum">     119 </span><span class="lineCov">       1006 :         dcrypt_ctx_sym_set_iv(dctx, iv-&gt;data, iv-&gt;used);</span>
+<span class="lineNum">     120 </span>            :     }
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineCov">       2006 :     if (dcrypt_ctx_sym_get_key_length(dctx) != key-&gt;used) {</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;crypt: Key length invalid (%&quot;PRIuSIZE_T&quot; != %u)&quot;,</span>
+<span class="lineNum">     124 </span>            :                        key-&gt;used,
+<span class="lineNum">     125 </span>            :                        dcrypt_ctx_sym_get_key_length(dctx));
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     127 </span>            :     } else {
+<span class="lineNum">     128 </span><span class="lineCov">       2006 :         dcrypt_ctx_sym_set_key(dctx, key-&gt;data, key-&gt;used);</span>
+<span class="lineNum">     129 </span>            :     }
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineCov">       4012 :     if (!dcrypt_ctx_sym_init(dctx, error_r) ||</span>
+<span class="lineNum">     132 </span><span class="lineCov">       2006 :         !dcrypt_ctx_sym_update(dctx, input-&gt;data,</span>
+<span class="lineNum">     133 </span><span class="lineCov">       2006 :                    input-&gt;used, output, error_r) ||</span>
+<span class="lineNum">     134 </span><span class="lineCov">       2006 :         !dcrypt_ctx_sym_final(dctx, output, error_r))</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     136 </span><span class="lineCov">       2006 :     return 0;</span>
+<span class="lineNum">     137 </span>            : }
+<a name="138"><span class="lineNum">     138 </span>            : </a>
+<span class="lineNum">     139 </span>            : static int
+<span class="lineNum">     140 </span><span class="lineCov">       1004 : var_expand_encrypt(struct var_expand_context *_ctx,</span>
+<span class="lineNum">     141 </span>            :            const char *key, const char *field,
+<span class="lineNum">     142 </span>            :            const char **result_r, const char **error_r)
+<span class="lineNum">     143 </span>            : {
+<span class="lineNum">     144 </span><span class="lineCov">       1004 :     if (!has_been_init &amp;&amp; !var_expand_crypt_initialize(error_r))</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span><span class="lineCov">       1004 :     const char *p = strchr(key, ';');</span>
+<span class="lineNum">     148 </span><span class="lineCov">       1004 :     const char *const *args = NULL;</span>
+<span class="lineNum">     149 </span>            :     const char *value;
+<span class="lineNum">     150 </span>            :     struct var_expand_crypt_context ctx;
+<span class="lineNum">     151 </span>            :     string_t *dest;
+<span class="lineNum">     152 </span><span class="lineCov">       1004 :     int ret = 0;</span>
+<span class="lineNum">     153 </span>            : 
+<span class="lineNum">     154 </span><span class="lineCov">       1004 :     memset(&amp;ctx, 0, sizeof(ctx));</span>
+<span class="lineNum">     155 </span><span class="lineCov">       1004 :     ctx.ctx = _ctx;</span>
+<span class="lineNum">     156 </span><span class="lineCov">       1004 :     ctx.format = FORMAT_HEX;</span>
+<span class="lineNum">     157 </span>            : 
+<span class="lineNum">     158 </span><span class="lineCov">       1004 :     if (p != NULL) {</span>
+<span class="lineNum">     159 </span><span class="lineCov">       1004 :         args = t_strsplit(p+1, &quot;,&quot;);</span>
+<span class="lineNum">     160 </span>            :     }
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineCov">       1004 :     string_t *field_value = t_str_new(64);</span>
+<span class="lineNum">     163 </span><span class="lineCov">       1004 :     ctx.iv = t_str_new(64);</span>
+<span class="lineNum">     164 </span><span class="lineCov">       1004 :     ctx.enckey = t_str_new(64);</span>
+<span class="lineNum">     165 </span><span class="lineCov">       1004 :     string_t *tmp = t_str_new(128);</span>
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineCov">       1004 :     if ((ret = var_expand_long(_ctx, field, strlen(field),</span>
+<span class="lineNum">     168 </span>            :                    &amp;value, error_r)) &lt; 1) {
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     170 </span>            :     }
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span><span class="lineCov">       1004 :     if (*value == '\0') {</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         *result_r = value;</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     175 </span>            :     }
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">       1004 :     if (var_expand_crypt_settings(&amp;ctx, args, error_r) &lt; 0)</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineCov">       1004 :     str_append(field_value, value);</span>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span>            :     struct dcrypt_context_symmetric *dctx;
+<span class="lineNum">     183 </span><span class="lineCov">       1004 :     if (!dcrypt_ctx_sym_create(ctx.algo, DCRYPT_MODE_ENCRYPT, &amp;dctx, error_r))</span>
+<span class="lineNum">     184 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineCov">       1003 :     ret = var_expand_crypt(dctx, ctx.enckey, ctx.iv, field_value, tmp, error_r);</span>
+<span class="lineNum">     187 </span><span class="lineCov">       1003 :     dcrypt_ctx_sym_destroy(&amp;dctx);</span>
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span><span class="lineCov">       1003 :     if (ret == 0) {</span>
+<span class="lineNum">     190 </span>            :         /* makes compiler happy */
+<span class="lineNum">     191 </span><span class="lineCov">       1003 :         const char *enciv = &quot;&quot;;</span>
+<span class="lineNum">     192 </span><span class="lineCov">       1003 :         const char *res = &quot;&quot;;</span>
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span><span class="lineCov">       1003 :         switch(ctx.format) {</span>
+<span class="lineNum">     195 </span>            :         case FORMAT_HEX:
+<span class="lineNum">     196 </span><span class="lineCov">       1003 :             enciv = binary_to_hex(ctx.iv-&gt;data, ctx.iv-&gt;used);</span>
+<span class="lineNum">     197 </span><span class="lineCov">       1003 :             res = binary_to_hex(tmp-&gt;data, tmp-&gt;used);</span>
+<span class="lineNum">     198 </span><span class="lineCov">       1003 :             break;</span>
+<span class="lineNum">     199 </span>            :         case FORMAT_BASE64:
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :             dest = t_str_new(32);</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :             base64_encode(ctx.iv-&gt;data, ctx.iv-&gt;used, dest);</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :             enciv = str_c(dest);</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :             dest = t_str_new(32);</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :             base64_encode(tmp-&gt;data, tmp-&gt;used, dest);</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :             res = str_c(dest);</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     207 </span>            :         default:
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     209 </span>            :         }
+<span class="lineNum">     210 </span><span class="lineCov">       1003 :         if (ctx.enc_result_only)</span>
+<span class="lineNum">     211 </span><span class="lineCov">          1 :             *result_r = t_strdup(res);</span>
+<span class="lineNum">     212 </span>            :         else
+<span class="lineNum">     213 </span><span class="lineCov">       1002 :             *result_r = t_strdup_printf(&quot;%s$%s$&quot;, enciv, res);</span>
+<span class="lineNum">     214 </span><span class="lineCov">       1003 :         ret = 1;</span>
+<span class="lineNum">     215 </span>            :     }
+<span class="lineNum">     216 </span>            : 
+<span class="lineNum">     217 </span><span class="lineCov">       1003 :     return ret;</span>
+<span class="lineNum">     218 </span>            : }
+<a name="219"><span class="lineNum">     219 </span>            : </a>
+<span class="lineNum">     220 </span>            : static int
+<span class="lineNum">     221 </span><span class="lineCov">       1004 : var_expand_decrypt(struct var_expand_context *_ctx,</span>
+<span class="lineNum">     222 </span>            :            const char *key, const char *field,
+<span class="lineNum">     223 </span>            :            const char **result_r, const char **error_r)
+<span class="lineNum">     224 </span>            : {
+<span class="lineNum">     225 </span><span class="lineCov">       1004 :     if (!has_been_init &amp;&amp; !var_expand_crypt_initialize(error_r))</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span><span class="lineCov">       1004 :     const char *p = strchr(key, ';');</span>
+<span class="lineNum">     229 </span><span class="lineCov">       1004 :     const char *const *args = NULL;</span>
+<span class="lineNum">     230 </span>            :     const char *value;
+<span class="lineNum">     231 </span>            :     struct var_expand_crypt_context ctx;
+<span class="lineNum">     232 </span><span class="lineCov">       1004 :     int ret = 0;</span>
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineCov">       1004 :     memset(&amp;ctx, 0, sizeof(ctx));</span>
+<span class="lineNum">     235 </span><span class="lineCov">       1004 :     ctx.ctx = _ctx;</span>
+<span class="lineNum">     236 </span><span class="lineCov">       1004 :     ctx.format = FORMAT_HEX;</span>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span><span class="lineCov">       1004 :     if (p != NULL) {</span>
+<span class="lineNum">     239 </span><span class="lineCov">       1004 :         args = t_strsplit(p+1, &quot;,&quot;);</span>
+<span class="lineNum">     240 </span>            :     }
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span><span class="lineCov">       1004 :     string_t *field_value = t_str_new(64);</span>
+<span class="lineNum">     243 </span><span class="lineCov">       1004 :     ctx.iv = t_str_new(64);</span>
+<span class="lineNum">     244 </span><span class="lineCov">       1004 :     ctx.enckey = t_str_new(64);</span>
+<span class="lineNum">     245 </span><span class="lineCov">       1004 :     string_t *tmp = t_str_new(128);</span>
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span><span class="lineCov">       1004 :     if ((ret = var_expand_long(_ctx, field, strlen(field),</span>
+<span class="lineNum">     248 </span>            :                    &amp;value, error_r)) &lt; 1) {
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     250 </span>            :     }
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span><span class="lineCov">       1004 :     if (*value == '\0') {</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :         *result_r = value;</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     255 </span>            :     }
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span><span class="lineCov">       1004 :     if (var_expand_crypt_settings(&amp;ctx, args, error_r) &lt; 0)</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineCov">       1004 :     const char *encdata = value;</span>
+<span class="lineNum">     261 </span><span class="lineCov">       1004 :     const char *enciv = &quot;&quot;;</span>
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span>            :     /* make sure IV is correct */
+<span class="lineNum">     264 </span><span class="lineCov">       1004 :     if (ctx.iv-&gt;used == 0 &amp;&amp; (p = strchr(encdata, '$')) != NULL) {</span>
+<span class="lineNum">     265 </span>            :         /* see if IV can be taken from data */
+<span class="lineNum">     266 </span><span class="lineCov">       1002 :         enciv = t_strcut(encdata, '$');</span>
+<span class="lineNum">     267 </span><span class="lineCov">       1002 :         encdata = t_strcut(p+1,'$');</span>
+<span class="lineNum">     268 </span>            :     }
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span><span class="lineCov">       1004 :     str_truncate(field_value, 0);</span>
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span>            :     /* try to decode iv and encdata */
+<span class="lineNum">     273 </span><span class="lineCov">       1004 :     switch(ctx.format) {</span>
+<span class="lineNum">     274 </span>            :     case FORMAT_HEX:
+<span class="lineNum">     275 </span><span class="lineCov">       1004 :         if (ctx.iv-&gt;used == 0)</span>
+<span class="lineNum">     276 </span><span class="lineCov">       1002 :             hex_to_binary(enciv, ctx.iv);</span>
+<span class="lineNum">     277 </span><span class="lineCov">       1004 :         hex_to_binary(encdata, field_value);</span>
+<span class="lineNum">     278 </span><span class="lineCov">       1004 :         break;</span>
+<span class="lineNum">     279 </span>            :     case FORMAT_BASE64:
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         if (ctx.iv-&gt;used == 0)</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :             str_append_str(ctx.iv, t_base64_decode_str(enciv));</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :         str_append_str(field_value, t_base64_decode_str(encdata));</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     284 </span>            :     }
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span><span class="lineCov">       1004 :     if (ctx.iv-&gt;used == 0) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;decrypt: IV missing&quot;);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     289 </span>            :     }
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span>            :     struct dcrypt_context_symmetric *dctx;
+<span class="lineNum">     292 </span><span class="lineCov">       1004 :     if (!dcrypt_ctx_sym_create(ctx.algo, DCRYPT_MODE_DECRYPT, &amp;dctx, error_r))</span>
+<span class="lineNum">     293 </span><span class="lineCov">          1 :         return -1;</span>
+<span class="lineNum">     294 </span><span class="lineCov">       1003 :     ret = var_expand_crypt(dctx, ctx.enckey, ctx.iv, field_value, tmp, error_r);</span>
+<span class="lineNum">     295 </span><span class="lineCov">       1003 :     dcrypt_ctx_sym_destroy(&amp;dctx);</span>
+<span class="lineNum">     296 </span>            : 
+<span class="lineNum">     297 </span><span class="lineCov">       1003 :     if (ret == 0) {</span>
+<span class="lineNum">     298 </span><span class="lineCov">       1003 :         *result_r = str_c(tmp);</span>
+<span class="lineNum">     299 </span><span class="lineCov">       1003 :         ret = 1;</span>
+<span class="lineNum">     300 </span>            :     }
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">       1003 :     return ret;</span>
+<span class="lineNum">     303 </span>            : }
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span>            : static const struct var_expand_extension_func_table funcs[] = {
+<span class="lineNum">     306 </span>            :     { &quot;encrypt&quot;, var_expand_encrypt },
+<span class="lineNum">     307 </span>            :     { &quot;decrypt&quot;, var_expand_decrypt },
+<span class="lineNum">     308 </span>            :     { NULL, NULL, }
+<a name="309"><span class="lineNum">     309 </span>            : };</a>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineCov">       2008 : static bool var_expand_crypt_initialize(const char **error_r)</span>
+<span class="lineNum">     312 </span>            : {
+<span class="lineNum">     313 </span><span class="lineCov">       2008 :     return dcrypt_initialize(NULL, NULL, error_r);</span>
+<a name="314"><span class="lineNum">     314 </span>            : }</a>
+<span class="lineNum">     315 </span>            : 
+<span class="lineNum">     316 </span><span class="lineCov">          1 : void var_expand_crypt_init(struct module *module ATTR_UNUSED)</span>
+<span class="lineNum">     317 </span>            : {
+<span class="lineNum">     318 </span><span class="lineCov">          1 :     var_expand_register_func_array(funcs);</span>
+<span class="lineNum">     319 </span>            :     /* do not initialize dcrypt here - saves alot of memory
+<span class="lineNum">     320 </span>            :        to not load openssl every time. Only load it if
+<span class="lineNum">     321 </span>            :        needed */
+<a name="322"><span class="lineNum">     322 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     323 </span>            : 
+<span class="lineNum">     324 </span><span class="lineCov">          1 : void var_expand_crypt_deinit(void)</span>
+<span class="lineNum">     325 </span>            : {
+<span class="lineNum">     326 </span><span class="lineCov">          1 :     var_expand_unregister_func_array(funcs);</span>
+<span class="lineNum">     327 </span><span class="lineCov">          1 :     if (has_been_init)</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :         dcrypt_deinitialize();</span>
+<a name="329"><span class="lineNum">     329 </span><span class="lineCov">          1 : }</span></a>
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 : void auth_var_expand_crypt_init(struct module *module)</span>
+<span class="lineNum">     332 </span>            : {
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :     var_expand_crypt_init(module);</span>
+<a name="334"><span class="lineNum">     334 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     335 </span>            : 
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 : void auth_var_expand_crypt_deinit(void)</span>
+<span class="lineNum">     337 </span>            : {
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :     var_expand_crypt_deinit();</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

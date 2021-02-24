@@ -1,0 +1,775 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-master/master-service-settings.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-master</a> - master-service-settings.c<span style="font-size: 80%;"> (source / <a href="master-service-settings.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">58</td>
+            <td class="headerCovTableEntry">315</td>
+            <td class="headerCovTableEntryLo">18.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntryLo">31.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2005-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;event-filter.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;path-util.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;syslog-util.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;env-util.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;execv-const.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;settings-parser.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;stats-client.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;master-service-private.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;master-service-ssl-settings.h&quot;
+<span class="lineNum">      19 </span>            : #include &quot;master-service-settings.h&quot;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : #include &lt;stddef.h&gt;
+<span class="lineNum">      22 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      23 </span>            : #include &lt;time.h&gt;
+<span class="lineNum">      24 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            : #define DOVECOT_CONFIG_BIN_PATH BINDIR&quot;/doveconf&quot;
+<span class="lineNum">      27 </span>            : #define DOVECOT_CONFIG_SOCKET_PATH PKG_RUNDIR&quot;/config&quot;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : #define CONFIG_READ_TIMEOUT_SECS 10
+<span class="lineNum">      30 </span>            : #define CONFIG_HANDSHAKE &quot;VERSION\tconfig\t2\t0\n&quot;
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : #undef DEF
+<span class="lineNum">      33 </span>            : #define DEF(type, name) \
+<span class="lineNum">      34 </span>            :     { type, #name, offsetof(struct master_service_settings, name), NULL }
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : static bool
+<span class="lineNum">      37 </span>            : master_service_settings_check(void *_set, pool_t pool, const char **error_r);
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : static const struct setting_define master_service_setting_defines[] = {
+<span class="lineNum">      40 </span>            :     DEF(SET_STR, base_dir),
+<span class="lineNum">      41 </span>            :     DEF(SET_STR, state_dir),
+<span class="lineNum">      42 </span>            :     DEF(SET_STR, log_path),
+<span class="lineNum">      43 </span>            :     DEF(SET_STR, info_log_path),
+<span class="lineNum">      44 </span>            :     DEF(SET_STR, debug_log_path),
+<span class="lineNum">      45 </span>            :     DEF(SET_STR, log_timestamp),
+<span class="lineNum">      46 </span>            :     DEF(SET_STR, log_debug),
+<span class="lineNum">      47 </span>            :     DEF(SET_STR, syslog_facility),
+<span class="lineNum">      48 </span>            :     DEF(SET_STR, import_environment),
+<span class="lineNum">      49 </span>            :     DEF(SET_STR, stats_writer_socket_path),
+<span class="lineNum">      50 </span>            :     DEF(SET_SIZE, config_cache_size),
+<span class="lineNum">      51 </span>            :     DEF(SET_BOOL, version_ignore),
+<span class="lineNum">      52 </span>            :     DEF(SET_BOOL, shutdown_clients),
+<span class="lineNum">      53 </span>            :     DEF(SET_BOOL, verbose_proctitle),
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            :     DEF(SET_STR, haproxy_trusted_networks),
+<span class="lineNum">      56 </span>            :     DEF(SET_TIME, haproxy_timeout),
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span>            :     SETTING_DEFINE_LIST_END
+<span class="lineNum">      59 </span>            : };
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            : /* &lt;settings checks&gt; */
+<span class="lineNum">      62 </span>            : #ifdef HAVE_SYSTEMD
+<span class="lineNum">      63 </span>            : #  define ENV_SYSTEMD &quot; LISTEN_PID LISTEN_FDS&quot;
+<span class="lineNum">      64 </span>            : #else
+<span class="lineNum">      65 </span>            : #  define ENV_SYSTEMD &quot;&quot;
+<span class="lineNum">      66 </span>            : #endif
+<span class="lineNum">      67 </span>            : #ifdef DEBUG
+<span class="lineNum">      68 </span>            : #  define ENV_GDB &quot; GDB DEBUG_SILENT&quot;
+<span class="lineNum">      69 </span>            : #else
+<span class="lineNum">      70 </span>            : #  define ENV_GDB &quot;&quot;
+<span class="lineNum">      71 </span>            : #endif
+<span class="lineNum">      72 </span>            : /* &lt;/settings checks&gt; */
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span>            : static const struct master_service_settings master_service_default_settings = {
+<span class="lineNum">      75 </span>            :     .base_dir = PKG_RUNDIR,
+<span class="lineNum">      76 </span>            :     .state_dir = PKG_STATEDIR,
+<span class="lineNum">      77 </span>            :     .log_path = &quot;syslog&quot;,
+<span class="lineNum">      78 </span>            :     .info_log_path = &quot;&quot;,
+<span class="lineNum">      79 </span>            :     .debug_log_path = &quot;&quot;,
+<span class="lineNum">      80 </span>            :     .log_timestamp = DEFAULT_FAILURE_STAMP_FORMAT,
+<span class="lineNum">      81 </span>            :     .log_debug = &quot;&quot;,
+<span class="lineNum">      82 </span>            :     .syslog_facility = &quot;mail&quot;,
+<span class="lineNum">      83 </span>            :     .import_environment = &quot;TZ CORE_OUTOFMEM CORE_ERROR&quot; ENV_SYSTEMD ENV_GDB,
+<span class="lineNum">      84 </span>            :     .stats_writer_socket_path = &quot;stats-writer&quot;,
+<span class="lineNum">      85 </span>            :     .config_cache_size = 1024*1024,
+<span class="lineNum">      86 </span>            :     .version_ignore = FALSE,
+<span class="lineNum">      87 </span>            :     .shutdown_clients = TRUE,
+<span class="lineNum">      88 </span>            :     .verbose_proctitle = FALSE,
+<span class="lineNum">      89 </span>            : 
+<span class="lineNum">      90 </span>            :     .haproxy_trusted_networks = &quot;&quot;,
+<span class="lineNum">      91 </span>            :     .haproxy_timeout = 3
+<span class="lineNum">      92 </span>            : };
+<span class="lineNum">      93 </span>            : 
+<span class="lineNum">      94 </span>            : const struct setting_parser_info master_service_setting_parser_info = {
+<span class="lineNum">      95 </span>            :     .module_name = &quot;master&quot;,
+<span class="lineNum">      96 </span>            :     .defines = master_service_setting_defines,
+<span class="lineNum">      97 </span>            :     .defaults = &amp;master_service_default_settings,
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span>            :     .type_offset = (size_t)-1,
+<span class="lineNum">     100 </span>            :     .struct_size = sizeof(struct master_service_settings),
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span>            :     .parent_offset = (size_t)-1,
+<span class="lineNum">     103 </span>            :     .check_func = master_service_settings_check
+<span class="lineNum">     104 </span>            : };
+<a name="105"><span class="lineNum">     105 </span>            : </a>
+<span class="lineNum">     106 </span>            : /* &lt;settings checks&gt; */
+<span class="lineNum">     107 </span><span class="lineCov">          2 : int master_service_log_debug_parse(struct event_filter *filter, const char *str,</span>
+<span class="lineNum">     108 </span>            :                    const char **error_r)
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span><span class="lineCov">          2 :     const char *categories[2] = { NULL, NULL };</span>
+<span class="lineNum">     111 </span><span class="lineCov">          2 :     struct event_filter_query query = {</span>
+<span class="lineNum">     112 </span>            :         .categories = categories
+<span class="lineNum">     113 </span>            :     };
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span>            :     /* FIXME: we should support more complicated filters */
+<span class="lineNum">     116 </span><span class="lineCov">          2 :     const char *const *args = t_strsplit_spaces(str, &quot; &quot;);</span>
+<span class="lineNum">     117 </span><span class="lineCov">          2 :     for (unsigned int i = 0; args[i] != NULL; i++) {</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :         categories[0] = args[i];</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :         event_filter_add(filter, &amp;query);</span>
+<span class="lineNum">     120 </span>            :     }
+<span class="lineNum">     121 </span><span class="lineCov">          2 :     *error_r = NULL;</span>
+<span class="lineNum">     122 </span><span class="lineCov">          2 :     return 0;</span>
+<span class="lineNum">     123 </span>            : }
+<a name="124"><span class="lineNum">     124 </span>            : </a>
+<span class="lineNum">     125 </span>            : static bool
+<span class="lineNum">     126 </span><span class="lineCov">          2 : master_service_settings_check(void *_set, pool_t pool ATTR_UNUSED,</span>
+<span class="lineNum">     127 </span>            :                   const char **error_r)
+<span class="lineNum">     128 </span>            : {
+<span class="lineNum">     129 </span><span class="lineCov">          2 :     struct master_service_settings *set = _set;</span>
+<span class="lineNum">     130 </span>            :     int facility;
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineCov">          2 :     if (*set-&gt;log_path == '\0') {</span>
+<span class="lineNum">     133 </span>            :         /* default to syslog logging */
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :         set-&gt;log_path = &quot;syslog&quot;;</span>
+<span class="lineNum">     135 </span>            :     }
+<span class="lineNum">     136 </span><span class="lineCov">          2 :     if (!syslog_facility_find(set-&gt;syslog_facility, &amp;facility)) {</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;Unknown syslog_facility: %s&quot;,</span>
+<span class="lineNum">     138 </span>            :                        set-&gt;syslog_facility);
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     140 </span>            :     }
+<span class="lineNum">     141 </span><span class="lineCov">          2 :     struct event_filter *filter = event_filter_create();</span>
+<span class="lineNum">     142 </span>            :     const char *error;
+<span class="lineNum">     143 </span><span class="lineCov">          2 :     if (master_service_log_debug_parse(filter, set-&gt;log_debug, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;Invalid log_debug: %s&quot;, error);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         event_filter_unref(&amp;filter);</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     147 </span>            :     }
+<span class="lineNum">     148 </span>            : #ifndef CONFIG_BINARY
+<span class="lineNum">     149 </span><span class="lineCov">          2 :     event_set_global_debug_log_filter(filter);</span>
+<span class="lineNum">     150 </span>            : #endif
+<span class="lineNum">     151 </span><span class="lineCov">          2 :     event_filter_unref(&amp;filter);</span>
+<span class="lineNum">     152 </span><span class="lineCov">          2 :     return TRUE;</span>
+<span class="lineNum">     153 </span>            : }
+<span class="lineNum">     154 </span>            : /* &lt;/settings checks&gt; */
+<a name="155"><span class="lineNum">     155 </span>            : </a>
+<span class="lineNum">     156 </span>            : static void ATTR_NORETURN
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 : master_service_exec_config(struct master_service *service,</span>
+<span class="lineNum">     158 </span>            :                const struct master_service_settings_input *input)
+<span class="lineNum">     159 </span>            : {
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     const char **conf_argv, *binary_path = service-&gt;argv[0];</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     const char *error = NULL;</span>
+<span class="lineNum">     162 </span>            :     unsigned int i, argv_max_count;
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     if (!t_binary_abspath(&amp;binary_path, &amp;error)) {</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :         i_fatal(&quot;t_binary_abspath(%s) failed: %s&quot;, binary_path, error);</span>
+<span class="lineNum">     166 </span>            :     }
+<span class="lineNum">     167 </span>            : 
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     if (!service-&gt;keep_environment &amp;&amp; !input-&gt;preserve_environment) {</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         if (input-&gt;preserve_home)</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :             master_service_import_environment(&quot;HOME&quot;);</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         if (input-&gt;preserve_user)</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :             master_service_import_environment(&quot;USER&quot;);</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         if ((service-&gt;flags &amp; MASTER_SERVICE_FLAG_STANDALONE) != 0)</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :             master_service_import_environment(&quot;LOG_STDERR_TIMESTAMP&quot;);</span>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span>            :         /* doveconf empties the environment before exec()ing us back
+<span class="lineNum">     177 </span>            :            if DOVECOT_PRESERVE_ENVS is set, so make sure it is. */
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         if (getenv(DOVECOT_PRESERVE_ENVS_ENV) == NULL)</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :             env_put(DOVECOT_PRESERVE_ENVS_ENV&quot;=&quot;);</span>
+<span class="lineNum">     180 </span>            :     } else {
+<span class="lineNum">     181 </span>            :         /* make sure doveconf doesn't remove any environment */
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :         env_remove(DOVECOT_PRESERVE_ENVS_ENV);</span>
+<span class="lineNum">     183 </span>            :     }
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     if (input-&gt;use_sysexits)</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :         env_put(&quot;USE_SYSEXITS=1&quot;);</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span>            :     /* @UNSAFE */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     i = 0;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :     argv_max_count = 11 + (service-&gt;argc + 1) + 1;</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     conf_argv = t_new(const char *, argv_max_count);</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     conf_argv[i++] = DOVECOT_CONFIG_BIN_PATH;</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     if (input-&gt;service != NULL) {</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :         conf_argv[i++] = &quot;-f&quot;;</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         conf_argv[i++] = t_strconcat(&quot;service=&quot;, input-&gt;service, NULL);</span>
+<span class="lineNum">     195 </span>            :     }
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     conf_argv[i++] = &quot;-c&quot;;</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     conf_argv[i++] = service-&gt;config_path;</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :     if (input-&gt;module != NULL) {</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :         conf_argv[i++] = &quot;-m&quot;;</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :         conf_argv[i++] = input-&gt;module;</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :         if (service-&gt;want_ssl_settings) {</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :             conf_argv[i++] = &quot;-m&quot;;</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :             conf_argv[i++] = &quot;ssl&quot;;</span>
+<span class="lineNum">     204 </span>            :         }
+<span class="lineNum">     205 </span>            :     }
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :     if (input-&gt;parse_full_config)</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         conf_argv[i++] = &quot;-p&quot;;</span>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     conf_argv[i++] = &quot;-e&quot;;</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     conf_argv[i++] = binary_path;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     memcpy(conf_argv+i, service-&gt;argv + 1,</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :            (service-&gt;argc) * sizeof(conf_argv[0]));</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     i += service-&gt;argc;</span>
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     i_assert(i &lt; argv_max_count);</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     execv_const(conf_argv[0], conf_argv);</span>
+<span class="lineNum">     217 </span>            : }
+<a name="218"><span class="lineNum">     218 </span>            : </a>
+<span class="lineNum">     219 </span>            : static void
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 : config_exec_fallback(struct master_service *service,</span>
+<span class="lineNum">     221 </span>            :              const struct master_service_settings_input *input)
+<span class="lineNum">     222 </span>            : {
+<span class="lineNum">     223 </span>            :     const char *path;
+<span class="lineNum">     224 </span>            :     struct stat st;
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     int saved_errno = errno;</span>
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     if (input-&gt;never_exec)</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     229 </span>            : 
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     path = input-&gt;config_path != NULL ? input-&gt;config_path :</span>
+<span class="lineNum">     231 </span>            :         master_service_get_config_path(service);
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     if (stat(path, &amp;st) == 0 &amp;&amp;</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :         !S_ISSOCK(st.st_mode) &amp;&amp; !S_ISFIFO(st.st_mode)) {</span>
+<span class="lineNum">     234 </span>            :         /* it's a file, not a socket/pipe */
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         master_service_exec_config(service, input);</span>
+<span class="lineNum">     236 </span>            :     }
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     errno = saved_errno;</span>
+<span class="lineNum">     238 </span>            : }
+<a name="239"><span class="lineNum">     239 </span>            : </a>
+<span class="lineNum">     240 </span>            : static int
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 : master_service_open_config(struct master_service *service,</span>
+<span class="lineNum">     242 </span>            :                const struct master_service_settings_input *input,
+<span class="lineNum">     243 </span>            :                const char **path_r, const char **error_r)
+<span class="lineNum">     244 </span>            : {
+<span class="lineNum">     245 </span>            :     struct stat st;
+<span class="lineNum">     246 </span>            :     const char *path;
+<span class="lineNum">     247 </span>            :     int fd;
+<span class="lineNum">     248 </span>            : 
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :     *path_r = path = input-&gt;config_path != NULL ? input-&gt;config_path :</span>
+<span class="lineNum">     250 </span>            :         master_service_get_config_path(service);
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :     if (service-&gt;config_fd != -1 &amp;&amp; input-&gt;config_path == NULL &amp;&amp;</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :         !service-&gt;config_path_changed_with_param) {</span>
+<span class="lineNum">     254 </span>            :         /* use the already opened config socket */
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :         fd = service-&gt;config_fd;</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         service-&gt;config_fd = -1;</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         return fd;</span>
+<span class="lineNum">     258 </span>            :     }
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :     if (!service-&gt;config_path_from_master &amp;&amp;</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         !service-&gt;config_path_changed_with_param &amp;&amp;</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         input-&gt;config_path == NULL) {</span>
+<span class="lineNum">     263 </span>            :         /* first try to connect to the default config socket.
+<span class="lineNum">     264 </span>            :            configuration may contain secrets, so in default config
+<span class="lineNum">     265 </span>            :            this fails because the socket is 0600. it's useful for
+<span class="lineNum">     266 </span>            :            developers though. :) */
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :         fd = net_connect_unix(DOVECOT_CONFIG_SOCKET_PATH);</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :         if (fd &gt;= 0) {</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :             *path_r = DOVECOT_CONFIG_SOCKET_PATH;</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :             net_set_nonblock(fd, FALSE);</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :             return fd;</span>
+<span class="lineNum">     272 </span>            :         }
+<span class="lineNum">     273 </span>            :         /* fallback to executing doveconf */
+<span class="lineNum">     274 </span>            :     }
+<span class="lineNum">     275 </span>            : 
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     if (stat(path, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         *error_r = errno == EACCES ? eacces_error_get(&quot;stat&quot;, path) :</span>
+<span class="lineNum">     278 </span>            :             t_strdup_printf(&quot;stat(%s) failed: %m&quot;, path);
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     280 </span>            :     }
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     if (!S_ISSOCK(st.st_mode) &amp;&amp; !S_ISFIFO(st.st_mode)) {</span>
+<span class="lineNum">     283 </span>            :         /* it's not an UNIX socket, don't even try to connect */
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :         fd = -1;</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :         errno = ENOTSOCK;</span>
+<span class="lineNum">     286 </span>            :     } else {
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         fd = net_connect_unix_with_retries(path, 1000);</span>
+<span class="lineNum">     288 </span>            :     }
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     if (fd &lt; 0) {</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;net_connect_unix(%s) failed: %m&quot;,</span>
+<span class="lineNum">     291 </span>            :                        path);
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         config_exec_fallback(service, input);</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     294 </span>            :     }
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     net_set_nonblock(fd, FALSE);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     return fd;</span>
+<span class="lineNum">     297 </span>            : }
+<a name="298"><span class="lineNum">     298 </span>            : </a>
+<span class="lineNum">     299 </span>            : static void
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 : config_build_request(struct master_service *service, string_t *str,</span>
+<span class="lineNum">     301 </span>            :              const struct master_service_settings_input *input)
+<span class="lineNum">     302 </span>            : {
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     str_append(str, &quot;REQ&quot;);</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     if (input-&gt;module != NULL) {</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\tmodule=%s&quot;, input-&gt;module);</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :         if (service-&gt;want_ssl_settings)</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :             str_append(str, &quot;\tmodule=ssl&quot;);</span>
+<span class="lineNum">     308 </span>            :     }
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     if (input-&gt;service != NULL)</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\tservice=%s&quot;, input-&gt;service);</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :     if (input-&gt;username != NULL)</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\tuser=%s&quot;, input-&gt;username);</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     if (input-&gt;local_ip.family != 0)</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\tlip=%s&quot;, net_ip2addr(&amp;input-&gt;local_ip));</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     if (input-&gt;remote_ip.family != 0)</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\trip=%s&quot;, net_ip2addr(&amp;input-&gt;remote_ip));</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :     if (input-&gt;local_name != NULL)</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :         str_printfa(str, &quot;\tlname=%s&quot;, input-&gt;local_name);</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 : }</span>
+<a name="321"><span class="lineNum">     321 </span>            : </a>
+<span class="lineNum">     322 </span>            : static int
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 : config_send_request(struct master_service *service,</span>
+<span class="lineNum">     324 </span>            :             const struct master_service_settings_input *input,
+<span class="lineNum">     325 </span>            :             int fd, const char *path, const char **error_r)
+<span class="lineNum">     326 </span>            : {
+<span class="lineNum">     327 </span>            :     int ret;
+<span class="lineNum">     328 </span>            : 
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     330 </span>            :         string_t *str;
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :         str = t_str_new(128);</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :         str_append(str, CONFIG_HANDSHAKE);</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         config_build_request(service, str, input);</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :         ret = write_full(fd, str_data(str), str_len(str));</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(&quot;write_full(%s) failed: %m&quot;, path);</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     340 </span>            :     }
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     342 </span>            : }
+<a name="343"><span class="lineNum">     343 </span>            : </a>
+<span class="lineNum">     344 </span>            : static int
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 : master_service_apply_config_overrides(struct master_service *service,</span>
+<span class="lineNum">     346 </span>            :                       struct setting_parser_context *parser,
+<span class="lineNum">     347 </span>            :                       const char **error_r)
+<span class="lineNum">     348 </span>            : {
+<span class="lineNum">     349 </span>            :     const char *const *overrides;
+<span class="lineNum">     350 </span>            :     unsigned int i, count;
+<span class="lineNum">     351 </span>            : 
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     overrides = array_get(&amp;service-&gt;config_overrides, &amp;count);</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; count; i++) {</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         if (settings_parse_line(parser, overrides[i]) &lt; 0) {</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :                 &quot;Invalid -o parameter %s: %s&quot;, overrides[i],</span>
+<span class="lineNum">     357 </span>            :                 settings_parser_get_error(parser));
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     359 </span>            :         }
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :         settings_parse_set_key_expanded(parser, service-&gt;set_pool,</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :                         t_strcut(overrides[i], '='));</span>
+<span class="lineNum">     362 </span>            :     }
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     364 </span>            : }
+<a name="365"><span class="lineNum">     365 </span>            : </a>
+<span class="lineNum">     366 </span>            : static int
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 : config_read_reply_header(struct istream *istream, const char *path, pool_t pool,</span>
+<span class="lineNum">     368 </span>            :              const struct master_service_settings_input *input,
+<span class="lineNum">     369 </span>            :              struct master_service_settings_output *output_r,
+<span class="lineNum">     370 </span>            :              const char **error_r)
+<span class="lineNum">     371 </span>            : {
+<span class="lineNum">     372 </span>            :     const char *line;
+<span class="lineNum">     373 </span>            :     ssize_t ret;
+<span class="lineNum">     374 </span>            : 
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     while ((ret = i_stream_read(istream)) &gt; 0) {</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :         line = i_stream_next_line(istream);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         if (line != NULL)</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     379 </span>            :     }
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     if (ret &lt;= 0) {</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :             return 1;</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :         *error_r = istream-&gt;stream_errno != 0 ?</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :             t_strdup_printf(&quot;read(%s) failed: %s&quot;, path,</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :                     i_stream_get_error(istream)) :</span>
+<span class="lineNum">     386 </span>            :             t_strdup_printf(&quot;read(%s) failed: EOF&quot;, path);
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     388 </span>            :     }
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     T_BEGIN {</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :         const char *const *arg = t_strsplit_tabescaped(line);</span>
+<span class="lineNum">     392 </span>            :         ARRAY_TYPE(const_string) services;
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :         p_array_init(&amp;services, pool, 8);</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :         for (; *arg != NULL; arg++) {</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :             if (strcmp(*arg, &quot;service-uses-local&quot;) == 0)</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :                 output_r-&gt;service_uses_local = TRUE;</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :             else if (strcmp(*arg, &quot;service-uses-remote&quot;) == 0)</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :                 output_r-&gt;service_uses_remote = TRUE;</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :             if (strcmp(*arg, &quot;used-local&quot;) == 0)</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :                 output_r-&gt;used_local = TRUE;</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :             else if (strcmp(*arg, &quot;used-remote&quot;) == 0)</span>
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 :                 output_r-&gt;used_remote = TRUE;</span>
+<span class="lineNum">     404 </span><span class="lineNoCov">          0 :             else if (strncmp(*arg, &quot;service=&quot;, 8) == 0) {</span>
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :                 const char *name = p_strdup(pool, *arg + 8);</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :                 array_append(&amp;services, &amp;name, 1);</span>
+<span class="lineNum">     407 </span>            :              }
+<span class="lineNum">     408 </span>            :         }
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         if (input-&gt;service == NULL) {</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :             array_append_zero(&amp;services);</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :             output_r-&gt;specific_services = array_idx(&amp;services, 0);</span>
+<span class="lineNum">     412 </span>            :         }
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     } T_END;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="415"><span class="lineNum">     415 </span>            : }</a>
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 : void master_service_config_socket_try_open(struct master_service *service)</span>
+<span class="lineNum">     418 </span>            : {
+<span class="lineNum">     419 </span>            :     struct master_service_settings_input input;
+<span class="lineNum">     420 </span>            :     const char *path, *error;
+<span class="lineNum">     421 </span>            :     int fd;
+<span class="lineNum">     422 </span>            : 
+<span class="lineNum">     423 </span>            :     /* we'll get here before command line parameters have been parsed,
+<span class="lineNum">     424 </span>            :        so -O, -c and -i parameters haven't been handled yet at this point.
+<span class="lineNum">     425 </span>            :        this means we could end up opening config socket connection
+<span class="lineNum">     426 </span>            :        unnecessarily, but this isn't a problem. we'll just have to
+<span class="lineNum">     427 </span>            :        ignore it later on. (unfortunately there isn't a master_service_*()
+<span class="lineNum">     428 </span>            :        call where this function would be better called.) */
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     if (getenv(&quot;DOVECONF_ENV&quot;) != NULL ||</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :         (service-&gt;flags &amp; MASTER_SERVICE_FLAG_NO_CONFIG_SETTINGS) != 0)</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     i_zero(&amp;input);</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     input.never_exec = TRUE;</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     fd = master_service_open_config(service, &amp;input, &amp;path, &amp;error);</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     if (fd != -1)</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         service-&gt;config_fd = fd;</span>
+<a name="438"><span class="lineNum">     438 </span>            : }</a>
+<span class="lineNum">     439 </span>            : 
+<span class="lineNum">     440 </span><span class="lineCov">          1 : int master_service_settings_read(struct master_service *service,</span>
+<span class="lineNum">     441 </span>            :                  const struct master_service_settings_input *input,
+<span class="lineNum">     442 </span>            :                  struct master_service_settings_output *output_r,
+<span class="lineNum">     443 </span>            :                  const char **error_r)
+<span class="lineNum">     444 </span>            : {
+<span class="lineNum">     445 </span>            :     ARRAY(const struct setting_parser_info *) all_roots;
+<span class="lineNum">     446 </span>            :     const struct setting_parser_info *tmp_root;
+<span class="lineNum">     447 </span>            :     struct setting_parser_context *parser;
+<span class="lineNum">     448 </span>            :     struct istream *istream;
+<span class="lineNum">     449 </span><span class="lineCov">          1 :     const char *path = NULL, *error;</span>
+<span class="lineNum">     450 </span>            :     void **sets;
+<span class="lineNum">     451 </span>            :     unsigned int i;
+<span class="lineNum">     452 </span><span class="lineCov">          1 :     int ret, fd = -1;</span>
+<span class="lineNum">     453 </span>            :     time_t now, timeout;
+<span class="lineNum">     454 </span>            :     bool use_environment, retry;
+<span class="lineNum">     455 </span>            : 
+<span class="lineNum">     456 </span><span class="lineCov">          1 :     i_zero(output_r);</span>
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span><span class="lineCov">          2 :     if (getenv(&quot;DOVECONF_ENV&quot;) == NULL &amp;&amp;</span>
+<span class="lineNum">     459 </span><span class="lineCov">          1 :         (service-&gt;flags &amp; MASTER_SERVICE_FLAG_NO_CONFIG_SETTINGS) == 0) {</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :         retry = service-&gt;config_fd != -1;</span>
+<span class="lineNum">     461 </span>            :         for (;;) {
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :             fd = master_service_open_config(service, input,</span>
+<span class="lineNum">     463 </span>            :                             &amp;path, error_r);
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 :             if (fd == -1) {</span>
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :                 if (errno == EACCES)</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :                     output_r-&gt;permission_denied = TRUE;</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     468 </span>            :             }
+<span class="lineNum">     469 </span>            : 
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :             if (config_send_request(service, input, fd,</span>
+<span class="lineNum">     471 </span>            :                         path, error_r) == 0)
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :             i_close_fd(&amp;fd);</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :             if (!retry) {</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :                 config_exec_fallback(service, input);</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     477 </span>            :             }
+<span class="lineNum">     478 </span>            :             /* config process died, retry connecting */
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :             retry = FALSE;</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     481 </span>            :     }
+<span class="lineNum">     482 </span>            : 
+<span class="lineNum">     483 </span><span class="lineCov">          1 :     if (service-&gt;set_pool != NULL) {</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :         if (service-&gt;set_parser != NULL)</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :             settings_parser_deinit(&amp;service-&gt;set_parser);</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :         p_clear(service-&gt;set_pool);</span>
+<span class="lineNum">     487 </span>            :     } else {
+<span class="lineNum">     488 </span><span class="lineCov">          1 :         service-&gt;set_pool =</span>
+<span class="lineNum">     489 </span><span class="lineCov">          1 :             pool_alloconly_create(&quot;master service settings&quot;, 16384);</span>
+<span class="lineNum">     490 </span>            :     }
+<span class="lineNum">     491 </span>            : 
+<span class="lineNum">     492 </span><span class="lineCov">          1 :     p_array_init(&amp;all_roots, service-&gt;set_pool, 8);</span>
+<span class="lineNum">     493 </span><span class="lineCov">          1 :     tmp_root = &amp;master_service_setting_parser_info;</span>
+<span class="lineNum">     494 </span><span class="lineCov">          1 :     array_append(&amp;all_roots, &amp;tmp_root, 1);</span>
+<span class="lineNum">     495 </span><span class="lineCov">          1 :     if (service-&gt;want_ssl_settings) {</span>
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :         tmp_root = &amp;master_service_ssl_setting_parser_info;</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :         array_append(&amp;all_roots, &amp;tmp_root, 1);</span>
+<span class="lineNum">     498 </span>            :     }
+<span class="lineNum">     499 </span><span class="lineCov">          1 :     if (input-&gt;roots != NULL) {</span>
+<span class="lineNum">     500 </span><span class="lineCov">          2 :         for (i = 0; input-&gt;roots[i] != NULL; i++)</span>
+<span class="lineNum">     501 </span><span class="lineCov">          1 :             array_append(&amp;all_roots, &amp;input-&gt;roots[i], 1);</span>
+<span class="lineNum">     502 </span>            :     }
+<span class="lineNum">     503 </span>            : 
+<span class="lineNum">     504 </span><span class="lineCov">          2 :     parser = settings_parser_init_list(service-&gt;set_pool,</span>
+<span class="lineNum">     505 </span><span class="lineCov">          1 :             array_idx(&amp;all_roots, 0), array_count(&amp;all_roots),</span>
+<span class="lineNum">     506 </span>            :             SETTINGS_PARSER_FLAG_IGNORE_UNKNOWN_KEYS);
+<span class="lineNum">     507 </span>            : 
+<span class="lineNum">     508 </span><span class="lineCov">          1 :     if (fd != -1) {</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :         istream = i_stream_create_fd(fd, (size_t)-1);</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         now = time(NULL);</span>
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :         timeout = now + CONFIG_READ_TIMEOUT_SECS;</span>
+<span class="lineNum">     512 </span>            :         do {
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :             alarm(timeout - now);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :             ret = config_read_reply_header(istream, path,</span>
+<span class="lineNum">     515 </span>            :                                service-&gt;set_pool, input,
+<span class="lineNum">     516 </span>            :                                output_r, error_r);
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :             if (ret == 0) {</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :                 ret = settings_parse_stream_read(parser,</span>
+<span class="lineNum">     519 </span>            :                                  istream);
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :                 if (ret &lt; 0)</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :                     *error_r = p_strdup(service-&gt;set_pool,</span>
+<span class="lineNum">     522 </span>            :                         settings_parser_get_error(parser));
+<span class="lineNum">     523 </span>            :             }
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :             alarm(0);</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             if (ret &lt;= 0)</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span>            :             /* most likely timed out, but just in case some other
+<span class="lineNum">     529 </span>            :                signal was delivered early check if we need to
+<span class="lineNum">     530 </span>            :                continue */
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :             now = time(NULL);</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :         } while (now &lt; timeout);</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;istream);</span>
+<span class="lineNum">     534 </span>            : 
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :         if (ret != 0) {</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :             if (ret &gt; 0) {</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :                 *error_r = p_strdup_printf(service-&gt;set_pool,</span>
+<span class="lineNum">     538 </span>            :                     &quot;Timeout reading config from %s&quot;, path);
+<span class="lineNum">     539 </span>            :             }
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :             i_close_fd(&amp;fd);</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :             config_exec_fallback(service, input);</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :             settings_parser_deinit(&amp;parser);</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     544 </span>            :         }
+<span class="lineNum">     545 </span>            : 
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         if ((service-&gt;flags &amp; MASTER_SERVICE_FLAG_KEEP_CONFIG_OPEN) != 0 &amp;&amp;</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :             service-&gt;config_fd == -1 &amp;&amp; input-&gt;config_path == NULL)</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :             service-&gt;config_fd = fd;</span>
+<span class="lineNum">     549 </span>            :         else
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :             i_close_fd(&amp;fd);</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :         use_environment = FALSE;</span>
+<span class="lineNum">     552 </span>            :     } else {
+<span class="lineNum">     553 </span><span class="lineCov">          1 :         use_environment = TRUE;</span>
+<span class="lineNum">     554 </span>            :     }
+<span class="lineNum">     555 </span>            : 
+<span class="lineNum">     556 </span><span class="lineCov">          1 :     if (use_environment || service-&gt;keep_environment) {</span>
+<span class="lineNum">     557 </span><span class="lineCov">          1 :         if (settings_parse_environ(parser) &lt; 0) {</span>
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :             *error_r = p_strdup(service-&gt;set_pool,</span>
+<span class="lineNum">     559 </span>            :                     settings_parser_get_error(parser));
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :             settings_parser_deinit(&amp;parser);</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     562 </span>            :         }
+<span class="lineNum">     563 </span>            :     }
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineCov">          1 :     if (array_is_created(&amp;service-&gt;config_overrides)) {</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :         if (master_service_apply_config_overrides(service, parser,</span>
+<span class="lineNum">     567 </span>            :                               error_r) &lt; 0) {
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :             settings_parser_deinit(&amp;parser);</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     570 </span>            :         }
+<span class="lineNum">     571 </span>            :     }
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineCov">          1 :     if (!settings_parser_check(parser, service-&gt;set_pool, &amp;error)) {</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         *error_r = p_strdup_printf(service-&gt;set_pool,</span>
+<span class="lineNum">     575 </span>            :                 &quot;Invalid settings: %s&quot;, error);
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         settings_parser_deinit(&amp;parser);</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     578 </span>            :     }
+<span class="lineNum">     579 </span>            : 
+<span class="lineNum">     580 </span><span class="lineCov">          1 :     sets = settings_parser_get_list(parser);</span>
+<span class="lineNum">     581 </span><span class="lineCov">          1 :     service-&gt;set = sets[0];</span>
+<span class="lineNum">     582 </span><span class="lineCov">          1 :     service-&gt;set_parser = parser;</span>
+<span class="lineNum">     583 </span>            : 
+<span class="lineNum">     584 </span><span class="lineCov">          1 :     if (service-&gt;set-&gt;version_ignore &amp;&amp;</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         (service-&gt;flags &amp; MASTER_SERVICE_FLAG_STANDALONE) != 0) {</span>
+<span class="lineNum">     586 </span>            :         /* running standalone. we want to ignore plugin versions. */
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         service-&gt;version_string = NULL;</span>
+<span class="lineNum">     588 </span>            :     }
+<span class="lineNum">     589 </span><span class="lineCov">          1 :     if ((service-&gt;flags &amp; MASTER_SERVICE_FLAG_SEND_STATS) != 0) {</span>
+<span class="lineNum">     590 </span>            :         /* When running standalone (e.g. doveadm) try to connect to the
+<span class="lineNum">     591 </span>            :            stats socket, but don't log an error if it's not running.
+<span class="lineNum">     592 </span>            :            It may be intentional. */
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :         bool silent_notfound_errors =</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :             (service-&gt;flags &amp; MASTER_SERVICE_FLAG_STANDALONE) != 0;</span>
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :         master_service_init_stats_client(service, silent_notfound_errors);</span>
+<span class="lineNum">     596 </span>            :     }
+<span class="lineNum">     597 </span>            : 
+<span class="lineNum">     598 </span><span class="lineCov">          1 :     if (service-&gt;set-&gt;shutdown_clients)</span>
+<span class="lineNum">     599 </span><span class="lineCov">          1 :         master_service_set_die_with_master(master_service, TRUE);</span>
+<span class="lineNum">     600 </span>            : 
+<span class="lineNum">     601 </span>            :     /* if we change any settings afterwards, they're in expanded form.
+<span class="lineNum">     602 </span>            :        especially all settings from userdb are already expanded. */
+<span class="lineNum">     603 </span><span class="lineCov">          1 :     settings_parse_set_expanded(service-&gt;set_parser, TRUE);</span>
+<span class="lineNum">     604 </span><span class="lineCov">          1 :     return 0;</span>
+<a name="605"><span class="lineNum">     605 </span>            : }</a>
+<span class="lineNum">     606 </span>            : 
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 : int master_service_settings_read_simple(struct master_service *service,</span>
+<span class="lineNum">     608 </span>            :                     const struct setting_parser_info **roots,
+<span class="lineNum">     609 </span>            :                     const char **error_r)
+<span class="lineNum">     610 </span>            : {
+<span class="lineNum">     611 </span>            :     struct master_service_settings_input input;
+<span class="lineNum">     612 </span>            :     struct master_service_settings_output output;
+<span class="lineNum">     613 </span>            : 
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :     i_zero(&amp;input);</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :     input.roots = roots;</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :     input.module = service-&gt;name;</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :     return master_service_settings_read(service, &amp;input, &amp;output, error_r);</span>
+<a name="618"><span class="lineNum">     618 </span>            : }</a>
+<span class="lineNum">     619 </span>            : 
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 : pool_t master_service_settings_detach(struct master_service *service)</span>
+<span class="lineNum">     621 </span>            : {
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :     pool_t pool = service-&gt;set_pool;</span>
+<span class="lineNum">     623 </span>            : 
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :     settings_parser_deinit(&amp;service-&gt;set_parser);</span>
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :     service-&gt;set_pool = NULL;</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :     return pool;</span>
+<span class="lineNum">     627 </span>            : }
+<a name="628"><span class="lineNum">     628 </span>            : </a>
+<span class="lineNum">     629 </span>            : const struct master_service_settings *
+<span class="lineNum">     630 </span><span class="lineCov">          1 : master_service_settings_get(struct master_service *service)</span>
+<span class="lineNum">     631 </span>            : {
+<span class="lineNum">     632 </span>            :     void **sets;
+<span class="lineNum">     633 </span>            : 
+<span class="lineNum">     634 </span><span class="lineCov">          1 :     sets = settings_parser_get_list(service-&gt;set_parser);</span>
+<span class="lineNum">     635 </span><span class="lineCov">          1 :     return sets[0];</span>
+<a name="636"><span class="lineNum">     636 </span>            : }</a>
+<span class="lineNum">     637 </span>            : 
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 : void **master_service_settings_get_others(struct master_service *service)</span>
+<span class="lineNum">     639 </span>            : {
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :     return master_service_settings_parser_get_others(service,</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :                              service-&gt;set_parser);</span>
+<a name="642"><span class="lineNum">     642 </span>            : }</a>
+<span class="lineNum">     643 </span>            : 
+<span class="lineNum">     644 </span><span class="lineCov">          2 : void **master_service_settings_parser_get_others(struct master_service *service,</span>
+<span class="lineNum">     645 </span>            :                          const struct setting_parser_context *set_parser)
+<span class="lineNum">     646 </span>            : {
+<span class="lineNum">     647 </span><span class="lineCov">          4 :     return settings_parser_get_list(set_parser) + 1 +</span>
+<span class="lineNum">     648 </span><span class="lineCov">          2 :         (service-&gt;want_ssl_settings ? 1 : 0);</span>
+<span class="lineNum">     649 </span>            : }
+<a name="650"><span class="lineNum">     650 </span>            : </a>
+<span class="lineNum">     651 </span>            : struct setting_parser_context *
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 : master_service_get_settings_parser(struct master_service *service)</span>
+<span class="lineNum">     653 </span>            : {
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :     return service-&gt;set_parser;</span>
+<a name="655"><span class="lineNum">     655 </span>            : }</a>
+<span class="lineNum">     656 </span>            : 
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 : int master_service_set(struct master_service *service, const char *line)</span>
+<span class="lineNum">     658 </span>            : {
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :     return settings_parse_line(service-&gt;set_parser, line);</span>
+<a name="660"><span class="lineNum">     660 </span>            : }</a>
+<span class="lineNum">     661 </span>            : 
+<span class="lineNum">     662 </span><span class="lineCov">          4 : bool master_service_set_has_config_override(struct master_service *service,</span>
+<span class="lineNum">     663 </span>            :                         const char *key)
+<span class="lineNum">     664 </span>            : {
+<span class="lineNum">     665 </span>            :     const char *const *override, *key_root;
+<span class="lineNum">     666 </span>            :     bool ret;
+<span class="lineNum">     667 </span>            : 
+<span class="lineNum">     668 </span><span class="lineCov">          4 :     if (!array_is_created(&amp;service-&gt;config_overrides))</span>
+<span class="lineNum">     669 </span><span class="lineCov">          4 :         return FALSE;</span>
+<span class="lineNum">     670 </span>            : 
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :     key_root = settings_parse_unalias(service-&gt;set_parser, key);</span>
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :     if (key_root == NULL)</span>
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :         key_root = key;</span>
+<span class="lineNum">     674 </span>            : 
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :     array_foreach(&amp;service-&gt;config_overrides, override) {</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :         T_BEGIN {</span>
+<span class="lineNum">     677 </span>            :             const char *okey, *okey_root;
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :             okey = t_strcut(*override, '=');</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :             okey_root = settings_parse_unalias(service-&gt;set_parser,</span>
+<span class="lineNum">     681 </span>            :                                okey);
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :             if (okey_root == NULL)</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :                 okey_root = okey;</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :             ret = strcmp(okey_root, key_root) == 0;</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :         } T_END;</span>
+<span class="lineNum">     686 </span>            : 
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :         if (ret)</span>
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :             return TRUE;</span>
+<span class="lineNum">     689 </span>            :     }
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     691 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

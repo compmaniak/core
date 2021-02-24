@@ -1,0 +1,373 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/istream-multiplex.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - istream-multiplex.c<span style="font-size: 80%;"> (source / <a href="istream-multiplex.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">141</td>
+            <td class="headerCovTableEntry">153</td>
+            <td class="headerCovTableEntryHi">92.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntryHi">92.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2017-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream-multiplex.h&quot;
+<span class="lineNum">       8 </span>            : 
+<span class="lineNum">       9 </span>            : /* all multiplex packets are [1 byte cid][4 byte length][data] */
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : struct multiplex_istream;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : struct multiplex_ichannel {
+<span class="lineNum">      14 </span>            :     struct istream_private istream;
+<span class="lineNum">      15 </span>            :     struct multiplex_istream *mstream;
+<span class="lineNum">      16 </span>            :     uint8_t cid;
+<span class="lineNum">      17 </span>            :     size_t pending_pos;
+<span class="lineNum">      18 </span>            :     bool closed:1;
+<span class="lineNum">      19 </span>            : };
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : struct multiplex_istream {
+<span class="lineNum">      22 </span>            :     struct istream *parent;
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            :     /* channel 0 is main channel */
+<span class="lineNum">      25 </span>            :     uint8_t cur_channel;
+<span class="lineNum">      26 </span>            :     unsigned int remain;
+<span class="lineNum">      27 </span>            :     size_t bufsize;
+<span class="lineNum">      28 </span>            :     ARRAY(struct multiplex_ichannel *) channels;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            :     bool blocking:1;
+<span class="lineNum">      31 </span>            : };
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : static ssize_t i_stream_multiplex_ichannel_read(struct istream_private *stream);
+<a name="34"><span class="lineNum">      34 </span>            : </a>
+<span class="lineNum">      35 </span>            : static struct multiplex_ichannel *
+<span class="lineNum">      36 </span><span class="lineCov">      13816 : get_channel(struct multiplex_istream *mstream, uint8_t cid)</span>
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span>            :     struct multiplex_ichannel **channelp;
+<span class="lineNum">      39 </span><span class="lineCov">      13816 :     i_assert(mstream != NULL);</span>
+<span class="lineNum">      40 </span><span class="lineCov">      53202 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp) {</span>
+<span class="lineNum">      41 </span><span class="lineCov">      53190 :         if (*channelp != NULL &amp;&amp; (*channelp)-&gt;cid == cid)</span>
+<span class="lineNum">      42 </span><span class="lineCov">      13804 :             return *channelp;</span>
+<span class="lineNum">      43 </span>            :     }
+<span class="lineNum">      44 </span><span class="lineCov">         12 :     return NULL;</span>
+<a name="45"><span class="lineNum">      45 </span>            : }</a>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span><span class="lineCov">     126615 : static void propagate_error(struct multiplex_istream *mstream, int stream_errno)</span>
+<span class="lineNum">      48 </span>            : {
+<span class="lineNum">      49 </span>            :     struct multiplex_ichannel **channelp;
+<span class="lineNum">      50 </span><span class="lineCov">     885529 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">      51 </span><span class="lineCov">     758914 :         if (*channelp != NULL)</span>
+<span class="lineNum">      52 </span><span class="lineCov">     758897 :             (*channelp)-&gt;istream.istream.stream_errno = stream_errno;</span>
+<a name="53"><span class="lineNum">      53 </span><span class="lineCov">     126615 : }</span></a>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span><span class="lineCov">         14 : static void propagate_eof(struct multiplex_istream *mstream)</span>
+<span class="lineNum">      56 </span>            : {
+<span class="lineNum">      57 </span>            :     struct multiplex_ichannel **channelp;
+<span class="lineNum">      58 </span><span class="lineCov">         82 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp) {</span>
+<span class="lineNum">      59 </span><span class="lineCov">         68 :         if (*channelp == NULL)</span>
+<span class="lineNum">      60 </span><span class="lineCov">         16 :             continue;</span>
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineCov">         52 :         (*channelp)-&gt;istream.istream.eof = TRUE;</span>
+<span class="lineNum">      63 </span><span class="lineCov">         52 :         if (mstream-&gt;remain &gt; 0) {</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :             (*channelp)-&gt;istream.istream.stream_errno = EPIPE;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :             io_stream_set_error(&amp;(*channelp)-&gt;istream.iostream,</span>
+<span class="lineNum">      66 </span>            :                 &quot;Unexpected EOF - %u bytes remaining in packet&quot;,
+<span class="lineNum">      67 </span>            :                 mstream-&gt;remain);
+<span class="lineNum">      68 </span>            :         }
+<span class="lineNum">      69 </span>            :     }
+<span class="lineNum">      70 </span><span class="lineCov">         14 : }</span>
+<a name="71"><span class="lineNum">      71 </span>            : </a>
+<span class="lineNum">      72 </span>            : static ssize_t
+<span class="lineNum">      73 </span><span class="lineCov">     126617 : i_stream_multiplex_read(struct multiplex_istream *mstream,</span>
+<span class="lineNum">      74 </span>            :             struct multiplex_ichannel *req_channel)
+<span class="lineNum">      75 </span>            : {
+<span class="lineNum">      76 </span>            :     const unsigned char *data;
+<span class="lineNum">      77 </span><span class="lineCov">     126617 :     size_t len = 0, used, wanted, avail;</span>
+<span class="lineNum">      78 </span><span class="lineCov">     126617 :     ssize_t ret, got = 0;</span>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineCov">     126617 :     if (mstream-&gt;parent == NULL) {</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :         req_channel-&gt;istream.istream.eof = TRUE;</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      83 </span>            :     }
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineCov">     126617 :     (void)i_stream_get_data(mstream-&gt;parent, &amp;len);</span>
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span><span class="lineCov">     126617 :     if (len == 0 &amp;&amp; mstream-&gt;parent-&gt;closed) {</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :         req_channel-&gt;istream.istream.eof = TRUE;</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">      90 </span>            :     }
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span><span class="lineCov">     127861 :     if (((mstream-&gt;remain &gt; 0 &amp;&amp; len == 0) ||</span>
+<span class="lineNum">      93 </span><span class="lineCov">     129099 :          (mstream-&gt;remain == 0 &amp;&amp; len &lt; 5)) &amp;&amp;</span>
+<span class="lineNum">      94 </span><span class="lineCov">     126614 :         (ret = i_stream_read_memarea(mstream-&gt;parent)) &lt;= 0) {</span>
+<span class="lineNum">      95 </span><span class="lineCov">     112801 :         propagate_error(mstream, mstream-&gt;parent-&gt;stream_errno);</span>
+<span class="lineNum">      96 </span><span class="lineCov">     112801 :         if (mstream-&gt;parent-&gt;eof)</span>
+<span class="lineNum">      97 </span><span class="lineCov">         14 :             propagate_eof(mstream);</span>
+<span class="lineNum">      98 </span><span class="lineCov">     112801 :         return ret;</span>
+<span class="lineNum">      99 </span>            :     }
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span>            :     for(;;) {
+<span class="lineNum">     102 </span><span class="lineCov">      27910 :         data = i_stream_get_data(mstream-&gt;parent, &amp;len);</span>
+<span class="lineNum">     103 </span><span class="lineCov">      27910 :         if (len == 0) {</span>
+<span class="lineNum">     104 </span><span class="lineCov">      13627 :             if (got == 0 &amp;&amp; mstream-&gt;blocking) {</span>
+<span class="lineNum">     105 </span>            :                 /* can't return 0 with blocking istreams,
+<span class="lineNum">     106 </span>            :                    so try again from the beginning. */
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :                 return i_stream_multiplex_read(mstream, req_channel);</span>
+<span class="lineNum">     108 </span>            :             }
+<span class="lineNum">     109 </span><span class="lineCov">      13627 :             break;</span>
+<span class="lineNum">     110 </span>            :         }
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineCov">      14283 :         if (mstream-&gt;remain &gt; 0) {</span>
+<span class="lineNum">     113 </span><span class="lineCov">      13805 :             struct multiplex_ichannel *channel =</span>
+<span class="lineNum">     114 </span><span class="lineCov">      13805 :                 get_channel(mstream, mstream-&gt;cur_channel);</span>
+<span class="lineNum">     115 </span><span class="lineCov">      13805 :             wanted = I_MIN(len, mstream-&gt;remain);</span>
+<span class="lineNum">     116 </span>            :             /* is it open? */
+<span class="lineNum">     117 </span><span class="lineCov">      27606 :             if (channel != NULL &amp;&amp; !channel-&gt;closed) {</span>
+<span class="lineNum">     118 </span><span class="lineCov">      13804 :                 struct istream_private *stream = &amp;channel-&gt;istream;</span>
+<span class="lineNum">     119 </span><span class="lineCov">      13804 :                 stream-&gt;pos += channel-&gt;pending_pos;</span>
+<span class="lineNum">     120 </span><span class="lineCov">      13804 :                 bool alloc_ret = i_stream_try_alloc(stream, wanted, &amp;avail);</span>
+<span class="lineNum">     121 </span><span class="lineCov">      13804 :                 stream-&gt;pos -= channel-&gt;pending_pos;</span>
+<span class="lineNum">     122 </span><span class="lineCov">      13804 :                 if (!alloc_ret) {</span>
+<span class="lineNum">     123 </span><span class="lineCov">          3 :                     i_stream_set_input_pending(&amp;stream-&gt;istream, TRUE);</span>
+<span class="lineNum">     124 </span><span class="lineCov">          3 :                     if (channel-&gt;cid != req_channel-&gt;cid)</span>
+<span class="lineNum">     125 </span><span class="lineCov">          1 :                         return 0;</span>
+<span class="lineNum">     126 </span><span class="lineCov">          2 :                     if (got &gt; 0)</span>
+<span class="lineNum">     127 </span><span class="lineCov">          1 :                         break;</span>
+<span class="lineNum">     128 </span><span class="lineCov">          1 :                     return -2;</span>
+<span class="lineNum">     129 </span>            :                 }
+<span class="lineNum">     130 </span>            : 
+<span class="lineNum">     131 </span><span class="lineCov">      13801 :                 used = I_MIN(wanted, avail);</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span>            :                 /* dump into buffer */
+<span class="lineNum">     134 </span><span class="lineCov">      13801 :                 if (channel-&gt;cid != req_channel-&gt;cid) {</span>
+<span class="lineNum">     135 </span><span class="lineCov">      13056 :                     i_assert(stream-&gt;pos + channel-&gt;pending_pos + used &lt;= stream-&gt;buffer_size);</span>
+<span class="lineNum">     136 </span><span class="lineCov">      13056 :                     memcpy(stream-&gt;w_buffer + stream-&gt;pos + channel-&gt;pending_pos,</span>
+<span class="lineNum">     137 </span>            :                            data, used);
+<span class="lineNum">     138 </span><span class="lineCov">      13056 :                     channel-&gt;pending_pos += used;</span>
+<span class="lineNum">     139 </span><span class="lineCov">      13056 :                     i_stream_set_input_pending(&amp;stream-&gt;istream, TRUE);</span>
+<span class="lineNum">     140 </span>            :                 } else {
+<span class="lineNum">     141 </span><span class="lineCov">        745 :                     i_assert(stream-&gt;pos + used &lt;= stream-&gt;buffer_size);</span>
+<span class="lineNum">     142 </span><span class="lineCov">        745 :                     memcpy(stream-&gt;w_buffer + stream-&gt;pos, data, used);</span>
+<span class="lineNum">     143 </span><span class="lineCov">        745 :                     stream-&gt;pos += used;</span>
+<span class="lineNum">     144 </span><span class="lineCov">        745 :                     got += used;</span>
+<span class="lineNum">     145 </span>            :                 }
+<span class="lineNum">     146 </span>            :             } else {
+<span class="lineNum">     147 </span><span class="lineCov">          1 :                 used = wanted;</span>
+<span class="lineNum">     148 </span>            :             }
+<span class="lineNum">     149 </span><span class="lineCov">      13802 :             mstream-&gt;remain -= used;</span>
+<span class="lineNum">     150 </span><span class="lineCov">      13802 :             i_stream_skip(mstream-&gt;parent, used);</span>
+<span class="lineNum">     151 </span>            :             /* see if there is more to read */
+<span class="lineNum">     152 </span><span class="lineCov">      13802 :             continue;</span>
+<span class="lineNum">     153 </span>            :         }
+<span class="lineNum">     154 </span><span class="lineCov">        478 :         if (mstream-&gt;remain == 0) {</span>
+<span class="lineNum">     155 </span>            :             /* need more data */
+<span class="lineNum">     156 </span><span class="lineCov">        478 :             if (len &lt; 5) {</span>
+<span class="lineNum">     157 </span><span class="lineCov">        186 :                 ret = i_stream_multiplex_ichannel_read(&amp;req_channel-&gt;istream);</span>
+<span class="lineNum">     158 </span><span class="lineCov">        186 :                 if (ret &gt; 0)</span>
+<span class="lineNum">     159 </span><span class="lineCov">         43 :                     got += ret;</span>
+<span class="lineNum">     160 </span><span class="lineCov">        186 :                 break;</span>
+<span class="lineNum">     161 </span>            :             }
+<span class="lineNum">     162 </span>            :             /* channel ID */
+<span class="lineNum">     163 </span><span class="lineCov">        292 :             mstream-&gt;cur_channel = data[0];</span>
+<span class="lineNum">     164 </span>            :             /* data length */
+<span class="lineNum">     165 </span><span class="lineCov">        292 :             mstream-&gt;remain = be32_to_cpu_unaligned(data+1);</span>
+<span class="lineNum">     166 </span><span class="lineCov">        292 :             i_stream_skip(mstream-&gt;parent, 5);</span>
+<span class="lineNum">     167 </span>            :         }
+<span class="lineNum">     168 </span><span class="lineCov">      14094 :     }</span>
+<span class="lineNum">     169 </span>            : 
+<span class="lineNum">     170 </span><span class="lineCov">      13814 :     propagate_error(mstream, mstream-&gt;parent-&gt;stream_errno);</span>
+<span class="lineNum">     171 </span><span class="lineCov">      13814 :     if (mstream-&gt;parent-&gt;eof)</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         propagate_eof(mstream);</span>
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span><span class="lineCov">      13814 :     return got;</span>
+<a name="175"><span class="lineNum">     175 </span>            : }</a>
+<span class="lineNum">     176 </span>            : 
+<span class="lineNum">     177 </span><span class="lineCov">     139607 : static ssize_t i_stream_multiplex_ichannel_read(struct istream_private *stream)</span>
+<span class="lineNum">     178 </span>            : {
+<span class="lineNum">     179 </span><span class="lineCov">     139607 :     struct multiplex_ichannel *channel = (struct multiplex_ichannel*)stream;</span>
+<span class="lineNum">     180 </span>            :     /* if previous multiplex read dumped data for us
+<span class="lineNum">     181 </span>            :        actually serve it here. */
+<span class="lineNum">     182 </span><span class="lineCov">     139607 :     if (channel-&gt;pending_pos &gt; 0) {</span>
+<span class="lineNum">     183 </span><span class="lineCov">      12990 :         ssize_t ret = channel-&gt;pending_pos;</span>
+<span class="lineNum">     184 </span><span class="lineCov">      12990 :         stream-&gt;pos += channel-&gt;pending_pos;</span>
+<span class="lineNum">     185 </span><span class="lineCov">      12990 :         channel-&gt;pending_pos = 0;</span>
+<span class="lineNum">     186 </span><span class="lineCov">      12990 :         return ret;</span>
+<span class="lineNum">     187 </span>            :     }
+<span class="lineNum">     188 </span><span class="lineCov">     126617 :     return i_stream_multiplex_read(channel-&gt;mstream, channel);</span>
+<span class="lineNum">     189 </span>            : }
+<a name="190"><span class="lineNum">     190 </span>            : </a>
+<span class="lineNum">     191 </span>            : static void
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 : i_stream_multiplex_ichannel_switch_ioloop(struct istream_private *stream)</span>
+<span class="lineNum">     193 </span>            : {
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     struct multiplex_ichannel *channel = (struct multiplex_ichannel*)stream;</span>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     i_stream_switch_ioloop(channel-&gt;mstream-&gt;parent);</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 : }</span>
+<a name="198"><span class="lineNum">     198 </span>            : </a>
+<span class="lineNum">     199 </span>            : static void
+<span class="lineNum">     200 </span><span class="lineCov">         36 : i_stream_multiplex_ichannel_close(struct iostream_private *stream, bool close_parent)</span>
+<span class="lineNum">     201 </span>            : {
+<span class="lineNum">     202 </span>            :     struct multiplex_ichannel *const *channelp;
+<span class="lineNum">     203 </span><span class="lineCov">         36 :     struct multiplex_ichannel *channel = (struct multiplex_ichannel*)stream;</span>
+<span class="lineNum">     204 </span><span class="lineCov">         36 :     channel-&gt;closed = TRUE;</span>
+<span class="lineNum">     205 </span><span class="lineCov">         36 :     if (close_parent) {</span>
+<span class="lineNum">     206 </span><span class="lineCov">         55 :         array_foreach(&amp;channel-&gt;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">     207 </span><span class="lineCov">         48 :             if (*channelp != NULL &amp;&amp; !(*channelp)-&gt;closed)</span>
+<span class="lineNum">     208 </span><span class="lineCov">         47 :                 return;</span>
+<span class="lineNum">     209 </span><span class="lineCov">          7 :         i_stream_close(channel-&gt;mstream-&gt;parent);</span>
+<span class="lineNum">     210 </span>            :     }
+<a name="211"><span class="lineNum">     211 </span>            : }</a>
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span><span class="lineCov">         18 : static void i_stream_multiplex_try_destroy(struct multiplex_istream *mstream)</span>
+<span class="lineNum">     214 </span>            : {
+<span class="lineNum">     215 </span>            :     struct multiplex_ichannel **channelp;
+<span class="lineNum">     216 </span>            :     /* can't do anything until they are all closed */
+<span class="lineNum">     217 </span><span class="lineCov">         55 :     array_foreach_modifiable(&amp;mstream-&gt;channels, channelp)</span>
+<span class="lineNum">     218 </span><span class="lineCov">         48 :         if (*channelp != NULL)</span>
+<span class="lineNum">     219 </span><span class="lineCov">         29 :             return;</span>
+<span class="lineNum">     220 </span><span class="lineCov">          7 :     i_stream_unref(&amp;mstream-&gt;parent);</span>
+<span class="lineNum">     221 </span><span class="lineCov">          7 :     array_free(&amp;mstream-&gt;channels);</span>
+<span class="lineNum">     222 </span><span class="lineCov">          7 :     i_free(mstream);</span>
+<a name="223"><span class="lineNum">     223 </span>            : }</a>
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineCov">         18 : static void i_stream_multiplex_ichannel_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">     226 </span>            : {
+<span class="lineNum">     227 </span>            :     struct multiplex_ichannel **channelp;
+<span class="lineNum">     228 </span><span class="lineCov">         18 :     struct multiplex_ichannel *channel = (struct multiplex_ichannel*)stream;</span>
+<span class="lineNum">     229 </span><span class="lineCov">         18 :     i_stream_multiplex_ichannel_close(stream, TRUE);</span>
+<span class="lineNum">     230 </span><span class="lineCov">         18 :     i_stream_free_buffer(&amp;channel-&gt;istream);</span>
+<span class="lineNum">     231 </span><span class="lineCov">         39 :     array_foreach_modifiable(&amp;channel-&gt;mstream-&gt;channels, channelp) {</span>
+<span class="lineNum">     232 </span><span class="lineCov">         39 :         if (*channelp == channel) {</span>
+<span class="lineNum">     233 </span><span class="lineCov">         18 :             *channelp = NULL;</span>
+<span class="lineNum">     234 </span><span class="lineCov">         18 :             break;</span>
+<span class="lineNum">     235 </span>            :         }
+<span class="lineNum">     236 </span>            :     }
+<span class="lineNum">     237 </span><span class="lineCov">         18 :     i_stream_multiplex_try_destroy(channel-&gt;mstream);</span>
+<span class="lineNum">     238 </span><span class="lineCov">         18 : }</span>
+<a name="239"><span class="lineNum">     239 </span>            : </a>
+<span class="lineNum">     240 </span>            : static struct istream *
+<span class="lineNum">     241 </span><span class="lineCov">         18 : i_stream_add_channel_real(struct multiplex_istream *mstream, uint8_t cid)</span>
+<span class="lineNum">     242 </span>            : {
+<span class="lineNum">     243 </span><span class="lineCov">         18 :     struct multiplex_ichannel *channel = i_new(struct multiplex_ichannel, 1);</span>
+<span class="lineNum">     244 </span><span class="lineCov">         18 :     channel-&gt;cid = cid;</span>
+<span class="lineNum">     245 </span><span class="lineCov">         18 :     channel-&gt;mstream = mstream;</span>
+<span class="lineNum">     246 </span><span class="lineCov">         18 :     channel-&gt;istream.read = i_stream_multiplex_ichannel_read;</span>
+<span class="lineNum">     247 </span><span class="lineCov">         18 :     channel-&gt;istream.switch_ioloop = i_stream_multiplex_ichannel_switch_ioloop;</span>
+<span class="lineNum">     248 </span><span class="lineCov">         18 :     channel-&gt;istream.iostream.close = i_stream_multiplex_ichannel_close;</span>
+<span class="lineNum">     249 </span><span class="lineCov">         18 :     channel-&gt;istream.iostream.destroy = i_stream_multiplex_ichannel_destroy;</span>
+<span class="lineNum">     250 </span><span class="lineCov">         18 :     channel-&gt;istream.max_buffer_size = mstream-&gt;bufsize;</span>
+<span class="lineNum">     251 </span><span class="lineCov">         18 :     channel-&gt;istream.istream.blocking = mstream-&gt;blocking;</span>
+<span class="lineNum">     252 </span><span class="lineCov">         18 :     if (cid == 0)</span>
+<span class="lineNum">     253 </span><span class="lineCov">          7 :         channel-&gt;istream.fd = i_stream_get_fd(mstream-&gt;parent);</span>
+<span class="lineNum">     254 </span>            :     else
+<span class="lineNum">     255 </span><span class="lineCov">         11 :         channel-&gt;istream.fd = -1;</span>
+<span class="lineNum">     256 </span><span class="lineCov">         18 :     array_append(&amp;channel-&gt;mstream-&gt;channels, &amp;channel, 1);</span>
+<span class="lineNum">     257 </span>            : 
+<span class="lineNum">     258 </span><span class="lineCov">         18 :     return i_stream_create(&amp;channel-&gt;istream, NULL, channel-&gt;istream.fd, 0);</span>
+<a name="259"><span class="lineNum">     259 </span>            : }</a>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineCov">         11 : struct istream *i_stream_multiplex_add_channel(struct istream *stream, uint8_t cid)</span>
+<span class="lineNum">     262 </span>            : {
+<span class="lineNum">     263 </span><span class="lineCov">         11 :     struct multiplex_ichannel *chan =</span>
+<span class="lineNum">     264 </span>            :         (struct multiplex_ichannel *)stream-&gt;real_stream;
+<span class="lineNum">     265 </span><span class="lineCov">         11 :     i_assert(get_channel(chan-&gt;mstream, cid) == NULL);</span>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineCov">         11 :     return i_stream_add_channel_real(chan-&gt;mstream, cid);</span>
+<a name="268"><span class="lineNum">     268 </span>            : }</a>
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span><span class="lineCov">          7 : struct istream *i_stream_create_multiplex(struct istream *parent, size_t bufsize)</span>
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span>            :     struct multiplex_istream *mstream;
+<span class="lineNum">     273 </span>            : 
+<span class="lineNum">     274 </span><span class="lineCov">          7 :     mstream = i_new(struct multiplex_istream, 1);</span>
+<span class="lineNum">     275 </span><span class="lineCov">          7 :     mstream-&gt;parent = parent;</span>
+<span class="lineNum">     276 </span><span class="lineCov">          7 :     mstream-&gt;bufsize = bufsize;</span>
+<span class="lineNum">     277 </span><span class="lineCov">          7 :     mstream-&gt;blocking = parent-&gt;blocking;</span>
+<span class="lineNum">     278 </span><span class="lineCov">          7 :     i_array_init(&amp;mstream-&gt;channels, 8);</span>
+<span class="lineNum">     279 </span><span class="lineCov">          7 :     i_stream_ref(parent);</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span><span class="lineCov">          7 :     return i_stream_add_channel_real(mstream, 0);</span>
+<a name="282"><span class="lineNum">     282 </span>            : }</a>
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineCov">        151 : uint8_t i_stream_multiplex_get_channel_id(struct istream *stream)</span>
+<span class="lineNum">     285 </span>            : {
+<span class="lineNum">     286 </span><span class="lineCov">        151 :     struct multiplex_ichannel *channel =</span>
+<span class="lineNum">     287 </span>            :         (struct multiplex_ichannel *)stream-&gt;real_stream;
+<span class="lineNum">     288 </span><span class="lineCov">        151 :     return channel-&gt;cid;</span>
+<span class="lineNum">     289 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

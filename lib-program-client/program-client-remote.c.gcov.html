@@ -1,0 +1,731 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-program-client/program-client-remote.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-program-client</a> - program-client-remote.c<span style="font-size: 80%;"> (source / <a href="program-client-remote.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">210</td>
+            <td class="headerCovTableEntry">297</td>
+            <td class="headerCovTableEntryLo">70.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntryLo">70.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file</a>
+<span class="lineNum">       2 </span>            :  */
+<span class="lineNum">       3 </span>            : 
+<span class="lineNum">       4 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;strescape.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;net.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;write-full.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;eacces-error.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;dns-lookup.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;program-client-private.h&quot;
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      18 </span>            : #include &lt;sys/wait.h&gt;
+<span class="lineNum">      19 </span>            : #include &lt;sysexits.h&gt;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : #define PROGRAM_CLIENT_VERSION_MAJOR &quot;4&quot;
+<span class="lineNum">      22 </span>            : #define PROGRAM_CLIENT_VERSION_MINOR &quot;0&quot;
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : #define PROGRAM_CLIENT_VERSION_STRING &quot;VERSION\tscript\t&quot; \
+<span class="lineNum">      25 </span>            :         PROGRAM_CLIENT_VERSION_MAJOR &quot;\t&quot; \
+<span class="lineNum">      26 </span>            :         PROGRAM_CLIENT_VERSION_MINOR &quot;\n&quot;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : static
+<span class="lineNum">      29 </span>            : void program_client_net_connect_again(struct program_client *pclient);
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : /*
+<span class="lineNum">      32 </span>            :  * Script client input stream
+<span class="lineNum">      33 </span>            :  */
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : struct program_client_istream {
+<span class="lineNum">      36 </span>            :     struct istream_private istream;
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :     struct stat statbuf;
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            :     struct program_client *client;
+<span class="lineNum">      41 </span>            : };
+<a name="42"><span class="lineNum">      42 </span>            : </a>
+<span class="lineNum">      43 </span>            : static
+<span class="lineNum">      44 </span><span class="lineCov">          6 : void program_client_istream_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">      45 </span>            : {
+<span class="lineNum">      46 </span><span class="lineCov">          6 :     struct program_client_istream *scstream =</span>
+<span class="lineNum">      47 </span>            :         (struct program_client_istream *) stream;
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span><span class="lineCov">          6 :     i_stream_unref(&amp;scstream-&gt;istream.parent);</span>
+<span class="lineNum">      50 </span><span class="lineCov">          6 : }</span>
+<a name="51"><span class="lineNum">      51 </span>            : </a>
+<span class="lineNum">      52 </span>            : static ssize_t
+<span class="lineNum">      53 </span><span class="lineCov">         26 : program_client_istream_read(struct istream_private *stream)</span>
+<span class="lineNum">      54 </span>            : {
+<span class="lineNum">      55 </span><span class="lineCov">         26 :     struct program_client_istream *scstream =</span>
+<span class="lineNum">      56 </span>            :         (struct program_client_istream *) stream;
+<span class="lineNum">      57 </span>            :     size_t pos, reserved;
+<span class="lineNum">      58 </span><span class="lineCov">         26 :     ssize_t ret = 0;</span>
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span><span class="lineCov">         26 :     i_stream_skip(stream-&gt;parent, stream-&gt;skip);</span>
+<span class="lineNum">      61 </span><span class="lineCov">         26 :     stream-&gt;skip = 0;</span>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">         26 :     stream-&gt;buffer = i_stream_get_data(stream-&gt;parent, &amp;pos);</span>
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineCov">         26 :     reserved = 0;</span>
+<span class="lineNum">      66 </span><span class="lineCov">         26 :     if (stream-&gt;buffer != NULL &amp;&amp; pos &gt;= 1) {</span>
+<span class="lineNum">      67 </span>            :         /* retain/hide potential return code at end of buffer */
+<span class="lineNum">      68 </span><span class="lineCov">          5 :         reserved = (stream-&gt;buffer[pos - 1] == '\n' &amp;&amp; pos &gt; 1 ? 2 : 1);</span>
+<span class="lineNum">      69 </span><span class="lineCov">          5 :         pos -= reserved;</span>
+<span class="lineNum">      70 </span>            :     }
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span><span class="lineCov">         26 :     if (stream-&gt;parent-&gt;eof) {</span>
+<span class="lineNum">      73 </span><span class="lineCov">          9 :         if (pos == 0)</span>
+<span class="lineNum">      74 </span><span class="lineCov">          9 :             i_stream_skip(stream-&gt;parent, reserved);</span>
+<span class="lineNum">      75 </span><span class="lineCov">          9 :         stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">      76 </span><span class="lineCov">          9 :         ret = -1;</span>
+<span class="lineNum">      77 </span>            :     } else
+<span class="lineNum">      78 </span>            :         do {
+<span class="lineNum">      79 </span><span class="lineCov">         18 :             if ((ret = i_stream_read_memarea(stream-&gt;parent)) == -2) {</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :                 return -2;  /* input buffer full */</span>
+<span class="lineNum">      81 </span>            :             }
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">         18 :             if (ret == 0 || (ret &lt; 0 &amp;&amp; !stream-&gt;parent-&gt;eof))</span>
+<span class="lineNum">      84 </span>            :                 break;
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span><span class="lineCov">         12 :             stream-&gt;istream.stream_errno =</span>
+<span class="lineNum">      87 </span><span class="lineCov">         12 :                 stream-&gt;parent-&gt;stream_errno;</span>
+<span class="lineNum">      88 </span><span class="lineCov">         12 :             stream-&gt;buffer =</span>
+<span class="lineNum">      89 </span><span class="lineCov">         12 :                 i_stream_get_data(stream-&gt;parent, &amp;pos);</span>
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineCov">         12 :             if (stream-&gt;parent-&gt;eof) {</span>
+<span class="lineNum">      92 </span>            :                 /* Check return code at EOF */
+<span class="lineNum">      93 </span><span class="lineCov">         12 :                 if (stream-&gt;buffer != NULL &amp;&amp; pos &gt;= 2 &amp;&amp;</span>
+<span class="lineNum">      94 </span><span class="lineCov">          6 :                     stream-&gt;buffer[pos - 1] == '\n') {</span>
+<span class="lineNum">      95 </span><span class="lineCov">          6 :                     switch (stream-&gt;buffer[pos - 2]) {</span>
+<span class="lineNum">      96 </span>            :                     case '+':
+<span class="lineNum">      97 </span><span class="lineCov">          4 :                         scstream-&gt;client-&gt;exit_code = 1;</span>
+<span class="lineNum">      98 </span><span class="lineCov">          4 :                         break;</span>
+<span class="lineNum">      99 </span>            :                     case '-':
+<span class="lineNum">     100 </span><span class="lineCov">          2 :                         scstream-&gt;client-&gt;exit_code = 0;</span>
+<span class="lineNum">     101 </span><span class="lineCov">          2 :                         break;</span>
+<span class="lineNum">     102 </span>            :                     default:
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :                         scstream-&gt;client-&gt;exit_code =</span>
+<span class="lineNum">     104 </span>            :                             -1;
+<span class="lineNum">     105 </span>            :                     }
+<span class="lineNum">     106 </span><span class="lineCov">          6 :                 } else {</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :                     scstream-&gt;client-&gt;exit_code = -1;</span>
+<span class="lineNum">     108 </span>            :                 }
+<span class="lineNum">     109 </span>            :             }
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineCov">         12 :             if (stream-&gt;buffer != NULL &amp;&amp; pos &gt;= 1) {</span>
+<span class="lineNum">     112 </span>            :                 /* retain/hide potential return code at end of buffer */
+<span class="lineNum">     113 </span><span class="lineCov">         12 :                 size_t old_reserved = reserved;</span>
+<span class="lineNum">     114 </span>            :                 ssize_t reserve_mod;
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span><span class="lineCov">         24 :                 reserved = (stream-&gt;buffer[pos - 1] == '\n' &amp;&amp;</span>
+<span class="lineNum">     117 </span><span class="lineCov">         12 :                         pos &gt; 1 ? 2 : 1);</span>
+<span class="lineNum">     118 </span><span class="lineCov">         12 :                 reserve_mod = reserved - old_reserved;</span>
+<span class="lineNum">     119 </span><span class="lineCov">         12 :                 pos -= reserved;</span>
+<span class="lineNum">     120 </span>            : 
+<span class="lineNum">     121 </span><span class="lineCov">         12 :                 if (ret &gt;= reserve_mod) {</span>
+<span class="lineNum">     122 </span><span class="lineCov">          6 :                     ret -= reserve_mod;</span>
+<span class="lineNum">     123 </span>            :                 }
+<span class="lineNum">     124 </span>            :             }
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineCov">         12 :             if (ret &lt;= 0 &amp;&amp; stream-&gt;parent-&gt;eof) {</span>
+<span class="lineNum">     127 </span>            :                 /* Parent EOF and not more data to return; EOF here as well */
+<span class="lineNum">     128 </span><span class="lineCov">          6 :                 if (pos == 0)</span>
+<span class="lineNum">     129 </span><span class="lineCov">          6 :                     i_stream_skip(stream-&gt;parent, reserved);</span>
+<span class="lineNum">     130 </span><span class="lineCov">          6 :                 stream-&gt;istream.eof = TRUE;</span>
+<span class="lineNum">     131 </span><span class="lineCov">          6 :                 ret = -1;</span>
+<span class="lineNum">     132 </span>            :             }
+<span class="lineNum">     133 </span><span class="lineCov">         12 :         } while (ret == 0);</span>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineCov">         26 :     stream-&gt;pos = pos;</span>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineCov">         26 :     i_assert(ret != -1 || stream-&gt;istream.eof ||</span>
+<span class="lineNum">     138 </span>            :          stream-&gt;istream.stream_errno != 0);
+<span class="lineNum">     139 </span><span class="lineCov">         26 :     return ret;</span>
+<span class="lineNum">     140 </span>            : }
+<a name="141"><span class="lineNum">     141 </span>            : </a>
+<span class="lineNum">     142 </span>            : static
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 : void ATTR_NORETURN program_client_istream_sync(struct istream_private *stream ATTR_UNUSED)</span>
+<span class="lineNum">     144 </span>            : {
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     i_panic(&quot;program_client_istream sync() not implemented&quot;);</span>
+<span class="lineNum">     146 </span>            : }
+<a name="147"><span class="lineNum">     147 </span>            : </a>
+<span class="lineNum">     148 </span>            : static
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 : int program_client_istream_stat(struct istream_private *stream, bool exact)</span>
+<span class="lineNum">     150 </span>            : {
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     struct program_client_istream *scstream =</span>
+<span class="lineNum">     152 </span>            :         (struct program_client_istream *) stream;
+<span class="lineNum">     153 </span>            :     const struct stat *st;
+<span class="lineNum">     154 </span>            :     int ret;
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span>            :     /* Stat the original stream */
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     ret = i_stream_stat(stream-&gt;parent, exact, &amp;st);</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     if (ret &lt; 0 || st-&gt;st_size == -1 || !exact)</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     160 </span>            : 
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     scstream-&gt;statbuf = *st;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     scstream-&gt;statbuf.st_size = -1;</span>
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     165 </span>            : }
+<a name="166"><span class="lineNum">     166 </span>            : </a>
+<span class="lineNum">     167 </span>            : static
+<span class="lineNum">     168 </span><span class="lineCov">          6 : struct istream *program_client_istream_create(struct program_client *program_client,</span>
+<span class="lineNum">     169 </span>            :                           struct istream *input)
+<span class="lineNum">     170 </span>            : {
+<span class="lineNum">     171 </span>            :     struct program_client_istream *scstream;
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineCov">          6 :     scstream = i_new(struct program_client_istream, 1);</span>
+<span class="lineNum">     174 </span><span class="lineCov">          6 :     scstream-&gt;client = program_client;</span>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span><span class="lineCov">          6 :     scstream-&gt;istream.max_buffer_size = input-&gt;real_stream-&gt;max_buffer_size;</span>
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineCov">          6 :     scstream-&gt;istream.iostream.destroy = program_client_istream_destroy;</span>
+<span class="lineNum">     179 </span><span class="lineCov">          6 :     scstream-&gt;istream.read = program_client_istream_read;</span>
+<span class="lineNum">     180 </span><span class="lineCov">          6 :     scstream-&gt;istream.sync = program_client_istream_sync;</span>
+<span class="lineNum">     181 </span><span class="lineCov">          6 :     scstream-&gt;istream.stat = program_client_istream_stat;</span>
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span><span class="lineCov">          6 :     scstream-&gt;istream.istream.readable_fd = FALSE;</span>
+<span class="lineNum">     184 </span><span class="lineCov">          6 :     scstream-&gt;istream.istream.blocking = input-&gt;blocking;</span>
+<span class="lineNum">     185 </span><span class="lineCov">          6 :     scstream-&gt;istream.istream.seekable = FALSE;</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span><span class="lineCov">          6 :     i_stream_seek(input, 0);</span>
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span><span class="lineCov">          6 :     return i_stream_create(&amp;scstream-&gt;istream, input, -1, 0);</span>
+<span class="lineNum">     190 </span>            : }
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span>            : /*
+<span class="lineNum">     193 </span>            :  * Program client
+<span class="lineNum">     194 </span>            :  */
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span>            : struct program_client_remote {
+<span class="lineNum">     197 </span>            :     struct program_client client;
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span>            :     bool noreply:1;
+<span class="lineNum">     200 </span>            :     bool resolved:1;
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span>            :     const char *hostname;
+<span class="lineNum">     203 </span>            :     struct dns_lookup_settings dns_set;
+<span class="lineNum">     204 </span>            :     struct dns_lookup *lookup;
+<span class="lineNum">     205 </span>            :     unsigned int ips_count;
+<span class="lineNum">     206 </span>            :     unsigned int ips_left;
+<span class="lineNum">     207 </span>            :     struct ip_addr *ips;
+<span class="lineNum">     208 </span>            :     in_port_t port;
+<span class="lineNum">     209 </span>            : 
+<span class="lineNum">     210 </span>            :     struct timeout *to_retry;
+<span class="lineNum">     211 </span>            : };
+<a name="212"><span class="lineNum">     212 </span>            : </a>
+<span class="lineNum">     213 </span>            : static
+<span class="lineNum">     214 </span><span class="lineCov">          9 : void program_client_remote_connected(struct program_client *pclient)</span>
+<span class="lineNum">     215 </span>            : {
+<span class="lineNum">     216 </span><span class="lineCov">          9 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     217 </span>            :         (struct program_client_remote *) pclient;
+<span class="lineNum">     218 </span><span class="lineCov">          9 :     const char **args = pclient-&gt;args;</span>
+<span class="lineNum">     219 </span>            :     string_t *str;
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span><span class="lineCov">          9 :     timeout_remove(&amp;pclient-&gt;to);</span>
+<span class="lineNum">     222 </span><span class="lineCov">          9 :     io_remove(&amp;pclient-&gt;io);</span>
+<span class="lineNum">     223 </span><span class="lineCov">          9 :     program_client_init_streams(pclient);</span>
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineCov">          9 :     if (!prclient-&gt;noreply) {</span>
+<span class="lineNum">     226 </span><span class="lineCov">          6 :         struct istream *is = pclient-&gt;program_input;</span>
+<span class="lineNum">     227 </span><span class="lineCov">          6 :         pclient-&gt;program_input =</span>
+<span class="lineNum">     228 </span><span class="lineCov">          6 :             program_client_istream_create(pclient,</span>
+<span class="lineNum">     229 </span>            :                               pclient-&gt;program_input);
+<span class="lineNum">     230 </span><span class="lineCov">          6 :         i_stream_unref(&amp;is);</span>
+<span class="lineNum">     231 </span>            :     }
+<span class="lineNum">     232 </span>            : 
+<span class="lineNum">     233 </span><span class="lineCov">          9 :     str = t_str_new(1024);</span>
+<span class="lineNum">     234 </span><span class="lineCov">          9 :     str_append(str, PROGRAM_CLIENT_VERSION_STRING);</span>
+<span class="lineNum">     235 </span><span class="lineCov">          9 :     if (array_is_created(&amp;pclient-&gt;envs)) {</span>
+<span class="lineNum">     236 </span>            :         const char *const *env;
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :         array_foreach(&amp;pclient-&gt;envs, env) {</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :             str_append(str, &quot;env_&quot;);</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :             str_append_tabescaped(str, *env);</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :             str_append_c(str, '\n');</span>
+<span class="lineNum">     241 </span>            :         }
+<span class="lineNum">     242 </span>            :     }
+<span class="lineNum">     243 </span><span class="lineCov">          9 :     if (prclient-&gt;noreply)</span>
+<span class="lineNum">     244 </span><span class="lineCov">          3 :         str_append(str, &quot;noreply\n&quot;);</span>
+<span class="lineNum">     245 </span>            :     else
+<span class="lineNum">     246 </span><span class="lineCov">          6 :         str_append(str, &quot;-\n&quot;);</span>
+<span class="lineNum">     247 </span><span class="lineCov">          9 :     if (args != NULL) {</span>
+<span class="lineNum">     248 </span><span class="lineCov">         28 :         for(; *args != NULL; args++) {</span>
+<span class="lineNum">     249 </span><span class="lineCov">         19 :             str_append_tabescaped(str, *args);</span>
+<span class="lineNum">     250 </span><span class="lineCov">         19 :             str_append_c(str, '\n');</span>
+<span class="lineNum">     251 </span>            :         }
+<span class="lineNum">     252 </span>            :     }
+<span class="lineNum">     253 </span><span class="lineCov">          9 :     str_append_c(str, '\n');</span>
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span><span class="lineCov">         18 :     if (o_stream_send(pclient-&gt;program_output,</span>
+<span class="lineNum">     256 </span><span class="lineCov">          9 :               str_data(str), str_len(str)) &lt; 0) {</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         i_error(&quot;write(%s) failed: %s&quot;,</span>
+<span class="lineNum">     258 </span>            :             o_stream_get_name(pclient-&gt;program_output),
+<span class="lineNum">     259 </span>            :             o_stream_get_error(pclient-&gt;program_output));
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :         program_client_fail(pclient, PROGRAM_CLIENT_ERROR_IO);</span>
+<span class="lineNum">     261 </span><span class="lineCov">          9 :         return;</span>
+<span class="lineNum">     262 </span>            :     }
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span><span class="lineCov">          9 :     (void)program_client_connected(pclient);</span>
+<span class="lineNum">     265 </span>            : }
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span>            : static
+<a name="268"><span class="lineNum">     268 </span>            : int program_client_unix_connect(struct program_client *pclient);</a>
+<span class="lineNum">     269 </span>            : static
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 : void program_client_unix_reconnect(struct program_client *pclient)</span>
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     (void)program_client_unix_connect(pclient);</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 : }</span>
+<a name="274"><span class="lineNum">     274 </span>            : </a>
+<span class="lineNum">     275 </span>            : static
+<span class="lineNum">     276 </span><span class="lineCov">          4 : int program_client_unix_connect(struct program_client *pclient)</span>
+<span class="lineNum">     277 </span>            : {
+<span class="lineNum">     278 </span><span class="lineCov">          4 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     279 </span>            :         (struct program_client_remote *) pclient;
+<span class="lineNum">     280 </span>            :     int fd;
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span><span class="lineCov">          4 :     if (pclient-&gt;set.debug)</span>
+<span class="lineNum">     283 </span><span class="lineCov">          4 :         i_debug(&quot;Trying to connect %s&quot;, pclient-&gt;path);</span>
+<span class="lineNum">     284 </span>            : 
+<span class="lineNum">     285 </span><span class="lineCov">          4 :     timeout_remove(&amp;prclient-&gt;to_retry);</span>
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineCov">          4 :     if ((fd = net_connect_unix(pclient-&gt;path)) &lt; 0) {</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :         switch (errno) {</span>
+<span class="lineNum">     289 </span>            :         case EACCES:
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :             i_error(&quot;%s&quot;,</span>
+<span class="lineNum">     291 </span>            :                 eacces_error_get(&quot;net_connect_unix&quot;,
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :                          pclient-&gt;path));</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     294 </span>            :         case EAGAIN:
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :             prclient-&gt;to_retry =</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :                 timeout_add_short(100,</span>
+<span class="lineNum">     297 </span>            :                           program_client_unix_reconnect,
+<span class="lineNum">     298 </span>            :                           pclient);
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     300 </span>            :         default:
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :             i_error(&quot;net_connect_unix(%s) failed: %m&quot;,</span>
+<span class="lineNum">     302 </span>            :                 pclient-&gt;path);
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     304 </span>            :         }
+<span class="lineNum">     305 </span>            :     }
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineCov">         10 :     pclient-&gt;fd_in = (prclient-&gt;noreply &amp;&amp; pclient-&gt;output == NULL &amp;&amp;</span>
+<span class="lineNum">     308 </span><span class="lineCov">          8 :               !pclient-&gt;output_seekable ? -1 : fd);</span>
+<span class="lineNum">     309 </span><span class="lineCov">          4 :     pclient-&gt;fd_out = fd;</span>
+<span class="lineNum">     310 </span><span class="lineCov">          4 :     pclient-&gt;io =</span>
+<span class="lineNum">     311 </span><span class="lineCov">          4 :         io_add(fd, IO_WRITE, program_client_remote_connected, pclient);</span>
+<span class="lineNum">     312 </span><span class="lineCov">          4 :     return 0;</span>
+<span class="lineNum">     313 </span>            : }
+<a name="314"><span class="lineNum">     314 </span>            : </a>
+<span class="lineNum">     315 </span>            : static
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 : void program_client_net_connect_timeout(struct program_client *pclient)</span>
+<span class="lineNum">     317 </span>            : {
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     io_remove(&amp;pclient-&gt;io);</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :     timeout_remove(&amp;pclient-&gt;to);</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     i_error(&quot;connect(%s) failed: timeout in %u milliseconds&quot;, </span>
+<span class="lineNum">     322 </span>            :         pclient-&gt;path,
+<span class="lineNum">     323 </span>            :         pclient-&gt;set.client_connect_timeout_msecs);
+<span class="lineNum">     324 </span>            :     /* set error to timeout here */
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     pclient-&gt;error = PROGRAM_CLIENT_ERROR_CONNECT_TIMEOUT;</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :     i_close_fd(&amp;pclient-&gt;fd_out);</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :     pclient-&gt;fd_in = pclient-&gt;fd_out = -1;</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     program_client_net_connect_again(pclient);</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     330 </span>            : 
+<span class="lineNum">     331 </span>            : /* see if connect succeeded or not, if it did, then proceed
+<a name="332"><span class="lineNum">     332 </span>            :    normally, otherwise try reconnect to next address */</a>
+<span class="lineNum">     333 </span>            : static
+<span class="lineNum">     334 </span><span class="lineCov">          7 : void program_client_net_connected(struct program_client *pclient)</span>
+<span class="lineNum">     335 </span>            : {
+<span class="lineNum">     336 </span><span class="lineCov">          7 :     io_remove(&amp;pclient-&gt;io);</span>
+<span class="lineNum">     337 </span><span class="lineCov">          7 :     if ((errno = net_geterror(pclient-&gt;fd_out)) != 0) {</span>
+<span class="lineNum">     338 </span><span class="lineCov">          2 :         i_error(&quot;connect(%s) failed: %m&quot;,</span>
+<span class="lineNum">     339 </span>            :             pclient-&gt;path);
+<span class="lineNum">     340 </span>            :         /* disconnect and try again */
+<span class="lineNum">     341 </span><span class="lineCov">          2 :         i_close_fd(&amp;pclient-&gt;fd_out);</span>
+<span class="lineNum">     342 </span><span class="lineCov">          2 :         pclient-&gt;fd_in = pclient-&gt;fd_out = -1;</span>
+<span class="lineNum">     343 </span><span class="lineCov">          2 :         program_client_net_connect_again(pclient);</span>
+<span class="lineNum">     344 </span>            :     } else {
+<span class="lineNum">     345 </span><span class="lineCov">          5 :         pclient-&gt;io = io_add(pclient-&gt;fd_out, IO_WRITE,</span>
+<span class="lineNum">     346 </span>            :                      program_client_remote_connected, pclient);
+<span class="lineNum">     347 </span>            :     }
+<span class="lineNum">     348 </span><span class="lineCov">          7 : }</span>
+<a name="349"><span class="lineNum">     349 </span>            : </a>
+<span class="lineNum">     350 </span>            : static
+<span class="lineNum">     351 </span><span class="lineCov">          8 : void program_client_net_connect_real(struct program_client *pclient)</span>
+<span class="lineNum">     352 </span>            : {
+<span class="lineNum">     353 </span>            :     const char *str;
+<span class="lineNum">     354 </span><span class="lineCov">          8 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     355 </span>            :         (struct program_client_remote *) pclient;
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span><span class="lineCov">          8 :     timeout_remove(&amp;pclient-&gt;to);</span>
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineCov">          8 :     timeout_remove(&amp;prclient-&gt;to_retry);</span>
+<span class="lineNum">     360 </span>            : 
+<span class="lineNum">     361 </span><span class="lineCov">          8 :     i_assert(prclient-&gt;ips_count &gt; 0);</span>
+<span class="lineNum">     362 </span>            : 
+<span class="lineNum">     363 </span><span class="lineCov">          8 :     if (net_ipport2str(prclient-&gt;ips, prclient-&gt;port, &amp;str) &lt; 0)</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     365 </span><span class="lineCov">          8 :     pclient-&gt;path = p_strdup(pclient-&gt;pool, str);</span>
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineCov">          8 :     if (pclient-&gt;debug) {</span>
+<span class="lineNum">     368 </span><span class="lineCov">          8 :         i_debug(&quot;Trying to connect %s (timeout %u msecs)&quot;,</span>
+<span class="lineNum">     369 </span>            :             pclient-&gt;path,
+<span class="lineNum">     370 </span>            :             pclient-&gt;set.client_connect_timeout_msecs);
+<span class="lineNum">     371 </span>            :     }
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span>            :     /* try to connect */
+<span class="lineNum">     374 </span>            :     int fd;
+<span class="lineNum">     375 </span><span class="lineCov">          8 :     if ((fd = net_connect_ip(prclient-&gt;ips, prclient-&gt;port,</span>
+<span class="lineNum">     376 </span><span class="lineCov">          8 :                  (prclient-&gt;ips-&gt;family == AF_INET ?</span>
+<span class="lineNum">     377 </span>            :                   &amp;net_ip4_any : &amp;net_ip6_any))) &lt; 0) {
+<span class="lineNum">     378 </span><span class="lineCov">          1 :         i_error(&quot;connect(%s) failed: %m&quot;, pclient-&gt;path);</span>
+<span class="lineNum">     379 </span><span class="lineCov">          1 :         prclient-&gt;to_retry = timeout_add_short(0,</span>
+<span class="lineNum">     380 </span>            :                               program_client_net_connect_again,
+<span class="lineNum">     381 </span>            :                               pclient);
+<span class="lineNum">     382 </span><span class="lineCov">          9 :         return;</span>
+<span class="lineNum">     383 </span>            :     }
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineCov">         22 :     pclient-&gt;fd_in = (prclient-&gt;noreply &amp;&amp; pclient-&gt;output == NULL &amp;&amp;</span>
+<span class="lineNum">     386 </span><span class="lineCov">         14 :               !pclient-&gt;output_seekable ? -1 : fd);</span>
+<span class="lineNum">     387 </span><span class="lineCov">          7 :     pclient-&gt;fd_out = fd;</span>
+<span class="lineNum">     388 </span><span class="lineCov">          7 :     pclient-&gt;io = io_add(fd, IO_WRITE, program_client_net_connected, pclient);</span>
+<span class="lineNum">     389 </span>            : 
+<span class="lineNum">     390 </span><span class="lineCov">          7 :     if (pclient-&gt;set.client_connect_timeout_msecs != 0) {</span>
+<span class="lineNum">     391 </span><span class="lineCov">          7 :         pclient-&gt;to = timeout_add(pclient-&gt;set.client_connect_timeout_msecs,</span>
+<span class="lineNum">     392 </span>            :                       program_client_net_connect_timeout, pclient);
+<span class="lineNum">     393 </span>            :     }
+<span class="lineNum">     394 </span>            : }
+<a name="395"><span class="lineNum">     395 </span>            : </a>
+<span class="lineNum">     396 </span>            : static
+<span class="lineNum">     397 </span><span class="lineCov">          3 : void program_client_net_connect_again(struct program_client *pclient)</span>
+<span class="lineNum">     398 </span>            : {
+<span class="lineNum">     399 </span><span class="lineCov">          3 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     400 </span>            :         (struct program_client_remote *) pclient;
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span><span class="lineCov">          3 :     enum program_client_error error = pclient-&gt;error;</span>
+<span class="lineNum">     403 </span><span class="lineCov">          3 :     pclient-&gt;error = PROGRAM_CLIENT_ERROR_NONE;</span>
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span><span class="lineCov">          3 :     if (--prclient-&gt;ips_left == 0) {</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         if (prclient-&gt;ips_count &gt; 1)</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :             i_error(&quot;program-client-net: %s: No addresses left to try&quot;,</span>
+<span class="lineNum">     408 </span>            :                 prclient-&gt;hostname);
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :         program_client_fail(pclient,</span>
+<span class="lineNum">     410 </span>            :                     error != PROGRAM_CLIENT_ERROR_NONE ?
+<span class="lineNum">     411 </span>            :                         error :
+<span class="lineNum">     412 </span>            :                         PROGRAM_CLIENT_ERROR_OTHER);
+<span class="lineNum">     413 </span><span class="lineCov">          3 :         return;</span>
+<span class="lineNum">     414 </span>            :     };
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineCov">          3 :     prclient-&gt;ips++;</span>
+<span class="lineNum">     417 </span><span class="lineCov">          3 :     program_client_net_connect_real(pclient);</span>
+<span class="lineNum">     418 </span>            : }
+<a name="419"><span class="lineNum">     419 </span>            : </a>
+<span class="lineNum">     420 </span>            : static
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 : void program_client_net_connect_resolved(const struct dns_lookup_result *result,</span>
+<span class="lineNum">     422 </span>            :                      struct program_client *pclient)
+<span class="lineNum">     423 </span>            : {
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     425 </span>            :         (struct program_client_remote *) pclient;
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     if (result-&gt;ret != 0) {</span>
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :         i_error(&quot;program-client-net: Cannot resolve '%s': %s&quot;,</span>
+<span class="lineNum">     429 </span>            :             pclient-&gt;path,
+<span class="lineNum">     430 </span>            :             result-&gt;error);
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :         program_client_fail(pclient, PROGRAM_CLIENT_ERROR_OTHER);</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     433 </span>            :     }
+<span class="lineNum">     434 </span>            : 
+<span class="lineNum">     435 </span>            :     /* reduce timeout */
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     if (pclient-&gt;set.client_connect_timeout_msecs &gt; 0) {</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         if (pclient-&gt;set.client_connect_timeout_msecs &lt;= result-&gt;msecs) {</span>
+<span class="lineNum">     438 </span>            :             /* we ran out of time */
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :             program_client_fail(pclient,</span>
+<span class="lineNum">     440 </span>            :                         PROGRAM_CLIENT_ERROR_CONNECT_TIMEOUT);
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     442 </span>            :         }
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :         pclient-&gt;set.client_connect_timeout_msecs -= result-&gt;msecs;</span>
+<span class="lineNum">     444 </span>            :     }
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span>            :     /* then connect */
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :     prclient-&gt;ips_count = result-&gt;ips_count;</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :     prclient-&gt;ips_left = prclient-&gt;ips_count;</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     prclient-&gt;ips = p_memdup(pclient-&gt;pool, result-&gt;ips,</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :            sizeof(struct ip_addr)*result-&gt;ips_count);</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     program_client_net_connect_real(pclient);</span>
+<span class="lineNum">     452 </span>            : }
+<a name="453"><span class="lineNum">     453 </span>            : </a>
+<span class="lineNum">     454 </span>            : static
+<span class="lineNum">     455 </span><span class="lineCov">          5 : int program_client_net_connect_init(struct program_client *pclient)</span>
+<span class="lineNum">     456 </span>            : {
+<span class="lineNum">     457 </span><span class="lineCov">          5 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     458 </span>            :         (struct program_client_remote *) pclient;
+<span class="lineNum">     459 </span>            : 
+<span class="lineNum">     460 </span>            :     struct ip_addr ip;
+<span class="lineNum">     461 </span>            : 
+<span class="lineNum">     462 </span><span class="lineCov">          5 :     if (prclient-&gt;ips != NULL) {</span>
+<span class="lineNum">     463 </span><span class="lineCov">          1 :         prclient-&gt;hostname = p_strdup(pclient-&gt;pool,</span>
+<span class="lineNum">     464 </span><span class="lineCov">          1 :                           net_ip2addr(prclient-&gt;ips));</span>
+<span class="lineNum">     465 </span><span class="lineCov">          4 :     } else if (net_addr2ip(pclient-&gt;path, &amp;ip) == 0) {</span>
+<span class="lineNum">     466 </span><span class="lineCov">          4 :         prclient-&gt;hostname = p_strdup(pclient-&gt;pool,</span>
+<span class="lineNum">     467 </span>            :                           net_ip2addr(&amp;ip));
+<span class="lineNum">     468 </span><span class="lineCov">          4 :         prclient-&gt;resolved = TRUE;</span>
+<span class="lineNum">     469 </span><span class="lineCov">          4 :         prclient-&gt;ips = p_new(pclient-&gt;pool, struct ip_addr, 1);</span>
+<span class="lineNum">     470 </span><span class="lineCov">          4 :         *prclient-&gt;ips = ip;</span>
+<span class="lineNum">     471 </span><span class="lineCov">          4 :         prclient-&gt;ips_count = 1;</span>
+<span class="lineNum">     472 </span>            :     } else {
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :         prclient-&gt;resolved = FALSE;</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :         prclient-&gt;hostname = p_strdup(pclient-&gt;pool, pclient-&gt;path);</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :         if (pclient-&gt;set.dns_client_socket_path != NULL) {</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :             prclient-&gt;dns_set.dns_client_socket_path =</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :                     pclient-&gt;set.dns_client_socket_path;</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :             prclient-&gt;dns_set.timeout_msecs =</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :                     pclient-&gt;set.client_connect_timeout_msecs;</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :             dns_lookup(pclient-&gt;path, &amp;prclient-&gt;dns_set,</span>
+<span class="lineNum">     481 </span>            :                    program_client_net_connect_resolved,
+<span class="lineNum">     482 </span>            :                    pclient, &amp;prclient-&gt;lookup);
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     484 </span>            :         } else {
+<span class="lineNum">     485 </span>            :             struct ip_addr *ips;
+<span class="lineNum">     486 </span>            :             unsigned int ips_count;
+<span class="lineNum">     487 </span>            :             int err;
+<span class="lineNum">     488 </span>            :             /* guess we do it here then.. */
+<span class="lineNum">     489 </span><span class="lineNoCov">          0 :             if ((err = net_gethostbyname(pclient-&gt;path,</span>
+<span class="lineNum">     490 </span>            :                           &amp;ips, &amp;ips_count)) != 0) {
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :                 i_error(&quot;program-client-remote: &quot;</span>
+<span class="lineNum">     492 </span>            :                     &quot;Cannot resolve '%s': %s&quot;,
+<span class="lineNum">     493 </span>            :                     pclient-&gt;path,
+<span class="lineNum">     494 </span>            :                     net_gethosterror(err));
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :                     return -1;</span>
+<span class="lineNum">     496 </span>            :             }
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :             prclient-&gt;ips_count = ips_count;</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :             prclient-&gt;ips = p_memdup(pclient-&gt;pool,</span>
+<span class="lineNum">     499 </span>            :                          ips,
+<span class="lineNum">     500 </span>            :                          sizeof(*ips)*ips_count);
+<span class="lineNum">     501 </span>            :         }
+<span class="lineNum">     502 </span>            :     }
+<span class="lineNum">     503 </span>            : 
+<span class="lineNum">     504 </span><span class="lineCov">          5 :     prclient-&gt;ips_left = prclient-&gt;ips_count;</span>
+<span class="lineNum">     505 </span><span class="lineCov">          5 :     prclient-&gt;to_retry = timeout_add_short(0,</span>
+<span class="lineNum">     506 </span>            :                            program_client_net_connect_real,
+<span class="lineNum">     507 </span>            :                            pclient);
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineCov">          5 :     return 0;</span>
+<span class="lineNum">     510 </span>            : }
+<span class="lineNum">     511 </span>            : 
+<a name="512"><span class="lineNum">     512 </span>            : </a>
+<span class="lineNum">     513 </span>            : static
+<span class="lineNum">     514 </span><span class="lineCov">         15 : int program_client_remote_close_output(struct program_client *pclient)</span>
+<span class="lineNum">     515 </span>            : {
+<span class="lineNum">     516 </span><span class="lineCov">         15 :     int fd_out = pclient-&gt;fd_out, fd_in = pclient-&gt;fd_in;</span>
+<span class="lineNum">     517 </span>            : 
+<span class="lineNum">     518 </span><span class="lineCov">         15 :     pclient-&gt;fd_out = -1;</span>
+<span class="lineNum">     519 </span><span class="lineCov">         15 :     if (fd_out &gt;= 0 &amp;&amp; pclient-&gt;set.use_dotstream)</span>
+<span class="lineNum">     520 </span><span class="lineCov">          5 :         return 1;</span>
+<span class="lineNum">     521 </span>            : 
+<span class="lineNum">     522 </span>            :     /* Shutdown output; program stdin will get EOF */
+<span class="lineNum">     523 </span><span class="lineCov">         10 :     if (fd_out &gt;= 0) {</span>
+<span class="lineNum">     524 </span><span class="lineCov">          4 :         if (fd_in &gt;= 0) {</span>
+<span class="lineNum">     525 </span><span class="lineCov">          3 :             if (shutdown(fd_out, SHUT_WR) &lt; 0 &amp;&amp; errno != ENOTCONN) {</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :                 i_error(&quot;shutdown(%s, SHUT_WR) failed: %m&quot;,</span>
+<span class="lineNum">     527 </span>            :                     pclient-&gt;path);
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     529 </span>            :             }
+<span class="lineNum">     530 </span><span class="lineCov">          1 :         } else if (close(fd_out) &lt; 0) {</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :             i_error(&quot;close(%s) failed: %m&quot;, pclient-&gt;path);</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     533 </span>            :         }
+<span class="lineNum">     534 </span>            :     }
+<span class="lineNum">     535 </span>            : 
+<span class="lineNum">     536 </span><span class="lineCov">         10 :     return 1;</span>
+<span class="lineNum">     537 </span>            : }
+<a name="538"><span class="lineNum">     538 </span>            : </a>
+<span class="lineNum">     539 </span>            : static
+<span class="lineNum">     540 </span><span class="lineCov">          9 : void program_client_remote_disconnect(struct program_client *pclient, bool force)</span>
+<span class="lineNum">     541 </span>            : {
+<span class="lineNum">     542 </span><span class="lineCov">          9 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     543 </span>            :         (struct program_client_remote *)pclient;
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span><span class="lineCov">          9 :     timeout_remove(&amp;prclient-&gt;to_retry);</span>
+<span class="lineNum">     546 </span>            : 
+<span class="lineNum">     547 </span><span class="lineCov">         15 :     if (pclient-&gt;error == PROGRAM_CLIENT_ERROR_NONE &amp;&amp; !prclient-&gt;noreply &amp;&amp;</span>
+<span class="lineNum">     548 </span><span class="lineCov">         18 :         pclient-&gt;program_input != NULL &amp;&amp; !force) {</span>
+<span class="lineNum">     549 </span>            :         const unsigned char *data;
+<span class="lineNum">     550 </span>            :         size_t size;
+<span class="lineNum">     551 </span>            : 
+<span class="lineNum">     552 </span>            :         /* Skip any remaining program output and parse the exit code */
+<span class="lineNum">     553 </span><span class="lineCov">         12 :         while (i_stream_read_more</span>
+<span class="lineNum">     554 </span><span class="lineCov">          6 :             (pclient-&gt;program_input, &amp;data, &amp;size) &gt; 0) {</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :             i_stream_skip(pclient-&gt;program_input, size);</span>
+<span class="lineNum">     556 </span>            :         }
+<span class="lineNum">     557 </span>            : 
+<span class="lineNum">     558 </span>            :         /* Get exit code */
+<span class="lineNum">     559 </span><span class="lineCov">          6 :         if (!pclient-&gt;program_input-&gt;eof)</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :             pclient-&gt;exit_code = -1;</span>
+<span class="lineNum">     561 </span>            :     } else {
+<span class="lineNum">     562 </span><span class="lineCov">          3 :         pclient-&gt;exit_code = 1;</span>
+<span class="lineNum">     563 </span>            :     }
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineCov">          9 :     program_client_disconnected(pclient);</span>
+<span class="lineNum">     566 </span><span class="lineCov">          9 : }</span>
+<a name="567"><span class="lineNum">     567 </span>            : </a>
+<span class="lineNum">     568 </span>            : static
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 : void program_client_remote_switch_ioloop(struct program_client *pclient)</span>
+<span class="lineNum">     570 </span>            : {
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     struct program_client_remote *prclient =</span>
+<span class="lineNum">     572 </span>            :         (struct program_client_remote *)pclient;
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     if (prclient-&gt;to_retry != NULL)</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         prclient-&gt;to_retry = io_loop_move_timeout(&amp;prclient-&gt;to_retry);</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     if (prclient-&gt;lookup != NULL)</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         dns_lookup_switch_ioloop(prclient-&gt;lookup);</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 : }</span>
+<a name="578"><span class="lineNum">     578 </span>            : </a>
+<span class="lineNum">     579 </span>            : struct program_client *
+<span class="lineNum">     580 </span><span class="lineCov">          4 : program_client_unix_create(const char *socket_path, const char *const *args,</span>
+<span class="lineNum">     581 </span>            :                const struct program_client_settings *set,
+<span class="lineNum">     582 </span>            :                bool noreply)
+<span class="lineNum">     583 </span>            : {
+<span class="lineNum">     584 </span>            :     struct program_client_remote *pclient;
+<span class="lineNum">     585 </span>            :     pool_t pool;
+<span class="lineNum">     586 </span>            : 
+<span class="lineNum">     587 </span><span class="lineCov">          4 :     pool = pool_alloconly_create(&quot;program client unix&quot;, 1024);</span>
+<span class="lineNum">     588 </span><span class="lineCov">          4 :     pclient = p_new(pool, struct program_client_remote, 1);</span>
+<span class="lineNum">     589 </span><span class="lineCov">          4 :     program_client_init(&amp;pclient-&gt;client, pool, socket_path, args, set);</span>
+<span class="lineNum">     590 </span><span class="lineCov">          4 :     pclient-&gt;client.connect = program_client_unix_connect;</span>
+<span class="lineNum">     591 </span><span class="lineCov">          4 :     pclient-&gt;client.close_output = program_client_remote_close_output;</span>
+<span class="lineNum">     592 </span><span class="lineCov">          4 :     pclient-&gt;client.disconnect = program_client_remote_disconnect;</span>
+<span class="lineNum">     593 </span><span class="lineCov">          4 :     pclient-&gt;client.switch_ioloop = program_client_remote_switch_ioloop;</span>
+<span class="lineNum">     594 </span><span class="lineCov">          4 :     pclient-&gt;noreply = noreply;</span>
+<span class="lineNum">     595 </span>            : 
+<span class="lineNum">     596 </span><span class="lineCov">          4 :     return &amp;pclient-&gt;client;</span>
+<span class="lineNum">     597 </span>            : }
+<a name="598"><span class="lineNum">     598 </span>            : </a>
+<span class="lineNum">     599 </span>            : struct program_client *
+<span class="lineNum">     600 </span><span class="lineCov">          4 : program_client_net_create(const char *host, in_port_t port,</span>
+<span class="lineNum">     601 </span>            :               const char *const *args,
+<span class="lineNum">     602 </span>            :               const struct program_client_settings *set,
+<span class="lineNum">     603 </span>            :               bool noreply)
+<span class="lineNum">     604 </span>            : {
+<span class="lineNum">     605 </span>            :     struct program_client_remote *pclient;
+<span class="lineNum">     606 </span>            :     pool_t pool;
+<span class="lineNum">     607 </span>            : 
+<span class="lineNum">     608 </span><span class="lineCov">          4 :     pool = pool_alloconly_create(&quot;program client net&quot;, 1024);</span>
+<span class="lineNum">     609 </span><span class="lineCov">          4 :     pclient = p_new(pool, struct program_client_remote, 1);</span>
+<span class="lineNum">     610 </span><span class="lineCov">          4 :     program_client_init(&amp;pclient-&gt;client, pool, host, args, set);</span>
+<span class="lineNum">     611 </span><span class="lineCov">          4 :     pclient-&gt;port = port;</span>
+<span class="lineNum">     612 </span><span class="lineCov">          4 :     pclient-&gt;client.connect = program_client_net_connect_init;</span>
+<span class="lineNum">     613 </span><span class="lineCov">          4 :     pclient-&gt;client.close_output = program_client_remote_close_output;</span>
+<span class="lineNum">     614 </span><span class="lineCov">          4 :     pclient-&gt;client.disconnect = program_client_remote_disconnect;</span>
+<span class="lineNum">     615 </span><span class="lineCov">          4 :     pclient-&gt;noreply = noreply;</span>
+<span class="lineNum">     616 </span><span class="lineCov">          4 :     pclient-&gt;client.set.use_dotstream = TRUE;</span>
+<span class="lineNum">     617 </span><span class="lineCov">          4 :     return &amp;pclient-&gt;client;</span>
+<span class="lineNum">     618 </span>            : }
+<a name="619"><span class="lineNum">     619 </span>            : </a>
+<span class="lineNum">     620 </span>            : struct program_client *
+<span class="lineNum">     621 </span><span class="lineCov">          1 : program_client_net_create_ips(const struct ip_addr *ips, size_t ips_count,</span>
+<span class="lineNum">     622 </span>            :                   in_port_t port,
+<span class="lineNum">     623 </span>            :                   const char *const *args,
+<span class="lineNum">     624 </span>            :                   const struct program_client_settings *set,
+<span class="lineNum">     625 </span>            :                   bool noreply)
+<span class="lineNum">     626 </span>            : {
+<span class="lineNum">     627 </span>            :     struct program_client_remote *pclient;
+<span class="lineNum">     628 </span>            :     pool_t pool;
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span><span class="lineCov">          1 :     i_assert(ips != NULL &amp;&amp; ips_count &gt; 0);</span>
+<span class="lineNum">     631 </span>            : 
+<span class="lineNum">     632 </span><span class="lineCov">          1 :     pool = pool_alloconly_create(&quot;program client net&quot;, 1024);</span>
+<span class="lineNum">     633 </span><span class="lineCov">          1 :     pclient = p_new(pool, struct program_client_remote, 1);</span>
+<span class="lineNum">     634 </span><span class="lineCov">          1 :     program_client_init(&amp;pclient-&gt;client, pool, net_ip2addr(ips), args, set);</span>
+<span class="lineNum">     635 </span><span class="lineCov">          1 :     pclient-&gt;port = port;</span>
+<span class="lineNum">     636 </span><span class="lineCov">          1 :     pclient-&gt;client.connect = program_client_net_connect_init;</span>
+<span class="lineNum">     637 </span><span class="lineCov">          1 :     pclient-&gt;client.close_output = program_client_remote_close_output;</span>
+<span class="lineNum">     638 </span><span class="lineCov">          1 :     pclient-&gt;client.disconnect = program_client_remote_disconnect;</span>
+<span class="lineNum">     639 </span><span class="lineCov">          1 :     pclient-&gt;client.switch_ioloop = program_client_remote_switch_ioloop;</span>
+<span class="lineNum">     640 </span><span class="lineCov">          1 :     pclient-&gt;noreply = noreply;</span>
+<span class="lineNum">     641 </span><span class="lineCov">          1 :     pclient-&gt;client.set.use_dotstream = TRUE;</span>
+<span class="lineNum">     642 </span><span class="lineCov">          1 :     pclient-&gt;ips = p_memdup(pool, ips,</span>
+<span class="lineNum">     643 </span>            :                 sizeof(struct ip_addr)*ips_count);
+<span class="lineNum">     644 </span><span class="lineCov">          1 :     pclient-&gt;ips_count = ips_count;</span>
+<span class="lineNum">     645 </span><span class="lineCov">          1 :     return &amp;pclient-&gt;client;</span>
+<span class="lineNum">     646 </span>            : }
+<span class="lineNum">     647 </span>            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

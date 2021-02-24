@@ -1,0 +1,953 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-server-request.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-server-request.c<span style="font-size: 80%;"> (source / <a href="http-server-request.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">419</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">45</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;ioloop.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream-private.h&quot;
+<span class="lineNum">       7 </span>            : 
+<span class="lineNum">       8 </span>            : #include &quot;http-server-private.h&quot;
+<span class="lineNum">       9 </span>            : 
+<span class="lineNum">      10 </span>            : /*
+<span class="lineNum">      11 </span>            :  * Logging
+<span class="lineNum">      12 </span>            :  */
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : static inline void
+<span class="lineNum">      15 </span>            : http_server_request_debug(struct http_server_request *req,
+<span class="lineNum">      16 </span>            :     const char *format, ...) ATTR_FORMAT(2, 3);
+<a name="17"><span class="lineNum">      17 </span>            : </a>
+<span class="lineNum">      18 </span>            : static inline void
+<span class="lineNum">      19 </span><span class="lineNoCov">          0 : http_server_request_debug(struct http_server_request *req,</span>
+<span class="lineNum">      20 </span>            :     const char *format, ...)
+<span class="lineNum">      21 </span>            : {
+<span class="lineNum">      22 </span><span class="lineNoCov">          0 :     struct http_server *server = req-&gt;server;</span>
+<span class="lineNum">      23 </span>            :     va_list args;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span><span class="lineNoCov">          0 :     if (server-&gt;set.debug) {</span>
+<span class="lineNum">      26 </span><span class="lineNoCov">          0 :         va_start(args, format);</span>
+<span class="lineNum">      27 </span><span class="lineNoCov">          0 :         i_debug(&quot;http-server: request %s: %s&quot;,</span>
+<span class="lineNum">      28 </span>            :             http_server_request_label(req),
+<span class="lineNum">      29 </span>            :             t_strdup_vprintf(format, args));
+<span class="lineNum">      30 </span><span class="lineNoCov">          0 :         va_end(args);</span>
+<span class="lineNum">      31 </span>            :     }
+<span class="lineNum">      32 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            : static inline void
+<span class="lineNum">      35 </span>            : http_server_request_error(struct http_server_request *req,
+<span class="lineNum">      36 </span>            :     const char *format, ...) ATTR_FORMAT(2, 3);
+<a name="37"><span class="lineNum">      37 </span>            : </a>
+<span class="lineNum">      38 </span>            : static inline void
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 : http_server_request_error(struct http_server_request *req,</span>
+<span class="lineNum">      40 </span>            :     const char *format, ...)
+<span class="lineNum">      41 </span>            : {
+<span class="lineNum">      42 </span>            :     va_list args;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :     va_start(args, format);</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 :     i_error(&quot;http-server: request %s: %s&quot;,</span>
+<span class="lineNum">      46 </span>            :         http_server_request_label(req),
+<span class="lineNum">      47 </span>            :         t_strdup_vprintf(format, args));
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            : static inline void
+<span class="lineNum">      52 </span>            : http_server_request_client_error(struct http_server_request *req,
+<span class="lineNum">      53 </span>            :     const char *format, ...) ATTR_FORMAT(2, 3);
+<a name="54"><span class="lineNum">      54 </span>            : </a>
+<span class="lineNum">      55 </span>            : static inline void
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 : http_server_request_client_error(struct http_server_request *req,</span>
+<span class="lineNum">      57 </span>            :     const char *format, ...)
+<span class="lineNum">      58 </span>            : {
+<span class="lineNum">      59 </span>            :     va_list args;
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     va_start(args, format);</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     i_info(&quot;http-server: request %s: %s&quot;,</span>
+<span class="lineNum">      63 </span>            :         http_server_request_label(req),
+<span class="lineNum">      64 </span>            :         t_strdup_vprintf(format, args));
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span>            : /*
+<span class="lineNum">      69 </span>            :  * Request
+<span class="lineNum">      70 </span>            :  */
+<a name="71"><span class="lineNum">      71 </span>            : </a>
+<span class="lineNum">      72 </span>            : struct http_server_request *
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 : http_server_request_new(struct http_server_connection *conn)</span>
+<span class="lineNum">      74 </span>            : {
+<span class="lineNum">      75 </span>            :     static unsigned int id_counter = 0;
+<span class="lineNum">      76 </span>            :     pool_t pool;
+<span class="lineNum">      77 </span>            :     struct http_server_request *req;
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(MEMPOOL_GROWING&quot;http_server_request&quot;, 4096);</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     req = p_new(pool, struct http_server_request, 1);</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :     req-&gt;pool = pool;</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     req-&gt;refcount = 1;</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     req-&gt;conn = conn;</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     req-&gt;server = conn-&gt;server;</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :     req-&gt;id = ++id_counter;</span>
+<span class="lineNum">      86 </span>            : 
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     http_server_connection_add_request(conn, req);</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     return req;</span>
+<a name="89"><span class="lineNum">      89 </span>            : }</a>
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 : void http_server_request_ref(struct http_server_request *req)</span>
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;refcount &gt; 0);</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     req-&gt;refcount++;</span>
+<a name="95"><span class="lineNum">      95 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 : bool http_server_request_unref(struct http_server_request **_req)</span>
+<span class="lineNum">      98 </span>            : {
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     struct http_server_request *req = *_req;</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     *_req = NULL;</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :     if (--req-&gt;refcount &gt; 0)</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         return TRUE;</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     http_server_request_debug(req, &quot;Free&quot;);</span>
+<span class="lineNum">     109 </span>            : 
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_FINISHED) {</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         req-&gt;state = HTTP_SERVER_REQUEST_STATE_ABORTED;</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :         http_server_connection_remove_request(conn, req);</span>
+<span class="lineNum">     113 </span>            :     }
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     if (req-&gt;destroy_callback != NULL) {</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :         req-&gt;destroy_callback(req-&gt;destroy_context);</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :         req-&gt;destroy_callback = NULL;</span>
+<span class="lineNum">     118 </span>            :     }
+<span class="lineNum">     119 </span>            : 
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     if (req-&gt;response != NULL)</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :         http_server_response_free(req-&gt;response);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     pool_unref(&amp;req-&gt;pool);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<a name="124"><span class="lineNum">     124 </span>            : }</a>
+<span class="lineNum">     125 </span>            : 
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 : void http_server_request_connection_close(struct http_server_request *req,</span>
+<span class="lineNum">     127 </span>            :     bool close)
+<span class="lineNum">     128 </span>            : {
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_SENT_RESPONSE);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     req-&gt;connection_close = close;</span>
+<a name="131"><span class="lineNum">     131 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 : void http_server_request_destroy(struct http_server_request **_req)</span>
+<span class="lineNum">     134 </span>            : {
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     struct http_server_request *req = *_req;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     struct http_server *server = req-&gt;server;</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     http_server_request_debug(req, &quot;Destroy&quot;);</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span>            :     /* just make sure the request ends in a proper state */
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     if (req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_FINISHED)</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         req-&gt;state = HTTP_SERVER_REQUEST_STATE_ABORTED;</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     if (server-&gt;ioloop != NULL)</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :         io_loop_stop(server-&gt;ioloop);</span>
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     if (req-&gt;delay_destroy) {</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :         req-&gt;destroy_pending = TRUE;</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     } else if (req-&gt;destroy_callback != NULL) {</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         void (*callback)(void *) = req-&gt;destroy_callback;</span>
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         req-&gt;destroy_callback = NULL;</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :         callback(req-&gt;destroy_context);</span>
+<span class="lineNum">     154 </span>            :     }
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     http_server_request_unref(_req);</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 : }</span>
+<a name="157"><span class="lineNum">     157 </span>            : </a>
+<span class="lineNum">     158 </span>            : #undef http_server_request_set_destroy_callback
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 : void http_server_request_set_destroy_callback(struct http_server_request *req,</span>
+<span class="lineNum">     160 </span>            :                           void (*callback)(void *),
+<span class="lineNum">     161 </span>            :                           void *context)
+<span class="lineNum">     162 </span>            : {
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     req-&gt;destroy_callback = callback;</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     req-&gt;destroy_context = context;</span>
+<a name="165"><span class="lineNum">     165 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     166 </span>            : 
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 : void http_server_request_abort(struct http_server_request **_req,</span>
+<span class="lineNum">     168 </span>            :     const char *reason)
+<span class="lineNum">     169 </span>            : {
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     struct http_server_request *req = *_req;</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     if (req-&gt;state &gt;= HTTP_SERVER_REQUEST_STATE_FINISHED)</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     http_server_request_debug(req, &quot;Abort&quot;);</span>
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :     req-&gt;conn = NULL;</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     if (req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_FINISHED) {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         if (conn != NULL) {</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             http_server_connection_remove_request(conn, req);</span>
+<span class="lineNum">     182 </span>            : 
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :             if (!conn-&gt;closed) {</span>
+<span class="lineNum">     184 </span>            :                 /* send best-effort response if appropriate */
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :                 if (!conn-&gt;output_locked &amp;&amp;</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :                     req-&gt;state &gt;= HTTP_SERVER_REQUEST_STATE_PROCESSING &amp;&amp;</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :                     req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_SENT_RESPONSE) {</span>
+<span class="lineNum">     188 </span>            :                     static const char *response =
+<span class="lineNum">     189 </span>            :                         &quot;HTTP/1.1 500 Internal Server Error\r\n&quot;
+<span class="lineNum">     190 </span>            :                         &quot;Content-Length: 0\r\n&quot;
+<span class="lineNum">     191 </span>            :                         &quot;\r\n&quot;;
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :                     (void)o_stream_send(conn-&gt;conn.output,</span>
+<span class="lineNum">     194 </span>            :                         response, strlen(response));
+<span class="lineNum">     195 </span>            :                 }
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span>            :                 /* close the connection */
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :                 http_server_connection_close(&amp;conn, reason);</span>
+<span class="lineNum">     199 </span>            :             }
+<span class="lineNum">     200 </span>            :         }
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :         req-&gt;state = HTTP_SERVER_REQUEST_STATE_ABORTED;</span>
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span>            :     
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     if (req-&gt;response != NULL &amp;&amp;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         !req-&gt;response-&gt;payload_blocking) {</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :         http_server_response_free(req-&gt;response);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :         req-&gt;response = NULL;</span>
+<span class="lineNum">     209 </span>            :     }
+<span class="lineNum">     210 </span>            : 
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     http_server_request_destroy(_req);</span>
+<span class="lineNum">     212 </span>            : }
+<a name="213"><span class="lineNum">     213 </span>            : </a>
+<span class="lineNum">     214 </span>            : const struct http_request *
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 : http_server_request_get(struct http_server_request *req)</span>
+<span class="lineNum">     216 </span>            : {
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     return &amp;req-&gt;req;</span>
+<span class="lineNum">     218 </span>            : }
+<a name="219"><span class="lineNum">     219 </span>            : </a>
+<span class="lineNum">     220 </span>            : pool_t
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 : http_server_request_get_pool(struct http_server_request *req)</span>
+<span class="lineNum">     222 </span>            : {
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     return req-&gt;pool;</span>
+<span class="lineNum">     224 </span>            : }
+<a name="225"><span class="lineNum">     225 </span>            : </a>
+<span class="lineNum">     226 </span>            : struct http_server_response *
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 : http_server_request_get_response(struct http_server_request *req)</span>
+<span class="lineNum">     228 </span>            : {
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     return req-&gt;response;</span>
+<a name="230"><span class="lineNum">     230 </span>            : }</a>
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 : int http_server_request_get_auth(struct http_server_request *req,</span>
+<span class="lineNum">     233 </span>            :     struct http_auth_credentials *credentials)
+<span class="lineNum">     234 </span>            : {
+<span class="lineNum">     235 </span>            :     const char *auth;
+<span class="lineNum">     236 </span>            : 
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     auth = http_request_header_get(&amp;req-&gt;req, &quot;Authorization&quot;);</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     if (auth == NULL)</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :     if (http_auth_parse_credentials</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         ((const unsigned char *)auth, strlen(auth), credentials) &lt; 0)</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     244 </span>            :     
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     return 1;</span>
+<a name="246"><span class="lineNum">     246 </span>            : }</a>
+<span class="lineNum">     247 </span>            : 
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 : bool http_server_request_is_finished(struct http_server_request *req)</span>
+<span class="lineNum">     249 </span>            : {
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     return req-&gt;response != NULL ||</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         req-&gt;state == HTTP_SERVER_REQUEST_STATE_ABORTED;</span>
+<a name="252"><span class="lineNum">     252 </span>            : }</a>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 : bool http_server_request_is_complete(struct http_server_request *req)</span>
+<span class="lineNum">     255 </span>            : {
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     return (req-&gt;failed || req-&gt;conn-&gt;input_broken ||</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :         (req-&gt;next != NULL &amp;&amp; !http_server_request_is_new(req-&gt;next)) ||</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         !http_server_connection_pending_payload(req-&gt;conn));</span>
+<a name="259"><span class="lineNum">     259 </span>            : }</a>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 : void http_server_request_halt_payload(struct http_server_request *req)</span>
+<span class="lineNum">     262 </span>            : {
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;state &lt;= HTTP_SERVER_REQUEST_STATE_QUEUED);</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     req-&gt;payload_halted = TRUE;</span>
+<a name="265"><span class="lineNum">     265 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 : void http_server_request_continue_payload(struct http_server_request *req)</span>
+<span class="lineNum">     268 </span>            : {
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;state &lt;= HTTP_SERVER_REQUEST_STATE_QUEUED);</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     req-&gt;payload_halted = FALSE;</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :     if (req-&gt;req.expect_100_continue &amp;&amp; !req-&gt;sent_100_continue)</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         http_server_connection_trigger_responses(req-&gt;conn);</span>
+<a name="273"><span class="lineNum">     273 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     274 </span>            : 
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 : void http_server_request_ready_to_respond(struct http_server_request *req)</span>
+<span class="lineNum">     276 </span>            : {
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     http_server_request_debug(req, &quot;Ready to respond&quot;);</span>
+<span class="lineNum">     278 </span>            : 
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     req-&gt;state = HTTP_SERVER_REQUEST_STATE_READY_TO_RESPOND;</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     http_server_connection_trigger_responses(req-&gt;conn);</span>
+<a name="281"><span class="lineNum">     281 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     282 </span>            : 
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 : void http_server_request_submit_response(struct http_server_request *req)</span>
+<span class="lineNum">     284 </span>            : {
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     286 </span>            : 
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     i_assert(conn != NULL &amp;&amp; req-&gt;response != NULL &amp;&amp; req-&gt;response-&gt;submitted);</span>
+<span class="lineNum">     288 </span>            : 
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     http_server_request_ref(req);</span>
+<span class="lineNum">     290 </span>            : 
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     if (conn-&gt;payload_handler != NULL &amp;&amp; conn-&gt;payload_handler-&gt;req == req)</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :         http_server_payload_handler_destroy(&amp;conn-&gt;payload_handler);</span>
+<span class="lineNum">     293 </span>            : 
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     switch (req-&gt;state) {</span>
+<span class="lineNum">     295 </span>            :     case HTTP_SERVER_REQUEST_STATE_NEW:
+<span class="lineNum">     296 </span>            :     case HTTP_SERVER_REQUEST_STATE_QUEUED:
+<span class="lineNum">     297 </span>            :     case HTTP_SERVER_REQUEST_STATE_PAYLOAD_IN:
+<span class="lineNum">     298 </span>            :     case HTTP_SERVER_REQUEST_STATE_PROCESSING:
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :         if (!http_server_request_is_complete(req)) {</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :             http_server_request_debug(req, &quot;Not ready to respond&quot;);</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :             req-&gt;state = HTTP_SERVER_REQUEST_STATE_SUBMITTED_RESPONSE;</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :             break;</span>
+<span class="lineNum">     303 </span>            :         }
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :         http_server_request_ready_to_respond(req);</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     306 </span>            :     case HTTP_SERVER_REQUEST_STATE_READY_TO_RESPOND:
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :         http_server_connection_trigger_responses(req-&gt;conn);</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     309 </span>            :     case HTTP_SERVER_REQUEST_STATE_ABORTED:
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     311 </span>            :     default:
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     313 </span>            :     }
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     http_server_request_unref(&amp;req);</span>
+<a name="316"><span class="lineNum">     316 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 : void http_server_request_finished(struct http_server_request *req)</span>
+<span class="lineNum">     319 </span>            : {
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     struct http_server_response *resp = req-&gt;response;</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     http_server_tunnel_callback_t tunnel_callback = resp-&gt;tunnel_callback;</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     void *tunnel_context = resp-&gt;tunnel_context;</span>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     http_server_request_debug(req, &quot;Finished&quot;);</span>
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_FINISHED);</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     req-&gt;state = HTTP_SERVER_REQUEST_STATE_FINISHED;</span>
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     http_server_connection_remove_request(conn, req);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     conn-&gt;stats.response_count++;</span>
+<span class="lineNum">     332 </span>            : 
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :     if (tunnel_callback == NULL) {</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         if (req-&gt;connection_close) {</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :             http_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     336 </span>            :                 t_strdup_printf(&quot;Server closed connection: %u %s&quot;,
+<span class="lineNum">     337 </span>            :                     resp-&gt;status, resp-&gt;reason));
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :             http_server_request_destroy(&amp;req);</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :         } else if (req-&gt;conn-&gt;input_broken) {</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :             http_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     342 </span>            :                 &quot;Connection input is broken&quot;);
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :             http_server_request_destroy(&amp;req);</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         } else if (req-&gt;req.connection_close) {</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :             http_server_connection_close(&amp;conn,</span>
+<span class="lineNum">     347 </span>            :                 &quot;Client requested connection close&quot;);
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :             http_server_request_destroy(&amp;req);</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :             return;</span>
+<span class="lineNum">     350 </span>            :         }
+<span class="lineNum">     351 </span>            :     }
+<span class="lineNum">     352 </span>            : 
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     http_server_request_destroy(&amp;req);</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     if (tunnel_callback != NULL) {</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         http_server_connection_tunnel(&amp;conn, tunnel_callback, tunnel_context);</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     357 </span>            :     }
+<span class="lineNum">     358 </span>            :     
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     http_server_connection_trigger_responses(conn);</span>
+<span class="lineNum">     360 </span>            : }
+<a name="361"><span class="lineNum">     361 </span>            : </a>
+<span class="lineNum">     362 </span>            : static struct http_server_response *
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 : http_server_request_create_fail_response(struct http_server_request *req,</span>
+<span class="lineNum">     364 </span>            :     unsigned int status, const char *reason, const char *text)
+<span class="lineNum">     365 </span>            :     ATTR_NULL(4)
+<span class="lineNum">     366 </span>            : {
+<span class="lineNum">     367 </span>            :     struct http_server_response *resp;
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     req-&gt;failed = TRUE;</span>
+<span class="lineNum">     370 </span>            : 
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     i_assert(status / 100 != 1 &amp;&amp; status != 204 &amp;&amp; status != 304);</span>
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :     resp = http_server_response_create(req, status, reason);</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     if (!http_request_method_is(&amp;req-&gt;req, &quot;HEAD&quot;)) {</span>
+<span class="lineNum">     375 </span>            :         http_server_response_add_header
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :             (resp, &quot;Content-Type&quot;, &quot;text/plain; charset=utf-8&quot;);</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         if (text == NULL)</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :             text = reason;</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :         text = t_strconcat(text, &quot;\r\n&quot;, NULL);</span>
+<span class="lineNum">     380 </span>            :         http_server_response_set_payload_data
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :             (resp, (const unsigned char *)text, strlen(text));</span>
+<span class="lineNum">     382 </span>            :     }
+<span class="lineNum">     383 </span>            : 
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :     return resp;</span>
+<span class="lineNum">     385 </span>            : }
+<a name="386"><span class="lineNum">     386 </span>            : </a>
+<span class="lineNum">     387 </span>            : static void
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 : http_server_request_fail_full(struct http_server_request *req,</span>
+<span class="lineNum">     389 </span>            :     unsigned int status, const char *reason, const char *text)
+<span class="lineNum">     390 </span>            :     ATTR_NULL(4)
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span>            :     struct http_server_response *resp;
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     req-&gt;failed = TRUE;</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     resp = http_server_request_create_fail_response(req,</span>
+<span class="lineNum">     396 </span>            :         status, reason, text);
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     http_server_response_submit(resp);</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     if (req-&gt;conn-&gt;input_broken)</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :         req-&gt;connection_close = TRUE;</span>
+<a name="400"><span class="lineNum">     400 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 : void http_server_request_fail(struct http_server_request *req,</span>
+<span class="lineNum">     403 </span>            :     unsigned int status, const char *reason)
+<span class="lineNum">     404 </span>            : {
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     http_server_request_fail_full(req, status, reason, NULL);</span>
+<a name="406"><span class="lineNum">     406 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     407 </span>            : 
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 : void http_server_request_fail_close(struct http_server_request *req,</span>
+<span class="lineNum">     409 </span>            :     unsigned int status, const char *reason)
+<span class="lineNum">     410 </span>            : {
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     http_server_request_connection_close(req, TRUE);</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     http_server_request_fail_full(req, status, reason, NULL);</span>
+<a name="413"><span class="lineNum">     413 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     414 </span>            : 
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 : void http_server_request_fail_text(struct http_server_request *req,</span>
+<span class="lineNum">     416 </span>            :     unsigned int status, const char *reason, const char *format, ...)
+<span class="lineNum">     417 </span>            : {
+<span class="lineNum">     418 </span>            :     va_list args;
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :     va_start(args, format);</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :     http_server_request_fail_full(req, status, reason,</span>
+<span class="lineNum">     422 </span>            :         t_strdup_vprintf(format, args));
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :     va_end(args);</span>
+<a name="424"><span class="lineNum">     424 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     425 </span>            : 
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 : void http_server_request_fail_auth(struct http_server_request *req,</span>
+<span class="lineNum">     427 </span>            :     const char *reason, const struct http_auth_challenge *chlng)
+<span class="lineNum">     428 </span>            : {
+<span class="lineNum">     429 </span>            :     struct http_server_response *resp;
+<span class="lineNum">     430 </span>            : 
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :     req-&gt;failed = TRUE;</span>
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     if (reason == NULL)</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         reason = &quot;Unauthenticated&quot;;</span>
+<span class="lineNum">     435 </span>            : 
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     resp = http_server_request_create_fail_response(req,</span>
+<span class="lineNum">     437 </span>            :         401, reason, reason);
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     http_server_response_add_auth(resp, chlng);</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :     http_server_response_submit(resp);</span>
+<a name="440"><span class="lineNum">     440 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     441 </span>            : 
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 : void http_server_request_fail_auth_basic(struct http_server_request *req,</span>
+<span class="lineNum">     443 </span>            :     const char *reason, const char *realm)
+<span class="lineNum">     444 </span>            : {
+<span class="lineNum">     445 </span>            :     struct http_auth_challenge chlng;
+<span class="lineNum">     446 </span>            : 
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :     http_auth_basic_challenge_init(&amp;chlng, realm);</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :     http_server_request_fail_auth(req, reason, &amp;chlng);</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     450 </span>            : 
+<span class="lineNum">     451 </span>            : /*
+<span class="lineNum">     452 </span>            :  * Payload input stream
+<span class="lineNum">     453 </span>            :  */
+<span class="lineNum">     454 </span>            : 
+<span class="lineNum">     455 </span>            : struct http_server_istream {
+<span class="lineNum">     456 </span>            :     struct istream_private istream;
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span>            :     struct http_server_request *req;
+<span class="lineNum">     459 </span>            : 
+<span class="lineNum">     460 </span>            :     ssize_t read_status;
+<span class="lineNum">     461 </span>            : };
+<a name="462"><span class="lineNum">     462 </span>            : </a>
+<span class="lineNum">     463 </span>            : static void
+<span class="lineNum">     464 </span><span class="lineNoCov">          0 : http_server_istream_switch_ioloop(struct istream_private *stream)</span>
+<span class="lineNum">     465 </span>            : {
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     struct http_server_istream *hsristream =</span>
+<span class="lineNum">     467 </span>            :         (struct http_server_istream *)stream;
+<span class="lineNum">     468 </span>            : 
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 :     if (hsristream-&gt;istream.istream.blocking)</span>
+<span class="lineNum">     470 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     471 </span>            : 
+<span class="lineNum">     472 </span><span class="lineNoCov">          0 :     http_server_connection_switch_ioloop(hsristream-&gt;req-&gt;conn);</span>
+<span class="lineNum">     473 </span>            : }
+<a name="474"><span class="lineNum">     474 </span>            : </a>
+<span class="lineNum">     475 </span>            : static void
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 : http_server_istream_read_any(struct http_server_istream *hsristream)</span>
+<span class="lineNum">     477 </span>            : {
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :     struct istream_private *stream = &amp;hsristream-&gt;istream;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     struct http_server *server = hsristream-&gt;req-&gt;server;</span>
+<span class="lineNum">     480 </span>            :     ssize_t ret;
+<span class="lineNum">     481 </span>            : 
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :     if ((ret=i_stream_read_copy_from_parent</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :         (&amp;stream-&gt;istream)) &gt; 0) {</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :         hsristream-&gt;read_status = ret;</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :         io_loop_stop(server-&gt;ioloop);</span>
+<span class="lineNum">     486 </span>            :     }
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 : }</span>
+<a name="488"><span class="lineNum">     488 </span>            : </a>
+<span class="lineNum">     489 </span>            : static ssize_t
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 : http_server_istream_read(struct istream_private *stream)</span>
+<span class="lineNum">     491 </span>            : {
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     struct http_server_istream *hsristream =</span>
+<span class="lineNum">     493 </span>            :         (struct http_server_istream *)stream;
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :     struct http_server_request *req = hsristream-&gt;req;</span>
+<span class="lineNum">     495 </span>            :     struct http_server *server;
+<span class="lineNum">     496 </span>            :     struct http_server_connection *conn;
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     bool blocking = stream-&gt;istream.blocking;</span>
+<span class="lineNum">     498 </span>            :     ssize_t ret;
+<span class="lineNum">     499 </span>            : 
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :     if (req == NULL) {</span>
+<span class="lineNum">     501 </span>            :         /* request already gone (we shouldn't get here) */
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :         stream-&gt;istream.stream_errno = EINVAL;</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     504 </span>            :     }
+<span class="lineNum">     505 </span>            : 
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :     i_stream_seek(stream-&gt;parent, stream-&gt;parent_start_offset +</span>
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :               stream-&gt;istream.v_offset);</span>
+<span class="lineNum">     508 </span>            : 
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :     server = hsristream-&gt;req-&gt;server;</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     conn = hsristream-&gt;req-&gt;conn;</span>
+<span class="lineNum">     511 </span>            : 
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :     ret = i_stream_read_copy_from_parent(&amp;stream-&gt;istream);</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     if (ret == 0 &amp;&amp; blocking) {</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :         struct ioloop *prev_ioloop = current_ioloop;</span>
+<span class="lineNum">     515 </span>            :         struct io *io;
+<span class="lineNum">     516 </span>            : 
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :         http_server_connection_ref(conn);</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :         http_server_request_ref(req);</span>
+<span class="lineNum">     519 </span>            : 
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :         i_assert(server-&gt;ioloop == NULL);</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :         server-&gt;ioloop = io_loop_create();</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :         http_server_connection_switch_ioloop(conn);</span>
+<span class="lineNum">     523 </span>            : 
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         if (blocking &amp;&amp; req-&gt;req.expect_100_continue &amp;&amp;</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :             !req-&gt;sent_100_continue)</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :             http_server_connection_trigger_responses(conn);</span>
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :         hsristream-&gt;read_status = 0;</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         io = io_add_istream(&amp;stream-&gt;istream,</span>
+<span class="lineNum">     530 </span>            :             http_server_istream_read_any, hsristream);
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :         while (req-&gt;state &lt; HTTP_SERVER_REQUEST_STATE_FINISHED &amp;&amp;</span>
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :             hsristream-&gt;read_status == 0) {</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :             io_loop_run(server-&gt;ioloop);</span>
+<span class="lineNum">     534 </span>            :         }
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :         io_remove(&amp;io);</span>
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :         io_loop_set_current(prev_ioloop);</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :         http_server_connection_switch_ioloop(conn);</span>
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :         io_loop_set_current(server-&gt;ioloop);</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :         io_loop_destroy(&amp;server-&gt;ioloop);</span>
+<span class="lineNum">     541 </span>            : 
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :         ret = hsristream-&gt;read_status;</span>
+<span class="lineNum">     543 </span>            : 
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :         if (!http_server_request_unref(&amp;req))</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :             hsristream-&gt;req = NULL;</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :         http_server_connection_unref(&amp;conn);</span>
+<span class="lineNum">     547 </span>            :     }
+<span class="lineNum">     548 </span>            : 
+<span class="lineNum">     549 </span><span class="lineNoCov">          0 :     return ret;</span>
+<span class="lineNum">     550 </span>            : }
+<a name="551"><span class="lineNum">     551 </span>            : </a>
+<span class="lineNum">     552 </span>            : static void
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 : http_server_istream_destroy(struct iostream_private *stream)</span>
+<span class="lineNum">     554 </span>            : {
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :     struct http_server_istream *hsristream =</span>
+<span class="lineNum">     556 </span>            :         (struct http_server_istream *)stream;
+<span class="lineNum">     557 </span>            :     uoff_t v_offset;
+<span class="lineNum">     558 </span>            : 
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :     v_offset = hsristream-&gt;istream.parent_start_offset +</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         hsristream-&gt;istream.istream.v_offset;</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :     if (hsristream-&gt;istream.parent-&gt;seekable ||</span>
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :         v_offset &gt; hsristream-&gt;istream.parent-&gt;v_offset) {</span>
+<span class="lineNum">     563 </span>            :         /* get to same position in parent stream */
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :         i_stream_seek(hsristream-&gt;istream.parent, v_offset);</span>
+<span class="lineNum">     565 </span>            :     }
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 : }</span>
+<a name="567"><span class="lineNum">     567 </span>            : </a>
+<span class="lineNum">     568 </span>            : struct istream *
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 : http_server_request_get_payload_input(struct http_server_request *req,</span>
+<span class="lineNum">     570 </span>            :     bool blocking)
+<span class="lineNum">     571 </span>            : {
+<span class="lineNum">     572 </span>            :     struct http_server_istream *hsristream;
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     struct istream *payload = req-&gt;req.payload;</span>
+<span class="lineNum">     574 </span>            : 
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;payload_input == NULL);</span>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     hsristream = i_new(struct http_server_istream, 1);</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :     hsristream-&gt;req = req;</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.max_buffer_size =</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         payload-&gt;real_stream-&gt;max_buffer_size;</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.stream_size_passthrough = TRUE;</span>
+<span class="lineNum">     582 </span>            : 
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.read = http_server_istream_read;</span>
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.switch_ioloop = http_server_istream_switch_ioloop;</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.iostream.destroy = http_server_istream_destroy;</span>
+<span class="lineNum">     586 </span>            : 
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.istream.readable_fd = FALSE;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.istream.blocking = blocking;</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :     hsristream-&gt;istream.istream.seekable = FALSE;</span>
+<span class="lineNum">     590 </span>            : 
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :     req-&gt;payload_input = i_stream_create</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :         (&amp;hsristream-&gt;istream, payload, i_stream_get_fd(payload), 0);</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;req-&gt;req.payload);</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :     return req-&gt;payload_input;</span>
+<span class="lineNum">     595 </span>            : }
+<span class="lineNum">     596 </span>            : 
+<span class="lineNum">     597 </span>            : /*
+<span class="lineNum">     598 </span>            :  * Payload handling
+<span class="lineNum">     599 </span>            :  */
+<a name="600"><span class="lineNum">     600 </span>            : </a>
+<span class="lineNum">     601 </span>            : static void
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 : http_server_payload_handler_init(</span>
+<span class="lineNum">     603 </span>            :     struct http_server_payload_handler *handler ,
+<span class="lineNum">     604 </span>            :     struct http_server_request *req)
+<span class="lineNum">     605 </span>            : {
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     607 </span>            : 
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;payload_handler == NULL);</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;in_req_callback);</span>
+<span class="lineNum">     610 </span>            : 
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :     conn-&gt;payload_handler = handler;</span>
+<span class="lineNum">     612 </span>            : 
+<span class="lineNum">     613 </span><span class="lineNoCov">          0 :     handler-&gt;req = req;</span>
+<a name="614"><span class="lineNum">     614 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     615 </span>            : 
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 : void http_server_payload_handler_destroy(</span>
+<span class="lineNum">     617 </span>            :     struct http_server_payload_handler **_handler)
+<span class="lineNum">     618 </span>            : {
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler *handler = *_handler;</span>
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = handler-&gt;req-&gt;conn;</span>
+<span class="lineNum">     621 </span>            : 
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :     if (handler-&gt;in_callback) {</span>
+<span class="lineNum">     623 </span>            :         /* don't destroy handler while in callback */
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     625 </span>            :     }
+<span class="lineNum">     626 </span>            : 
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :     *_handler = NULL;</span>
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :     i_assert(conn-&gt;payload_handler == NULL);</span>
+<span class="lineNum">     629 </span>            : 
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :     if (handler-&gt;destroy != NULL)</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :         handler-&gt;destroy(handler);</span>
+<a name="632"><span class="lineNum">     632 </span>            : }</a>
+<span class="lineNum">     633 </span>            : 
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 : void http_server_payload_handler_switch_ioloop(</span>
+<span class="lineNum">     635 </span>            :     struct http_server_payload_handler *handler)
+<span class="lineNum">     636 </span>            : {
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :     if (handler-&gt;switch_ioloop != NULL)</span>
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :         handler-&gt;switch_ioloop(handler);</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     640 </span>            : 
+<span class="lineNum">     641 </span>            : /* pump-based */
+<span class="lineNum">     642 </span>            : 
+<span class="lineNum">     643 </span>            : struct http_server_payload_handler_pump {
+<span class="lineNum">     644 </span>            :     struct http_server_payload_handler handler;
+<span class="lineNum">     645 </span>            : 
+<span class="lineNum">     646 </span>            :     struct iostream_pump *pump;
+<span class="lineNum">     647 </span>            : 
+<span class="lineNum">     648 </span>            :     void (*callback)(void *);
+<span class="lineNum">     649 </span>            :     void *context;
+<span class="lineNum">     650 </span>            : };
+<a name="651"><span class="lineNum">     651 </span>            : </a>
+<span class="lineNum">     652 </span>            : static void
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 : payload_handler_pump_destroy(</span>
+<span class="lineNum">     654 </span>            :     struct http_server_payload_handler *handler)
+<span class="lineNum">     655 </span>            : {
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler_pump *phandler =</span>
+<span class="lineNum">     657 </span>            :         (struct http_server_payload_handler_pump *)handler;
+<span class="lineNum">     658 </span>            : 
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :     iostream_pump_unref(&amp;phandler-&gt;pump);</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 : }</span>
+<a name="661"><span class="lineNum">     661 </span>            : </a>
+<span class="lineNum">     662 </span>            : static void
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 : payload_handler_pump_switch_ioloop(</span>
+<span class="lineNum">     664 </span>            :     struct http_server_payload_handler *handler)
+<span class="lineNum">     665 </span>            : {
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler_pump *phandler =</span>
+<span class="lineNum">     667 </span>            :         (struct http_server_payload_handler_pump *)handler;
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     iostream_pump_switch_ioloop(phandler-&gt;pump);</span>
+<span class="lineNum">     670 </span><span class="lineNoCov">          0 : }</span>
+<a name="671"><span class="lineNum">     671 </span>            : </a>
+<span class="lineNum">     672 </span>            : static void
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 : payload_handler_pump_callback(enum iostream_pump_status status,</span>
+<span class="lineNum">     674 </span>            :     struct http_server_payload_handler_pump *phandler)
+<span class="lineNum">     675 </span>            : {
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler *handler = &amp;phandler-&gt;handler;</span>
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :     struct http_server_request *req = handler-&gt;req;</span>
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     struct istream *input = iostream_pump_get_input(phandler-&gt;pump);</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :     struct ostream *output = iostream_pump_get_output(phandler-&gt;pump);</span>
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :     switch (status) {</span>
+<span class="lineNum">     683 </span>            :     case IOSTREAM_PUMP_STATUS_INPUT_EOF:
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :         if (!i_stream_read_eof(conn-&gt;incoming_payload)) {</span>
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :             http_server_request_fail_close(req,</span>
+<span class="lineNum">     686 </span>            :                 413, &quot;Payload Too Large&quot;);
+<span class="lineNum">     687 </span>            :         } else {
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :             unsigned int old_refcount = req-&gt;refcount;</span>
+<span class="lineNum">     689 </span>            : 
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :             handler-&gt;in_callback = TRUE;</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :             phandler-&gt;callback(phandler-&gt;context);</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :             req-&gt;callback_refcount += req-&gt;refcount - old_refcount;</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :             handler-&gt;in_callback = FALSE;</span>
+<span class="lineNum">     694 </span>            : 
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :             i_assert(req-&gt;callback_refcount &gt; 0 ||</span>
+<span class="lineNum">     696 </span>            :                 (req-&gt;response != NULL &amp;&amp; req-&gt;response-&gt;submitted));
+<span class="lineNum">     697 </span>            :         }
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     699 </span>            :     case IOSTREAM_PUMP_STATUS_INPUT_ERROR:
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :         http_server_request_client_error(req,</span>
+<span class="lineNum">     701 </span>            :             &quot;iostream_pump: read(%s) failed: %s&quot;,
+<span class="lineNum">     702 </span>            :             i_stream_get_name(input),
+<span class="lineNum">     703 </span>            :             i_stream_get_error(input));
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :         http_server_request_fail_close(req,</span>
+<span class="lineNum">     705 </span>            :             400, &quot;Bad Request&quot;);
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     707 </span>            :     case IOSTREAM_PUMP_STATUS_OUTPUT_ERROR:
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 :         if (output-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :             http_server_request_error(req,</span>
+<span class="lineNum">     710 </span>            :                 &quot;iostream_pump: write(%s) failed: %s&quot;,
+<span class="lineNum">     711 </span>            :                 o_stream_get_name(output),
+<span class="lineNum">     712 </span>            :                 o_stream_get_error(output));
+<span class="lineNum">     713 </span>            :         }
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :         http_server_request_fail_close(req,</span>
+<span class="lineNum">     715 </span>            :             500, &quot;Internal Server Error&quot;);
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     717 </span>            :     }
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     if (conn-&gt;payload_handler != NULL)</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :         http_server_payload_handler_destroy(&amp;conn-&gt;payload_handler);</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 : }</span>
+<a name="722"><span class="lineNum">     722 </span>            : </a>
+<span class="lineNum">     723 </span>            : #undef http_server_request_forward_payload
+<span class="lineNum">     724 </span><span class="lineNoCov">          0 : void http_server_request_forward_payload(struct http_server_request *req,</span>
+<span class="lineNum">     725 </span>            :     struct ostream *output, uoff_t max_size,
+<span class="lineNum">     726 </span>            :     void (*callback)(void *), void *context)
+<span class="lineNum">     727 </span>            : {
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :     struct istream *input = conn-&gt;incoming_payload;</span>
+<span class="lineNum">     730 </span>            :     struct http_server_payload_handler_pump *phandler;
+<span class="lineNum">     731 </span>            :     uoff_t payload_size;
+<span class="lineNum">     732 </span>            :     int ret;
+<span class="lineNum">     733 </span>            : 
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :     i_assert(req-&gt;req.payload != NULL);</span>
+<span class="lineNum">     735 </span>            : 
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :     if (max_size == (uoff_t)-1) {</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :         i_stream_ref(input);</span>
+<span class="lineNum">     738 </span>            :     } else {
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :         if ((ret = i_stream_get_size(input, TRUE, &amp;payload_size)) != 0) {</span>
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :             if (ret &lt; 0) {</span>
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :                 http_server_request_error(req,</span>
+<span class="lineNum">     742 </span>            :                     &quot;i_stream_get_size(%s) failed: %s&quot;,
+<span class="lineNum">     743 </span>            :                     i_stream_get_name(input), i_stream_get_error(input));
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :                 http_server_request_fail_close(req,</span>
+<span class="lineNum">     745 </span>            :                     500, &quot;Internal Server Error&quot;);
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     747 </span>            :             }
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :             if (payload_size &gt; max_size) {</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :                 http_server_request_fail_close(req,</span>
+<span class="lineNum">     750 </span>            :                     413, &quot;Payload Too Large&quot;);
+<span class="lineNum">     751 </span><span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     752 </span>            :             }
+<span class="lineNum">     753 </span>            :         }
+<span class="lineNum">     754 </span><span class="lineNoCov">          0 :         input = i_stream_create_limit(input, max_size);</span>
+<span class="lineNum">     755 </span>            :     }
+<span class="lineNum">     756 </span>            : 
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :     phandler = p_new(req-&gt;pool, struct http_server_payload_handler_pump, 1);</span>
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :     http_server_payload_handler_init(&amp;phandler-&gt;handler, req);</span>
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :     phandler-&gt;handler.switch_ioloop = payload_handler_pump_switch_ioloop;</span>
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 :     phandler-&gt;handler.destroy = payload_handler_pump_destroy;</span>
+<span class="lineNum">     761 </span><span class="lineNoCov">          0 :     phandler-&gt;callback = callback;</span>
+<span class="lineNum">     762 </span><span class="lineNoCov">          0 :     phandler-&gt;context = context;</span>
+<span class="lineNum">     763 </span>            : 
+<span class="lineNum">     764 </span><span class="lineNoCov">          0 :     phandler-&gt;pump = iostream_pump_create(input, output);</span>
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :     iostream_pump_set_completion_callback(phandler-&gt;pump,</span>
+<span class="lineNum">     766 </span>            :         payload_handler_pump_callback, phandler);
+<span class="lineNum">     767 </span><span class="lineNoCov">          0 :     iostream_pump_start(phandler-&gt;pump);</span>
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     769 </span>            : }
+<a name="770"><span class="lineNum">     770 </span>            : </a>
+<span class="lineNum">     771 </span>            : #undef http_server_request_buffer_payload
+<span class="lineNum">     772 </span><span class="lineNoCov">          0 : void http_server_request_buffer_payload(struct http_server_request *req,</span>
+<span class="lineNum">     773 </span>            :     buffer_t *buffer, uoff_t max_size,
+<span class="lineNum">     774 </span>            :     void (*callback)(void *), void *context)
+<span class="lineNum">     775 </span>            : {
+<span class="lineNum">     776 </span>            :     struct ostream *output;
+<span class="lineNum">     777 </span>            : 
+<span class="lineNum">     778 </span><span class="lineNoCov">          0 :     output = o_stream_create_buffer(buffer);</span>
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :     http_server_request_forward_payload(req,</span>
+<span class="lineNum">     780 </span>            :         output, max_size, callback, context);
+<span class="lineNum">     781 </span><span class="lineNoCov">          0 :     o_stream_unref(&amp;output);</span>
+<span class="lineNum">     782 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     783 </span>            : 
+<span class="lineNum">     784 </span>            : /* raw */
+<span class="lineNum">     785 </span>            : 
+<span class="lineNum">     786 </span>            : struct http_server_payload_handler_raw {
+<span class="lineNum">     787 </span>            :     struct http_server_payload_handler handler;
+<span class="lineNum">     788 </span>            : 
+<span class="lineNum">     789 </span>            :     struct io *io;
+<span class="lineNum">     790 </span>            : 
+<span class="lineNum">     791 </span>            :     void (*callback)(void *context);
+<span class="lineNum">     792 </span>            :     void *context;
+<span class="lineNum">     793 </span>            : };
+<a name="794"><span class="lineNum">     794 </span>            : </a>
+<span class="lineNum">     795 </span>            : static void
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 : payload_handler_raw_destroy(</span>
+<span class="lineNum">     797 </span>            :     struct http_server_payload_handler *handler)
+<span class="lineNum">     798 </span>            : {
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler_raw *rhandler =</span>
+<span class="lineNum">     800 </span>            :         (struct http_server_payload_handler_raw *)handler;
+<span class="lineNum">     801 </span>            : 
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :     io_remove(&amp;rhandler-&gt;io);</span>
+<span class="lineNum">     803 </span><span class="lineNoCov">          0 : }</span>
+<a name="804"><span class="lineNum">     804 </span>            : </a>
+<span class="lineNum">     805 </span>            : static void
+<span class="lineNum">     806 </span><span class="lineNoCov">          0 : payload_handler_raw_switch_ioloop(</span>
+<span class="lineNum">     807 </span>            :     struct http_server_payload_handler *handler)
+<span class="lineNum">     808 </span>            : {
+<span class="lineNum">     809 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler_raw *rhandler =</span>
+<span class="lineNum">     810 </span>            :         (struct http_server_payload_handler_raw *)handler;
+<span class="lineNum">     811 </span>            : 
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :     rhandler-&gt;io = io_loop_move_io(&amp;rhandler-&gt;io);</span>
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 : }</span>
+<a name="814"><span class="lineNum">     814 </span>            : </a>
+<span class="lineNum">     815 </span>            : static void
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 : payload_handler_raw_input(</span>
+<span class="lineNum">     817 </span>            :     struct http_server_payload_handler_raw *rhandler)
+<span class="lineNum">     818 </span>            : {
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :     struct http_server_payload_handler *handler = &amp;rhandler-&gt;handler;</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :     struct http_server_request *req = handler-&gt;req;</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :     struct istream *input = conn-&gt;incoming_payload;</span>
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :     unsigned int old_refcount = req-&gt;refcount;</span>
+<span class="lineNum">     824 </span>            : 
+<span class="lineNum">     825 </span><span class="lineNoCov">          0 :     handler-&gt;in_callback = TRUE;</span>
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :     rhandler-&gt;callback(rhandler-&gt;context);</span>
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :     req-&gt;callback_refcount += req-&gt;refcount - old_refcount;</span>
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :     handler-&gt;in_callback = FALSE;</span>
+<span class="lineNum">     829 </span>            : 
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :     if (input != NULL &amp;&amp; input-&gt;stream_errno != 0) {</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :         if (req-&gt;response == NULL) {</span>
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :             http_server_request_client_error(req,</span>
+<span class="lineNum">     833 </span>            :                 &quot;read(%s) failed: %s&quot;,
+<span class="lineNum">     834 </span>            :                 i_stream_get_name(input),
+<span class="lineNum">     835 </span>            :                 i_stream_get_error(input));
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :             http_server_request_fail_close(req,</span>
+<span class="lineNum">     837 </span>            :                 400, &quot;Bad Request&quot;);
+<span class="lineNum">     838 </span>            :         }
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :     } else if (input == NULL ||</span>
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :         !i_stream_have_bytes_left(input)) {</span>
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :         i_assert(req-&gt;callback_refcount &gt; 0 ||</span>
+<span class="lineNum">     842 </span>            :             (req-&gt;response != NULL &amp;&amp; req-&gt;response-&gt;submitted));
+<span class="lineNum">     843 </span>            :     } else {
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     845 </span>            :     }
+<span class="lineNum">     846 </span>            : 
+<span class="lineNum">     847 </span><span class="lineNoCov">          0 :     if (conn-&gt;payload_handler != NULL)</span>
+<span class="lineNum">     848 </span><span class="lineNoCov">          0 :         http_server_payload_handler_destroy(&amp;conn-&gt;payload_handler);</span>
+<span class="lineNum">     849 </span>            : 
+<span class="lineNum">     850 </span>            : }
+<a name="851"><span class="lineNum">     851 </span>            : </a>
+<span class="lineNum">     852 </span>            : #undef http_server_request_handle_payload
+<span class="lineNum">     853 </span><span class="lineNoCov">          0 : void http_server_request_handle_payload(struct http_server_request *req,</span>
+<span class="lineNum">     854 </span>            :     void (*callback)(void *context), void *context)
+<span class="lineNum">     855 </span>            : {
+<span class="lineNum">     856 </span>            :     struct http_server_payload_handler_raw *rhandler;
+<span class="lineNum">     857 </span><span class="lineNoCov">          0 :     struct http_server_connection *conn = req-&gt;conn;</span>
+<span class="lineNum">     858 </span>            : 
+<span class="lineNum">     859 </span><span class="lineNoCov">          0 :     rhandler = p_new(req-&gt;pool, struct http_server_payload_handler_raw, 1);</span>
+<span class="lineNum">     860 </span><span class="lineNoCov">          0 :     http_server_payload_handler_init(&amp;rhandler-&gt;handler, req);</span>
+<span class="lineNum">     861 </span><span class="lineNoCov">          0 :     rhandler-&gt;handler.switch_ioloop = payload_handler_raw_switch_ioloop;</span>
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 :     rhandler-&gt;handler.destroy = payload_handler_raw_destroy;</span>
+<span class="lineNum">     863 </span><span class="lineNoCov">          0 :     rhandler-&gt;callback = callback;</span>
+<span class="lineNum">     864 </span><span class="lineNoCov">          0 :     rhandler-&gt;context = context;</span>
+<span class="lineNum">     865 </span>            : 
+<span class="lineNum">     866 </span><span class="lineNoCov">          0 :     rhandler-&gt;io = io_add_istream(conn-&gt;incoming_payload,</span>
+<span class="lineNum">     867 </span>            :         payload_handler_raw_input, rhandler);
+<span class="lineNum">     868 </span><span class="lineNoCov">          0 :     i_stream_set_input_pending(conn-&gt;incoming_payload, TRUE);</span>
+<span class="lineNum">     869 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

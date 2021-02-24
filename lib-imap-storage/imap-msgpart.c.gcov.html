@@ -1,0 +1,936 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-imap-storage/imap-msgpart.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-imap-storage</a> - imap-msgpart.c<span style="font-size: 80%;"> (source / <a href="imap-msgpart.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">408</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">27</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;array.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;istream-crlf.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;istream-nonuls.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;istream-base64.h&quot;
+<span class="lineNum">      10 </span>            : #include &quot;istream-header-filter.h&quot;
+<span class="lineNum">      11 </span>            : #include &quot;istream-qp.h&quot;
+<span class="lineNum">      12 </span>            : #include &quot;ostream.h&quot;
+<span class="lineNum">      13 </span>            : #include &quot;message-parser.h&quot;
+<span class="lineNum">      14 </span>            : #include &quot;message-decoder.h&quot;
+<span class="lineNum">      15 </span>            : #include &quot;mail-storage-private.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;mail-namespace.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;imap-bodystructure.h&quot;
+<span class="lineNum">      18 </span>            : #include &quot;imap-parser.h&quot;
+<span class="lineNum">      19 </span>            : #include &quot;imap-msgpart.h&quot;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : enum fetch_type {
+<span class="lineNum">      22 </span>            :     FETCH_FULL,
+<span class="lineNum">      23 </span>            :     FETCH_MIME,
+<span class="lineNum">      24 </span>            :     FETCH_MIME_BODY,
+<span class="lineNum">      25 </span>            :     FETCH_HEADER,
+<span class="lineNum">      26 </span>            :     FETCH_HEADER_FIELDS,
+<span class="lineNum">      27 </span>            :     FETCH_HEADER_FIELDS_NOT,
+<span class="lineNum">      28 </span>            :     FETCH_BODY
+<span class="lineNum">      29 </span>            : };
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : struct imap_msgpart {
+<span class="lineNum">      32 </span>            :     pool_t pool;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :     /* &quot;&quot; for root, otherwise e.g. &quot;1.2.3&quot;. the .MIME, .HEADER, etc.
+<span class="lineNum">      35 </span>            :        suffix not included */
+<span class="lineNum">      36 </span>            :     const char *section_number;
+<span class="lineNum">      37 </span>            :     enum fetch_type fetch_type;
+<span class="lineNum">      38 </span>            :     enum mail_fetch_field wanted_fields;
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            :     /* HEADER.FIELDS[.NOT] (list of headers) */
+<span class="lineNum">      41 </span>            :         struct mailbox_header_lookup_ctx *header_ctx;
+<span class="lineNum">      42 </span>            :     const char *const *headers;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :     /* which part of the message part to fetch (default: 0..(uoff_t)-1) */
+<span class="lineNum">      45 </span>            :     uoff_t partial_offset, partial_size;
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            :     bool decode_cte_to_binary:1;
+<span class="lineNum">      48 </span>            : };
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span>            : struct imap_msgpart_open_ctx {
+<span class="lineNum">      51 </span>            :     /* from matching message_part, set after opening: */
+<span class="lineNum">      52 </span>            :     uoff_t physical_pos;
+<span class="lineNum">      53 </span>            :     struct message_size mime_hdr_size;
+<span class="lineNum">      54 </span>            :     struct message_size mime_body_size;
+<a name="55"><span class="lineNum">      55 </span>            : };</a>
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 : static struct imap_msgpart *imap_msgpart_type(enum fetch_type fetch_type)</span>
+<span class="lineNum">      58 </span>            : {
+<span class="lineNum">      59 </span>            :     struct imap_msgpart *msgpart;
+<span class="lineNum">      60 </span>            :     pool_t pool;
+<span class="lineNum">      61 </span>            : 
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;imap msgpart&quot;, sizeof(*msgpart)+32);</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     msgpart = p_new(pool, struct imap_msgpart, 1);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     msgpart-&gt;pool = pool;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :     msgpart-&gt;partial_size = (uoff_t)-1;</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     msgpart-&gt;fetch_type = fetch_type;</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     msgpart-&gt;section_number = &quot;&quot;;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :     if (fetch_type == FETCH_HEADER || fetch_type == FETCH_FULL)</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :         msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_HEADER;</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     if (fetch_type == FETCH_BODY || fetch_type == FETCH_FULL)</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :         msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_BODY;</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     return msgpart;</span>
+<a name="73"><span class="lineNum">      73 </span>            : }</a>
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 : struct imap_msgpart *imap_msgpart_full(void)</span>
+<span class="lineNum">      76 </span>            : {
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     return imap_msgpart_type(FETCH_FULL);</span>
+<a name="78"><span class="lineNum">      78 </span>            : }</a>
+<span class="lineNum">      79 </span>            : 
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 : struct imap_msgpart *imap_msgpart_header(void)</span>
+<span class="lineNum">      81 </span>            : {
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     return imap_msgpart_type(FETCH_HEADER);</span>
+<a name="83"><span class="lineNum">      83 </span>            : }</a>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 : struct imap_msgpart *imap_msgpart_body(void)</span>
+<span class="lineNum">      86 </span>            : {
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     return imap_msgpart_type(FETCH_BODY);</span>
+<span class="lineNum">      88 </span>            : }
+<a name="89"><span class="lineNum">      89 </span>            : </a>
+<span class="lineNum">      90 </span>            : static struct message_part *
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 : imap_msgpart_find(struct message_part *parts, const char *section)</span>
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     struct message_part *part = parts;</span>
+<span class="lineNum">      94 </span>            :     const char *path;
+<span class="lineNum">      95 </span>            :     unsigned int num;
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     path = section;</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     while (*path &gt;= '0' &amp;&amp; *path &lt;= '9' &amp;&amp; part != NULL) {</span>
+<span class="lineNum">      99 </span>            :         /* get part number, we have already verified its validity */
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :         num = 0;</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :         while (*path != '\0' &amp;&amp; *path != '.') {</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :             i_assert(*path &gt;= '0' &amp;&amp; *path &lt;= '9');</span>
+<span class="lineNum">     103 </span>            : 
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :             num = num*10 + (*path - '0');</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :             path++;</span>
+<span class="lineNum">     106 </span>            :         }
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :         if (*path == '.')</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :             path++;</span>
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MULTIPART) != 0) {</span>
+<span class="lineNum">     112 </span>            :             /* find the part */
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :             part = part-&gt;children;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :             for (; num &gt; 1 &amp;&amp; part != NULL; num--)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :                 part = part-&gt;next;</span>
+<span class="lineNum">     116 </span>            :         } else {
+<span class="lineNum">     117 </span>            :             /* only 1 allowed with non-multipart messages.
+<span class="lineNum">     118 </span>            :                if the child isn't message/rfc822, the path must be
+<span class="lineNum">     119 </span>            :                finished after this. */
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :             if (num != 1)</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :                 part = NULL;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :             else if (*path != '\0' &amp;&amp;</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :                  (part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) == 0)</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :                 part = NULL;</span>
+<span class="lineNum">     125 </span>            :         }
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :         if (part != NULL &amp;&amp;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :             (part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) != 0 &amp;&amp;</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :             (*path &gt;= '0' &amp;&amp; *path &lt;= '9')) {</span>
+<span class="lineNum">     130 </span>            :             /* if we continue inside the message/rfc822, skip this
+<span class="lineNum">     131 </span>            :                body part */
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :             part = part-&gt;children;</span>
+<span class="lineNum">     133 </span>            :         }
+<span class="lineNum">     134 </span>            :     }
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     i_assert(part == NULL || *path == '\0');</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     return part;</span>
+<span class="lineNum">     137 </span>            : }
+<a name="138"><span class="lineNum">     138 </span>            : </a>
+<span class="lineNum">     139 </span>            : static int
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 : imap_msgpart_get_header_fields(pool_t pool, const char *header_list,</span>
+<span class="lineNum">     141 </span>            :                    ARRAY_TYPE(const_string) *fields)
+<span class="lineNum">     142 </span>            : {
+<span class="lineNum">     143 </span>            :     struct istream *input;
+<span class="lineNum">     144 </span>            :     struct imap_parser *parser;
+<span class="lineNum">     145 </span>            :     const struct imap_arg *args, *hdr_list;
+<span class="lineNum">     146 </span>            :     unsigned int list_count;
+<span class="lineNum">     147 </span>            :     unsigned int i;
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     int result = 0;</span>
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     input = i_stream_create_from_data(header_list, strlen(header_list));</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     parser = imap_parser_create(input, NULL, (size_t)-1);</span>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     if (imap_parser_finish_line(parser, 0, 0, &amp;args) &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :         imap_arg_get_list_full(args, &amp;hdr_list, &amp;list_count) &amp;&amp;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :         args[1].type == IMAP_ARG_EOL &amp;&amp;</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :         list_count &gt; 0) {</span>
+<span class="lineNum">     157 </span>            :         const char *value;
+<span class="lineNum">     158 </span>            :         
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :         p_array_init(fields, pool, list_count);</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; list_count; i++) {</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :             if (!imap_arg_get_astring(&amp;hdr_list[i], &amp;value)) {</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :                 result = -1;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     164 </span>            :             }
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :             value = p_strdup(pool, t_str_ucase(value));</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :             array_append(fields, &amp;value, 1);</span>
+<span class="lineNum">     168 </span>            :         }
+<span class="lineNum">     169 </span>            :         /* istream-header-filter requires headers to be sorted */
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :         array_sort(fields, i_strcasecmp_p);</span>
+<span class="lineNum">     171 </span>            :     } else {
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         result = -1;</span>
+<span class="lineNum">     173 </span>            :     }
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     imap_parser_unref(&amp;parser);</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :     return result;</span>
+<span class="lineNum">     178 </span>            : }
+<a name="179"><span class="lineNum">     179 </span>            : </a>
+<span class="lineNum">     180 </span>            : static int
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 : imap_msgpart_parse_header_fields(struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     182 </span>            :                  const char *header_list)
+<span class="lineNum">     183 </span>            : {
+<span class="lineNum">     184 </span>            :     ARRAY_TYPE(const_string) fields;
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :     if (header_list[0] == ' ')</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :         header_list++;</span>
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span>            :     /* HEADER.FIELDS (list), HEADER.FIELDS.NOT (list) */
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     if (imap_msgpart_get_header_fields(msgpart-&gt;pool, header_list,</span>
+<span class="lineNum">     191 </span>            :                        &amp;fields) &lt; 0)
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     array_append_zero(&amp;fields);</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     msgpart-&gt;headers = array_idx(&amp;fields, 0);</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="197"><span class="lineNum">     197 </span>            : }</a>
+<span class="lineNum">     198 </span>            : 
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 : int imap_msgpart_parse(const char *section, struct imap_msgpart **msgpart_r)</span>
+<span class="lineNum">     200 </span>            : {
+<span class="lineNum">     201 </span>            :     struct imap_msgpart *msgpart;
+<span class="lineNum">     202 </span>            :     pool_t pool;
+<span class="lineNum">     203 </span>            :     unsigned int i;
+<span class="lineNum">     204 </span>            :     bool next_digit;
+<span class="lineNum">     205 </span>            :     int ret;
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     pool = pool_alloconly_create(&quot;imap msgpart&quot;, 1024);</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     msgpart = *msgpart_r = p_new(pool, struct imap_msgpart, 1);</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     msgpart-&gt;pool = pool;</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     msgpart-&gt;partial_size = (uoff_t)-1;</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span>            :     /* get the section number */
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     next_digit = TRUE;</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     for (i = 0; section[i] != '\0'; i++) {</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         if (section[i] &gt;= '0' &amp;&amp; section[i] &lt;= '9') {</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :             next_digit = FALSE;</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :         } else if (!next_digit &amp;&amp; section[i] == '.') {</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :             next_digit = TRUE;</span>
+<span class="lineNum">     219 </span>            :         } else {
+<span class="lineNum">     220 </span>            :             break;
+<span class="lineNum">     221 </span>            :         }
+<span class="lineNum">     222 </span>            :     }
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     if (i == 0) {</span>
+<span class="lineNum">     224 </span>            :         /* [], [HEADER], etc. */
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :         msgpart-&gt;section_number = &quot;&quot;;</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     } else if (section[i] == '\0') {</span>
+<span class="lineNum">     227 </span>            :         /* [1.2.3] */
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :         if (i &gt; 0 &amp;&amp; section[i-1] == '.') {</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :             pool_unref(&amp;pool);</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     231 </span>            :         }
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :         msgpart-&gt;section_number = p_strdup(pool, section);</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :         section = &quot;&quot;;</span>
+<span class="lineNum">     234 </span>            :     } else {
+<span class="lineNum">     235 </span>            :         /* [1.2.3.MIME], [1.2.3.HEADER], etc */
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :         if (section[i-1] != '.') {</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :             pool_unref(&amp;pool);</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     239 </span>            :         }
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         msgpart-&gt;section_number = p_strndup(pool, section, i-1);</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         section += i;</span>
+<span class="lineNum">     242 </span>            :     }
+<span class="lineNum">     243 </span>            : 
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :     if (*section == '\0') {</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_BODY;</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         if (*msgpart-&gt;section_number == '\0') {</span>
+<span class="lineNum">     247 </span>            :             /* BODY[] - header+body */
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :             msgpart-&gt;fetch_type = FETCH_FULL;</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :             msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_HEADER;</span>
+<span class="lineNum">     250 </span>            :         } else {
+<span class="lineNum">     251 </span>            :             /* BODY[1] - body only */
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :             msgpart-&gt;fetch_type = FETCH_MIME_BODY;</span>
+<span class="lineNum">     253 </span>            :         }
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     255 </span>            :     }
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :     section = t_str_ucase(section);</span>
+<span class="lineNum">     257 </span>            : 
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     if (strcmp(section, &quot;MIME&quot;) == 0) {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :         if (msgpart-&gt;section_number[0] == '\0')</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         msgpart-&gt;fetch_type = FETCH_MIME;</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_BODY;</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :     } else if (strcmp(section, &quot;TEXT&quot;) == 0) {</span>
+<span class="lineNum">     264 </span>            :         /* body (for root or for message/rfc822) */
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :         msgpart-&gt;fetch_type = FETCH_BODY;</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :         msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_BODY;</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     } else if (strncmp(section, &quot;HEADER&quot;, 6) == 0) {</span>
+<span class="lineNum">     268 </span>            :         /* header (for root or for message/rfc822) */
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :         if (section[6] == '\0') {</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :             msgpart-&gt;fetch_type = FETCH_HEADER;</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :             ret = 0;</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :         } else if (strncmp(section, &quot;HEADER.FIELDS.NOT&quot;, 17) == 0) {</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :             msgpart-&gt;fetch_type = FETCH_HEADER_FIELDS_NOT;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :             ret = imap_msgpart_parse_header_fields(msgpart,</span>
+<span class="lineNum">     275 </span>            :                                    section+17);
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :         } else if (strncmp(section, &quot;HEADER.FIELDS&quot;, 13) == 0) {</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :             msgpart-&gt;fetch_type = FETCH_HEADER_FIELDS;</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :             ret = imap_msgpart_parse_header_fields(msgpart,</span>
+<span class="lineNum">     279 </span>            :                                    section+13);
+<span class="lineNum">     280 </span>            :         } else {
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :             ret = -1;</span>
+<span class="lineNum">     282 </span>            :         }
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :         if (ret &lt; 0) {</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :             imap_msgpart_free(&amp;msgpart);</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     286 </span>            :         }
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :         if (msgpart-&gt;fetch_type == FETCH_HEADER_FIELDS) {</span>
+<span class="lineNum">     288 </span>            :             /* we may be able to get this from cache, don't give a
+<span class="lineNum">     289 </span>            :                wanted_fields hint */
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         } else if (*msgpart-&gt;section_number == '\0')</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :             msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_HEADER;</span>
+<span class="lineNum">     292 </span>            :         else
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :             msgpart-&gt;wanted_fields |= MAIL_FETCH_STREAM_BODY;</span>
+<span class="lineNum">     294 </span>            :     } else {
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         imap_msgpart_free(&amp;msgpart);</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     297 </span>            :     }
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="299"><span class="lineNum">     299 </span>            : }</a>
+<span class="lineNum">     300 </span>            : 
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 : void imap_msgpart_free(struct imap_msgpart **_msgpart)</span>
+<span class="lineNum">     302 </span>            : {
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :     struct imap_msgpart *msgpart = *_msgpart;</span>
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     *_msgpart = NULL;</span>
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     imap_msgpart_close_mailbox(msgpart);</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     pool_unref(&amp;msgpart-&gt;pool);</span>
+<a name="309"><span class="lineNum">     309 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     310 </span>            : 
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 : bool imap_msgpart_contains_body(const struct imap_msgpart *msgpart)</span>
+<span class="lineNum">     312 </span>            : {
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     switch (msgpart-&gt;fetch_type) {</span>
+<span class="lineNum">     314 </span>            :     case FETCH_HEADER:
+<span class="lineNum">     315 </span>            :     case FETCH_HEADER_FIELDS:
+<span class="lineNum">     316 </span>            :     case FETCH_HEADER_FIELDS_NOT:
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     318 </span>            :     case FETCH_FULL:
+<span class="lineNum">     319 </span>            :     case FETCH_MIME:
+<span class="lineNum">     320 </span>            :     case FETCH_MIME_BODY:
+<span class="lineNum">     321 </span>            :     case FETCH_BODY:
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     323 </span>            :     }
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :     return TRUE;</span>
+<a name="325"><span class="lineNum">     325 </span>            : }</a>
+<span class="lineNum">     326 </span>            : 
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 : void imap_msgpart_set_decode_to_binary(struct imap_msgpart *msgpart)</span>
+<span class="lineNum">     328 </span>            : {
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :     msgpart-&gt;decode_cte_to_binary = TRUE;</span>
+<a name="330"><span class="lineNum">     330 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     331 </span>            : 
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 : void imap_msgpart_set_partial(struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     333 </span>            :                   uoff_t offset, uoff_t size)
+<span class="lineNum">     334 </span>            : {
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :     msgpart-&gt;partial_offset = offset;</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :     msgpart-&gt;partial_size = size;</span>
+<a name="337"><span class="lineNum">     337 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     338 </span>            : 
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 : uoff_t imap_msgpart_get_partial_offset(struct imap_msgpart *msgpart)</span>
+<span class="lineNum">     340 </span>            : {
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :     return msgpart-&gt;partial_offset;</span>
+<a name="342"><span class="lineNum">     342 </span>            : }</a>
+<span class="lineNum">     343 </span>            : 
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 : uoff_t imap_msgpart_get_partial_size(struct imap_msgpart *msgpart)</span>
+<span class="lineNum">     345 </span>            : {
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :     return msgpart-&gt;partial_size;</span>
+<a name="347"><span class="lineNum">     347 </span>            : }</a>
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 : enum mail_fetch_field imap_msgpart_get_fetch_data(struct imap_msgpart *msgpart)</span>
+<span class="lineNum">     350 </span>            : {
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     return msgpart-&gt;wanted_fields;</span>
+<a name="352"><span class="lineNum">     352 </span>            : }</a>
+<span class="lineNum">     353 </span>            : 
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 : void imap_msgpart_get_wanted_headers(struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     355 </span>            :                      ARRAY_TYPE(const_string) *headers)
+<span class="lineNum">     356 </span>            : {
+<span class="lineNum">     357 </span>            :     unsigned int i;
+<span class="lineNum">     358 </span>            : 
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;fetch_type != FETCH_HEADER_FIELDS)</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     361 </span>            : 
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     for (i = 0; msgpart-&gt;headers[i] != NULL; i++)</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :         array_append(headers, &amp;msgpart-&gt;headers[i], 1);</span>
+<span class="lineNum">     364 </span>            : }
+<a name="365"><span class="lineNum">     365 </span>            : </a>
+<span class="lineNum">     366 </span>            : static int
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 : imap_msgpart_get_partial_header(struct mail *mail, struct istream *mail_input,</span>
+<span class="lineNum">     368 </span>            :                 const struct imap_msgpart *msgpart,
+<span class="lineNum">     369 </span>            :                 uoff_t *virtual_size_r, bool *have_crlfs_r,
+<span class="lineNum">     370 </span>            :                 struct imap_msgpart_open_result *result_r)
+<span class="lineNum">     371 </span>            : {
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     const char *const *hdr_fields = msgpart-&gt;headers;</span>
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :     unsigned int hdr_count = str_array_length(hdr_fields);</span>
+<span class="lineNum">     374 </span>            :     struct message_size hdr_size;
+<span class="lineNum">     375 </span>            :     struct istream *input;
+<span class="lineNum">     376 </span>            :     bool has_nuls;
+<span class="lineNum">     377 </span>            : 
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;fetch_type != FETCH_HEADER_FIELDS) {</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :         i_assert(msgpart-&gt;fetch_type == FETCH_HEADER_FIELDS_NOT);</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         input = i_stream_create_header_filter(mail_input,</span>
+<span class="lineNum">     381 </span>            :                               HEADER_FILTER_EXCLUDE |
+<span class="lineNum">     382 </span>            :                               HEADER_FILTER_HIDE_BODY,
+<span class="lineNum">     383 </span>            :                               hdr_fields, hdr_count,
+<span class="lineNum">     384 </span>            :                               *null_header_filter_callback,
+<span class="lineNum">     385 </span>            :                               NULL);
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     } else if (msgpart-&gt;section_number[0] != '\0') {</span>
+<span class="lineNum">     387 </span>            :         /* fetching partial headers for a message/rfc822 part. */
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         input = i_stream_create_header_filter(mail_input,</span>
+<span class="lineNum">     389 </span>            :                               HEADER_FILTER_INCLUDE |
+<span class="lineNum">     390 </span>            :                               HEADER_FILTER_HIDE_BODY,
+<span class="lineNum">     391 </span>            :                               hdr_fields, hdr_count,
+<span class="lineNum">     392 </span>            :                               *null_header_filter_callback,
+<span class="lineNum">     393 </span>            :                               NULL);
+<span class="lineNum">     394 </span>            :     } else {
+<span class="lineNum">     395 </span>            :         /* mail_get_header_stream() already filtered out the
+<span class="lineNum">     396 </span>            :            unwanted headers. */
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :         input = mail_input;</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :         i_stream_ref(input);</span>
+<span class="lineNum">     399 </span>            :     }
+<span class="lineNum">     400 </span>            : 
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     if (message_get_header_size(input, &amp;hdr_size, &amp;has_nuls) &lt; 0) {</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :         mail_set_critical(mail,</span>
+<span class="lineNum">     403 </span>            :             &quot;read(%s) failed: %s&quot;, i_stream_get_name(input),
+<span class="lineNum">     404 </span>            :             i_stream_get_error(input));
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;input);</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     407 </span>            :     }
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     i_stream_seek(input, 0);</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     result_r-&gt;input = input;</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :     result_r-&gt;size = hdr_size.virtual_size;</span>
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :     result_r-&gt;size_field = 0;</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :     *virtual_size_r = hdr_size.virtual_size;</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     *have_crlfs_r = hdr_size.physical_size == hdr_size.virtual_size;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     415 </span>            : }
+<a name="416"><span class="lineNum">     416 </span>            : </a>
+<span class="lineNum">     417 </span>            : static struct istream *
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 : imap_msgpart_crlf_seek(struct mail *mail, struct istream *input,</span>
+<span class="lineNum">     419 </span>            :                const struct imap_msgpart *msgpart)
+<span class="lineNum">     420 </span>            : {
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :     struct mail_msgpart_partial_cache *cache = &amp;mail-&gt;box-&gt;partial_cache;</span>
+<span class="lineNum">     422 </span>            :     struct istream *crlf_input, *errinput;
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :     uoff_t physical_start = input-&gt;v_offset;</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     uoff_t virtual_skip = msgpart-&gt;partial_offset;</span>
+<span class="lineNum">     425 </span>            :     bool cr_skipped;
+<span class="lineNum">     426 </span>            : 
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     if (virtual_skip == 0) {</span>
+<span class="lineNum">     428 </span>            :         /* no need to seek */
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     } else if (mail-&gt;uid &gt; 0 &amp;&amp; cache-&gt;uid == mail-&gt;uid &amp;&amp;</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :            cache-&gt;physical_start == physical_start &amp;&amp;</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :            cache-&gt;virtual_pos &lt; virtual_skip) {</span>
+<span class="lineNum">     432 </span>            :         /* use cache */
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :         i_stream_seek(input, physical_start + cache-&gt;physical_pos);</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :         virtual_skip -= cache-&gt;virtual_pos;</span>
+<span class="lineNum">     435 </span>            :     }
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     if (message_skip_virtual(input, virtual_skip, &amp;cr_skipped) &lt; 0) {</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         errinput = i_stream_create_error_str(errno, &quot;%s&quot;, i_stream_get_error(input));</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :         i_stream_set_name(errinput, i_stream_get_name(input));</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;input);</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :         return errinput;</span>
+<span class="lineNum">     441 </span>            :     }
+<span class="lineNum">     442 </span>            : 
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :     if (mail-&gt;uid &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :         (msgpart-&gt;partial_offset != 0 ||</span>
+<span class="lineNum">     445 </span><span class="lineNoCov">          0 :          msgpart-&gt;partial_size != (uoff_t)-1) &amp;&amp; !input-&gt;eof) {</span>
+<span class="lineNum">     446 </span>            :         /* update cache */
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :         cache-&gt;uid = mail-&gt;uid;</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :         cache-&gt;physical_start = physical_start;</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         cache-&gt;physical_pos = input-&gt;v_offset - physical_start;</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :         cache-&gt;virtual_pos = msgpart-&gt;partial_offset;</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :         if (cr_skipped) {</span>
+<span class="lineNum">     452 </span>            :             /* the physical_pos points to virtual CRLF, but
+<span class="lineNum">     453 </span>            :                virtual_pos already skipped CR. that can't work,
+<span class="lineNum">     454 </span>            :                so seek back the virtual CR */
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :             cache-&gt;virtual_pos--;</span>
+<span class="lineNum">     456 </span>            :         }
+<span class="lineNum">     457 </span>            :     }
+<span class="lineNum">     458 </span><span class="lineNoCov">          0 :     crlf_input = i_stream_create_crlf(input);</span>
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :     if (cr_skipped)</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :         i_stream_skip(crlf_input, 1);</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;input);</span>
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 :     return crlf_input;</span>
+<span class="lineNum">     463 </span>            : }
+<a name="464"><span class="lineNum">     464 </span>            : </a>
+<span class="lineNum">     465 </span>            : static void
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 : imap_msgpart_get_partial(struct mail *mail, const struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     467 </span>            :              bool convert_nuls, bool use_partial_cache,
+<span class="lineNum">     468 </span>            :              uoff_t virtual_size, bool have_crlfs,
+<span class="lineNum">     469 </span>            :              struct imap_msgpart_open_result *result)
+<span class="lineNum">     470 </span>            : {
+<span class="lineNum">     471 </span>            :     struct istream *input2;
+<span class="lineNum">     472 </span>            :     uoff_t bytes_left;
+<span class="lineNum">     473 </span>            : 
+<span class="lineNum">     474 </span>            :     /* input is already seeked to the beginning of the wanted data */
+<span class="lineNum">     475 </span>            : 
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;partial_offset &gt;= virtual_size) {</span>
+<span class="lineNum">     477 </span>            :         /* can't seek past the MIME part */
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;result-&gt;input);</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :         result-&gt;input = i_stream_create_from_data(&quot;&quot;, 0);</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :         result-&gt;size = 0;</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     482 </span>            :     }
+<span class="lineNum">     483 </span>            : 
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     if (have_crlfs) {</span>
+<span class="lineNum">     485 </span>            :         /* input has CRLF linefeeds, we can quickly seek to
+<span class="lineNum">     486 </span>            :            wanted position */
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :         i_stream_skip(result-&gt;input, msgpart-&gt;partial_offset);</span>
+<span class="lineNum">     488 </span>            :     } else {
+<span class="lineNum">     489 </span>            :         /* input has LF linefeeds. it can be slow to seek to wanted
+<span class="lineNum">     490 </span>            :            position, so try to do caching whenever possible */
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :         i_assert(use_partial_cache);</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :         result-&gt;input = imap_msgpart_crlf_seek(mail, result-&gt;input,</span>
+<span class="lineNum">     493 </span>            :                                msgpart);
+<span class="lineNum">     494 </span>            :     }
+<span class="lineNum">     495 </span>            : 
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     bytes_left = virtual_size - msgpart-&gt;partial_offset;</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;partial_size &lt;= bytes_left) {</span>
+<span class="lineNum">     498 </span>            :         /* limit output to specified number of bytes */
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :         result-&gt;size = msgpart-&gt;partial_size;</span>
+<span class="lineNum">     500 </span>            :     } else {
+<span class="lineNum">     501 </span>            :         /* send all bytes */
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :         result-&gt;size = bytes_left;</span>
+<span class="lineNum">     503 </span>            :     }
+<span class="lineNum">     504 </span>            : 
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :     if (!mail-&gt;has_no_nuls &amp;&amp; convert_nuls) {</span>
+<span class="lineNum">     506 </span>            :         /* IMAP literals must not contain NULs. change them to
+<span class="lineNum">     507 </span>            :            0x80 characters. */
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :         input2 = i_stream_create_nonuls(result-&gt;input, 0x80);</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;result-&gt;input);</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :         result-&gt;input = input2;</span>
+<span class="lineNum">     511 </span>            :     }
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :     input2 = i_stream_create_limit(result-&gt;input, result-&gt;size);</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :     i_stream_unref(&amp;result-&gt;input);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :     result-&gt;input = input2;</span>
+<span class="lineNum">     515 </span>            : }
+<a name="516"><span class="lineNum">     516 </span>            : </a>
+<span class="lineNum">     517 </span>            : static int
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 : imap_msgpart_find_part(struct mail *mail, const struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     519 </span>            :                struct message_part **part_r)
+<span class="lineNum">     520 </span>            : {
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :     struct message_part *parts, *part = NULL;</span>
+<span class="lineNum">     522 </span>            : 
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :     if (*msgpart-&gt;section_number == '\0') {</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         *part_r = NULL;</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     526 </span>            :     }
+<span class="lineNum">     527 </span>            : 
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :     if (mail_get_parts(mail, &amp;parts) &lt; 0)</span>
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     530 </span><span class="lineNoCov">          0 :     part = imap_msgpart_find(parts, msgpart-&gt;section_number);</span>
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :     if (part == NULL) {</span>
+<span class="lineNum">     532 </span>            :         /* MIME part not found. */
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :         *part_r = NULL;</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     535 </span>            :     }
+<span class="lineNum">     536 </span>            : 
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :     switch (msgpart-&gt;fetch_type) {</span>
+<span class="lineNum">     538 </span>            :     case FETCH_MIME:
+<span class="lineNum">     539 </span>            :         /* What to do if this is a message/rfc822? Does it have
+<span class="lineNum">     540 </span>            :            MIME headers or not? Possibilities are: a) no, return
+<span class="lineNum">     541 </span>            :            empty string (UW-IMAP does this), b) return the same as
+<span class="lineNum">     542 </span>            :            HEADER. Dovecot has done b) for a long time and it's not
+<span class="lineNum">     543 </span>            :            very clear which one is correct, so we'll just continue
+<span class="lineNum">     544 </span>            :            with b) */
+<span class="lineNum">     545 </span>            :     case FETCH_FULL:
+<span class="lineNum">     546 </span>            :     case FETCH_MIME_BODY:
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     548 </span>            :     case FETCH_HEADER:
+<span class="lineNum">     549 </span>            :     case FETCH_HEADER_FIELDS:
+<span class="lineNum">     550 </span>            :     case FETCH_HEADER_FIELDS_NOT:
+<span class="lineNum">     551 </span>            :     case FETCH_BODY:
+<span class="lineNum">     552 </span>            :         /* fetching message/rfc822 part's header/body */
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :         if ((part-&gt;flags &amp; MESSAGE_PART_FLAG_MESSAGE_RFC822) == 0) {</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :             *part_r = NULL;</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :             return 0;</span>
+<span class="lineNum">     556 </span>            :         }
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :         i_assert(part-&gt;children != NULL &amp;&amp;</span>
+<span class="lineNum">     558 </span>            :              part-&gt;children-&gt;next == NULL);
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :         part = part-&gt;children;</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     561 </span>            :     }
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :     *part_r = part;</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :     return 1;</span>
+<span class="lineNum">     564 </span>            : }
+<a name="565"><span class="lineNum">     565 </span>            : </a>
+<span class="lineNum">     566 </span>            : static int
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 : imap_msgpart_open_normal(struct mail *mail, struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     568 </span>            :              const struct message_part *part,
+<span class="lineNum">     569 </span>            :              uoff_t *virtual_size_r, bool *have_crlfs_r,
+<span class="lineNum">     570 </span>            :              struct imap_msgpart_open_result *result_r)
+<span class="lineNum">     571 </span>            : {
+<span class="lineNum">     572 </span>            :     struct message_size hdr_size, body_size, part_size;
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :     struct istream *input = NULL;</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :     bool unknown_crlfs = FALSE;</span>
+<span class="lineNum">     575 </span>            : 
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :     i_zero(&amp;hdr_size);</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :     i_zero(&amp;body_size);</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :     i_zero(&amp;part_size);</span>
+<span class="lineNum">     579 </span>            : 
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :     if (*msgpart-&gt;section_number != '\0') {</span>
+<span class="lineNum">     581 </span>            :         /* find the MIME part */
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :         if (mail_get_stream_because(mail, NULL, NULL, &quot;MIME part&quot;, &amp;input) &lt; 0)</span>
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     584 </span>            : 
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :         i_stream_seek(input, part-&gt;physical_pos);</span>
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :         hdr_size = part-&gt;header_size;</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :         body_size = part-&gt;body_size;</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :     } else switch (msgpart-&gt;fetch_type) {</span>
+<span class="lineNum">     589 </span>            :     case FETCH_FULL:
+<span class="lineNum">     590 </span>            :         /* fetch the whole message */
+<span class="lineNum">     591 </span><span class="lineNoCov">          0 :         if (mail_get_stream_because(mail, NULL, NULL, &quot;full mail&quot;, &amp;input) &lt; 0 ||</span>
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :             mail_get_virtual_size(mail, &amp;body_size.virtual_size) &lt; 0)</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :         result_r-&gt;size_field = MAIL_FETCH_VIRTUAL_SIZE;</span>
+<span class="lineNum">     595 </span>            : 
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         i_assert(mail-&gt;lookup_abort == MAIL_LOOKUP_ABORT_NEVER);</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :         mail-&gt;lookup_abort = MAIL_LOOKUP_ABORT_READ_MAIL;</span>
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :         if (mail_get_physical_size(mail, &amp;body_size.physical_size) &lt; 0)</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :             unknown_crlfs = TRUE;</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :         mail-&gt;lookup_abort = MAIL_LOOKUP_ABORT_NEVER;</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     602 </span>            :     case FETCH_MIME:
+<span class="lineNum">     603 </span>            :     case FETCH_MIME_BODY:
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     605 </span>            :     case FETCH_HEADER:
+<span class="lineNum">     606 </span>            :     case FETCH_HEADER_FIELDS_NOT:
+<span class="lineNum">     607 </span>            :         /* fetch the message's header */
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :         if (mail_get_hdr_stream(mail, &amp;hdr_size, &amp;input) &lt; 0)</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :         result_r-&gt;size_field = MAIL_FETCH_MESSAGE_PARTS;</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     612 </span>            :     case FETCH_HEADER_FIELDS:
+<span class="lineNum">     613 </span>            :         /* try to lookup the headers from cache */
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :         if (msgpart-&gt;header_ctx == NULL) {</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :             msgpart-&gt;header_ctx =</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :                 mailbox_header_lookup_init(mail-&gt;box,</span>
+<span class="lineNum">     617 </span>            :                                msgpart-&gt;headers);
+<span class="lineNum">     618 </span>            :         }
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :         if (mail_get_header_stream(mail, msgpart-&gt;header_ctx,</span>
+<span class="lineNum">     620 </span>            :                        &amp;input) &lt; 0)
+<span class="lineNum">     621 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :         result_r-&gt;size_field = 0;</span>
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     624 </span>            :     case FETCH_BODY:
+<span class="lineNum">     625 </span>            :         /* fetch the message's body */
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :         if (mail_get_stream_because(mail, &amp;hdr_size, &amp;body_size,</span>
+<span class="lineNum">     627 </span>            :                         &quot;mail body&quot;, &amp;input) &lt; 0)
+<span class="lineNum">     628 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :         result_r-&gt;size_field = MAIL_FETCH_MESSAGE_PARTS;</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     631 </span>            :     }
+<span class="lineNum">     632 </span>            : 
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;headers != NULL) {</span>
+<span class="lineNum">     634 </span>            :         /* return specific headers */
+<span class="lineNum">     635 </span><span class="lineNoCov">          0 :         return imap_msgpart_get_partial_header(mail, input, msgpart,</span>
+<span class="lineNum">     636 </span>            :                                virtual_size_r,
+<span class="lineNum">     637 </span>            :                                have_crlfs_r, result_r);
+<span class="lineNum">     638 </span>            :     }
+<span class="lineNum">     639 </span>            : 
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :     switch (msgpart-&gt;fetch_type) {</span>
+<span class="lineNum">     641 </span>            :     case FETCH_FULL:
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :         part_size.physical_size += body_size.physical_size;</span>
+<span class="lineNum">     643 </span><span class="lineNoCov">          0 :         part_size.virtual_size += body_size.virtual_size;</span>
+<span class="lineNum">     644 </span>            :         /* fall through */
+<span class="lineNum">     645 </span>            :     case FETCH_MIME:
+<span class="lineNum">     646 </span>            :     case FETCH_HEADER:
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :         part_size.physical_size += hdr_size.physical_size;</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :         part_size.virtual_size += hdr_size.virtual_size;</span>
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     650 </span>            :     case FETCH_HEADER_FIELDS:
+<span class="lineNum">     651 </span>            :     case FETCH_HEADER_FIELDS_NOT:
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :         i_unreached();</span>
+<span class="lineNum">     653 </span>            :     case FETCH_BODY:
+<span class="lineNum">     654 </span>            :     case FETCH_MIME_BODY:
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         i_stream_skip(input, hdr_size.physical_size);</span>
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :         part_size.physical_size += body_size.physical_size;</span>
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :         part_size.virtual_size += body_size.virtual_size;</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     659 </span>            :     }
+<span class="lineNum">     660 </span>            : 
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :     result_r-&gt;input = input;</span>
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 :     i_stream_ref(input);</span>
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     *virtual_size_r = part_size.virtual_size;</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :     *have_crlfs_r = !unknown_crlfs &amp;&amp;</span>
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :         part_size.virtual_size == part_size.physical_size;</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="667"><span class="lineNum">     667 </span>            : }</a>
+<span class="lineNum">     668 </span>            : 
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 : int imap_msgpart_open(struct mail *mail, struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     670 </span>            :               struct imap_msgpart_open_result *result_r)
+<span class="lineNum">     671 </span>            : {
+<span class="lineNum">     672 </span>            :     struct message_part *part;
+<span class="lineNum">     673 </span>            :     uoff_t virtual_size;
+<span class="lineNum">     674 </span>            :     bool include_hdr, binary, use_partial_cache, have_crlfs;
+<span class="lineNum">     675 </span>            :     int ret;
+<span class="lineNum">     676 </span>            : 
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 :     i_zero(result_r);</span>
+<span class="lineNum">     678 </span>            : 
+<span class="lineNum">     679 </span><span class="lineNoCov">          0 :     if ((ret = imap_msgpart_find_part(mail, msgpart, &amp;part)) &lt; 0)</span>
+<span class="lineNum">     680 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     681 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     682 </span>            :         /* MIME part not found. return an empty part. */
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :         result_r-&gt;input = i_stream_create_from_data(&quot;&quot;, 0);</span>
+<span class="lineNum">     684 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     685 </span>            :     }
+<span class="lineNum">     686 </span>            : 
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;decode_cte_to_binary &amp;&amp;</span>
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :         (msgpart-&gt;fetch_type == FETCH_FULL ||</span>
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :          msgpart-&gt;fetch_type == FETCH_BODY ||</span>
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :          msgpart-&gt;fetch_type == FETCH_MIME_BODY)) {</span>
+<span class="lineNum">     691 </span>            :         /* binary fetch */
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :         include_hdr = msgpart-&gt;fetch_type == FETCH_FULL;</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :         if (part == NULL) {</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :             if (mail_get_parts(mail, &amp;part) &lt; 0)</span>
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     696 </span>            :         }
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :         if (mail_get_binary_stream(mail, part, include_hdr,</span>
+<span class="lineNum">     698 </span>            :                        &amp;virtual_size, &amp;binary,
+<span class="lineNum">     699 </span>            :                        &amp;result_r-&gt;input) &lt; 0)
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :         have_crlfs = TRUE;</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :         use_partial_cache = FALSE;</span>
+<span class="lineNum">     703 </span>            :     } else {
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :         if (imap_msgpart_open_normal(mail, msgpart, part, &amp;virtual_size,</span>
+<span class="lineNum">     705 </span>            :                          &amp;have_crlfs, result_r) &lt; 0)
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         binary = FALSE;</span>
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 :         use_partial_cache = TRUE;</span>
+<span class="lineNum">     709 </span>            :     }
+<span class="lineNum">     710 </span>            : 
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :     if (binary &amp;&amp; msgpart-&gt;decode_cte_to_binary)</span>
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :         result_r-&gt;binary_decoded_input_has_nuls = TRUE;</span>
+<span class="lineNum">     713 </span>            : 
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     imap_msgpart_get_partial(mail, msgpart, !binary, use_partial_cache,</span>
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :                  virtual_size, have_crlfs, result_r);</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="717"><span class="lineNum">     717 </span>            : }</a>
+<span class="lineNum">     718 </span>            : 
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 : int imap_msgpart_size(struct mail *mail, struct imap_msgpart *msgpart,</span>
+<span class="lineNum">     720 </span>            :               uoff_t *size_r)
+<span class="lineNum">     721 </span>            : {
+<span class="lineNum">     722 </span>            :     struct imap_msgpart_open_result result;
+<span class="lineNum">     723 </span>            :     struct message_part *part;
+<span class="lineNum">     724 </span>            :     bool include_hdr;
+<span class="lineNum">     725 </span>            :     unsigned int lines;
+<span class="lineNum">     726 </span>            :     int ret;
+<span class="lineNum">     727 </span>            : 
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :     if (!msgpart-&gt;decode_cte_to_binary ||</span>
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :         (msgpart-&gt;fetch_type != FETCH_FULL &amp;&amp;</span>
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :          msgpart-&gt;fetch_type != FETCH_BODY &amp;&amp;</span>
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :          msgpart-&gt;fetch_type != FETCH_MIME_BODY)) {</span>
+<span class="lineNum">     732 </span>            :         /* generic implementation */
+<span class="lineNum">     733 </span><span class="lineNoCov">          0 :         if (imap_msgpart_open(mail, msgpart, &amp;result) &lt; 0)</span>
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :         i_stream_unref(&amp;result.input);</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :         *size_r = result.size;</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     738 </span>            :     }
+<span class="lineNum">     739 </span>            : 
+<span class="lineNum">     740 </span>            :     /* binary-optimized implementation: */
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :     if ((ret = imap_msgpart_find_part(mail, msgpart, &amp;part)) &lt; 0)</span>
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     744 </span>            :         /* MIME part not found. return an empty part. */
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :         *size_r = 0;</span>
+<span class="lineNum">     746 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     747 </span>            :     }
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :     if (part == NULL) {</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :         if (mail_get_parts(mail, &amp;part) &lt; 0)</span>
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     751 </span>            :     }
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :     include_hdr = msgpart-&gt;fetch_type == FETCH_FULL;</span>
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :     return mail_get_binary_size(mail, part, include_hdr, size_r, &amp;lines);</span>
+<span class="lineNum">     754 </span>            : }
+<a name="755"><span class="lineNum">     755 </span>            : </a>
+<span class="lineNum">     756 </span>            : static int
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 : imap_msgpart_parse_bodystructure(struct mail *mail,</span>
+<span class="lineNum">     758 </span>            :                  struct message_part *all_parts)
+<span class="lineNum">     759 </span>            : {
+<span class="lineNum">     760 </span><span class="lineNoCov">          0 :     struct mail_private *pmail = (struct mail_private *)mail;</span>
+<span class="lineNum">     761 </span>            :     const char *bodystructure, *error;
+<span class="lineNum">     762 </span>            : 
+<span class="lineNum">     763 </span><span class="lineNoCov">          0 :     if (mail_get_special(mail, MAIL_FETCH_IMAP_BODYSTRUCTURE,</span>
+<span class="lineNum">     764 </span>            :                  &amp;bodystructure) &lt; 0)
+<span class="lineNum">     765 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :     if (all_parts-&gt;context != NULL) {</span>
+<span class="lineNum">     767 </span>            :         /* we just parsed the bodystructure */
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     769 </span>            :     }
+<span class="lineNum">     770 </span>            : 
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :     if (imap_bodystructure_parse(bodystructure, pmail-&gt;data_pool,</span>
+<span class="lineNum">     772 </span>            :                      all_parts, &amp;error) &lt; 0) {
+<span class="lineNum">     773 </span><span class="lineNoCov">          0 :         mail_set_cache_corrupted(mail,</span>
+<span class="lineNum">     774 </span>            :             MAIL_FETCH_IMAP_BODYSTRUCTURE, t_strdup_printf(
+<span class="lineNum">     775 </span>            :             &quot;Invalid message_part/BODYSTRUCTURE %s: %s&quot;,
+<span class="lineNum">     776 </span>            :             bodystructure, error));
+<span class="lineNum">     777 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     778 </span>            :     }
+<span class="lineNum">     779 </span><span class="lineNoCov">          0 :     return 0;</span>
+<span class="lineNum">     780 </span>            : }
+<a name="781"><span class="lineNum">     781 </span>            : </a>
+<span class="lineNum">     782 </span>            : static int
+<span class="lineNum">     783 </span><span class="lineNoCov">          0 : imap_msgpart_vsizes_to_binary(struct mail *mail, const struct message_part *part,</span>
+<span class="lineNum">     784 </span>            :                   struct message_part **binpart_r)
+<span class="lineNum">     785 </span>            : {
+<span class="lineNum">     786 </span>            :     struct message_part **pos;
+<span class="lineNum">     787 </span>            :     uoff_t size;
+<span class="lineNum">     788 </span>            :     unsigned int lines;
+<span class="lineNum">     789 </span>            : 
+<span class="lineNum">     790 </span><span class="lineNoCov">          0 :     if (mail_get_binary_size(mail, part, FALSE, &amp;size, &amp;lines) &lt; 0)</span>
+<span class="lineNum">     791 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     792 </span>            : 
+<span class="lineNum">     793 </span><span class="lineNoCov">          0 :     *binpart_r = t_new(struct message_part, 1);</span>
+<span class="lineNum">     794 </span><span class="lineNoCov">          0 :     **binpart_r = *part;</span>
+<span class="lineNum">     795 </span><span class="lineNoCov">          0 :     (*binpart_r)-&gt;body_size.virtual_size = size;</span>
+<span class="lineNum">     796 </span><span class="lineNoCov">          0 :     (*binpart_r)-&gt;body_size.lines = lines;</span>
+<span class="lineNum">     797 </span>            : 
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :     pos = &amp;(*binpart_r)-&gt;children;</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :     for (part = part-&gt;children; part != NULL; part = part-&gt;next) {</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :         if (imap_msgpart_vsizes_to_binary(mail, part, pos) &lt; 0)</span>
+<span class="lineNum">     801 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     802 </span><span class="lineNoCov">          0 :         pos = &amp;(*pos)-&gt;next;</span>
+<span class="lineNum">     803 </span>            :     }
+<span class="lineNum">     804 </span><span class="lineNoCov">          0 :     return 0;</span>
+<a name="805"><span class="lineNum">     805 </span>            : }</a>
+<span class="lineNum">     806 </span>            : 
+<span class="lineNum">     807 </span><span class="lineNoCov">          0 : int imap_msgpart_bodypartstructure(struct mail *mail,</span>
+<span class="lineNum">     808 </span>            :                    struct imap_msgpart *msgpart,
+<span class="lineNum">     809 </span>            :                    const char **bpstruct_r)
+<span class="lineNum">     810 </span>            : {
+<span class="lineNum">     811 </span>            :     struct message_part *all_parts, *part;
+<span class="lineNum">     812 </span>            :     string_t *bpstruct;
+<span class="lineNum">     813 </span>            :     int ret;
+<span class="lineNum">     814 </span>            : 
+<span class="lineNum">     815 </span>            :     /* if we start parsing the body in here, make sure we also parse the
+<span class="lineNum">     816 </span>            :        BODYSTRUCTURE */
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :     mail_add_temp_wanted_fields(mail, MAIL_FETCH_IMAP_BODYSTRUCTURE, NULL);</span>
+<span class="lineNum">     818 </span>            : 
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :     if ((ret = imap_msgpart_find_part(mail, msgpart, &amp;part)) &lt; 0)</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     821 </span><span class="lineNoCov">          0 :     if (ret == 0) {</span>
+<span class="lineNum">     822 </span>            :         /* MIME part not found. */
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :         *bpstruct_r = NULL;</span>
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     825 </span>            :     }
+<span class="lineNum">     826 </span>            : 
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :     if (mail_get_parts(mail, &amp;all_parts) &lt; 0)</span>
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     829 </span><span class="lineNoCov">          0 :     if (all_parts-&gt;context == NULL) {</span>
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :         if (imap_msgpart_parse_bodystructure(mail, all_parts) &lt; 0)</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :             return -1;</span>
+<span class="lineNum">     832 </span>            :     }
+<span class="lineNum">     833 </span><span class="lineNoCov">          0 :     if (part == NULL)</span>
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :         part = all_parts;</span>
+<span class="lineNum">     835 </span>            : 
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;decode_cte_to_binary)</span>
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :         ret = imap_msgpart_vsizes_to_binary(mail, part, &amp;part);</span>
+<span class="lineNum">     838 </span>            : 
+<span class="lineNum">     839 </span><span class="lineNoCov">          0 :     if (ret &gt;= 0) {</span>
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :         bpstruct = t_str_new(256);</span>
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :         imap_bodystructure_write(part, bpstruct, TRUE);</span>
+<span class="lineNum">     842 </span><span class="lineNoCov">          0 :         *bpstruct_r = str_c(bpstruct);</span>
+<span class="lineNum">     843 </span>            :     }
+<span class="lineNum">     844 </span><span class="lineNoCov">          0 :     return ret &lt; 0 ? -1 : 1;</span>
+<span class="lineNum">     845 </span>            : }
+<a name="846"><span class="lineNum">     846 </span>            : </a>
+<span class="lineNum">     847 </span>            : 
+<span class="lineNum">     848 </span><span class="lineNoCov">          0 : void imap_msgpart_close_mailbox(struct imap_msgpart *msgpart)</span>
+<span class="lineNum">     849 </span>            : {
+<span class="lineNum">     850 </span><span class="lineNoCov">          0 :     if (msgpart-&gt;header_ctx != NULL)</span>
+<span class="lineNum">     851 </span><span class="lineNoCov">          0 :         mailbox_header_lookup_unref(&amp;msgpart-&gt;header_ctx);</span>
+<span class="lineNum">     852 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,417 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/sha3.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - sha3.c<span style="font-size: 80%;"> (source / <a href="sha3.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">114</td>
+            <td class="headerCovTableEntry">124</td>
+            <td class="headerCovTableEntryHi">91.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntryMed">85.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* -------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>            :  * Works when compiled for either 32-bit or 64-bit targets, optimized for
+<span class="lineNum">       3 </span>            :  * 64 bit.
+<span class="lineNum">       4 </span>            :  *
+<span class="lineNum">       5 </span>            :  * Canonical implementation of Init/Update/Finalize for SHA-3 byte input.
+<span class="lineNum">       6 </span>            :  *
+<span class="lineNum">       7 </span>            :  * SHA3-256, SHA3-384, SHA-512 are implemented. SHA-224 can easily be added.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * Based on code from http://keccak.noekeon.org/ .
+<span class="lineNum">      10 </span>            :  *
+<span class="lineNum">      11 </span>            :  * I place the code that I wrote into public domain, free to use.
+<span class="lineNum">      12 </span>            :  *
+<span class="lineNum">      13 </span>            :  * I would appreciate if you give credits to this work if you used it to
+<span class="lineNum">      14 </span>            :  * write or test * your code.
+<span class="lineNum">      15 </span>            :  *
+<span class="lineNum">      16 </span>            :  * Aug 2015. Andrey Jivsov. crypto@brainhub.org
+<span class="lineNum">      17 </span>            :  *
+<span class="lineNum">      18 </span>            :  * Modified for Dovecot oy use
+<span class="lineNum">      19 </span>            :  * Oct 2016. Aki Tuomi &lt;aki.tuomi@dovecot.fi&gt;
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            :  * ---------------------------------------------------------------------- */
+<span class="lineNum">      22 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">      23 </span>            : #include &quot;sha3.h&quot;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : #include &lt;stdio.h&gt;
+<span class="lineNum">      26 </span>            : #include &lt;stdint.h&gt;
+<span class="lineNum">      27 </span>            : #include &lt;string.h&gt;
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : #if defined(_MSC_VER)
+<span class="lineNum">      30 </span>            : #define SHA3_CONST(x) x
+<span class="lineNum">      31 </span>            : #else
+<span class="lineNum">      32 </span>            : #define SHA3_CONST(x) x##L
+<span class="lineNum">      33 </span>            : #endif
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : /* The following state definition should normally be in a separate
+<span class="lineNum">      36 </span>            :  * header file
+<span class="lineNum">      37 </span>            :  */
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : #ifndef SHA3_ROTL64
+<span class="lineNum">      40 </span>            : #define SHA3_ROTL64(x, y) \
+<span class="lineNum">      41 </span>            :     (((x) &lt;&lt; (y)) | ((x) &gt;&gt; ((sizeof(uint64_t)*8) - (y))))
+<span class="lineNum">      42 </span>            : #endif
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            : static const uint64_t keccakf_rndc[24] = {
+<span class="lineNum">      45 </span>            :     SHA3_CONST(0x0000000000000001UL), SHA3_CONST(0x0000000000008082UL),
+<span class="lineNum">      46 </span>            :     SHA3_CONST(0x800000000000808aUL), SHA3_CONST(0x8000000080008000UL),
+<span class="lineNum">      47 </span>            :     SHA3_CONST(0x000000000000808bUL), SHA3_CONST(0x0000000080000001UL),
+<span class="lineNum">      48 </span>            :     SHA3_CONST(0x8000000080008081UL), SHA3_CONST(0x8000000000008009UL),
+<span class="lineNum">      49 </span>            :     SHA3_CONST(0x000000000000008aUL), SHA3_CONST(0x0000000000000088UL),
+<span class="lineNum">      50 </span>            :     SHA3_CONST(0x0000000080008009UL), SHA3_CONST(0x000000008000000aUL),
+<span class="lineNum">      51 </span>            :     SHA3_CONST(0x000000008000808bUL), SHA3_CONST(0x800000000000008bUL),
+<span class="lineNum">      52 </span>            :     SHA3_CONST(0x8000000000008089UL), SHA3_CONST(0x8000000000008003UL),
+<span class="lineNum">      53 </span>            :     SHA3_CONST(0x8000000000008002UL), SHA3_CONST(0x8000000000000080UL),
+<span class="lineNum">      54 </span>            :     SHA3_CONST(0x000000000000800aUL), SHA3_CONST(0x800000008000000aUL),
+<span class="lineNum">      55 </span>            :     SHA3_CONST(0x8000000080008081UL), SHA3_CONST(0x8000000000008080UL),
+<span class="lineNum">      56 </span>            :     SHA3_CONST(0x0000000080000001UL), SHA3_CONST(0x8000000080008008UL)
+<span class="lineNum">      57 </span>            : };
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span>            : static const unsigned keccakf_rotc[24] = {
+<span class="lineNum">      60 </span>            :     1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62,
+<span class="lineNum">      61 </span>            :     18, 39, 61, 20, 44
+<span class="lineNum">      62 </span>            : };
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span>            : static const unsigned keccakf_piln[24] = {
+<span class="lineNum">      65 </span>            :     10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20,
+<span class="lineNum">      66 </span>            :     14, 22, 9, 6, 1
+<span class="lineNum">      67 </span>            : };
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span>            : /* generally called after SHA3_KECCAK_SPONGE_WORDS-ctx-&gt;capacityWords words
+<span class="lineNum">      70 </span>            :  * are XORed into the state s
+<a name="71"><span class="lineNum">      71 </span>            :  */</a>
+<span class="lineNum">      72 </span>            : static void
+<span class="lineNum">      73 </span><span class="lineCov">     178162 : keccakf(uint64_t s[25])</span>
+<span class="lineNum">      74 </span>            : {
+<span class="lineNum">      75 </span>            :     int i, j, round;
+<span class="lineNum">      76 </span>            :     uint64_t t, bc[5];
+<span class="lineNum">      77 </span>            : #define KECCAK_ROUNDS 24
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span><span class="lineCov">    4454050 :     for(round = 0; round &lt; KECCAK_ROUNDS; round++) {</span>
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span>            :         /* Theta */
+<span class="lineNum">      82 </span><span class="lineCov">   25655328 :         for(i = 0; i &lt; 5; i++)</span>
+<span class="lineNum">      83 </span><span class="lineCov">   21379440 :             bc[i] = s[i] ^ s[i + 5] ^ s[i + 10] ^ s[i + 15] ^ s[i + 20];</span>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span><span class="lineCov">   25655328 :         for(i = 0; i &lt; 5; i++) {</span>
+<span class="lineNum">      86 </span><span class="lineCov">   21379440 :             t = bc[(i + 4) % 5] ^ SHA3_ROTL64(bc[(i + 1) % 5], 1);</span>
+<span class="lineNum">      87 </span><span class="lineCov">  128276640 :             for(j = 0; j &lt; 25; j += 5)</span>
+<span class="lineNum">      88 </span><span class="lineCov">  106897200 :                 s[j + i] ^= t;</span>
+<span class="lineNum">      89 </span>            :         }
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span>            :         /* Rho Pi */
+<span class="lineNum">      92 </span><span class="lineCov">    4275888 :         t = s[1];</span>
+<span class="lineNum">      93 </span><span class="lineCov">  106897200 :         for(i = 0; i &lt; 24; i++) {</span>
+<span class="lineNum">      94 </span><span class="lineCov">  102621312 :             j = keccakf_piln[i];</span>
+<span class="lineNum">      95 </span><span class="lineCov">  102621312 :             bc[0] = s[j];</span>
+<span class="lineNum">      96 </span><span class="lineCov">  102621312 :             s[j] = SHA3_ROTL64(t, keccakf_rotc[i]);</span>
+<span class="lineNum">      97 </span><span class="lineCov">  102621312 :             t = bc[0];</span>
+<span class="lineNum">      98 </span>            :         }
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span>            :         /* Chi */
+<span class="lineNum">     101 </span><span class="lineCov">   25655328 :         for(j = 0; j &lt; 25; j += 5) {</span>
+<span class="lineNum">     102 </span><span class="lineCov">  128276640 :             for(i = 0; i &lt; 5; i++)</span>
+<span class="lineNum">     103 </span><span class="lineCov">  106897200 :                 bc[i] = s[j + i];</span>
+<span class="lineNum">     104 </span><span class="lineCov">  128276640 :             for(i = 0; i &lt; 5; i++)</span>
+<span class="lineNum">     105 </span><span class="lineCov">  106897200 :                 s[j + i] ^= (~bc[(i + 1) % 5]) &amp; bc[(i + 2) % 5];</span>
+<span class="lineNum">     106 </span>            :         }
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span>            :         /* Iota */
+<span class="lineNum">     109 </span><span class="lineCov">    4275888 :         s[0] ^= keccakf_rndc[round];</span>
+<span class="lineNum">     110 </span>            :     }
+<span class="lineNum">     111 </span><span class="lineCov">     178162 : }</span>
+<span class="lineNum">     112 </span>            : 
+<a name="113"><span class="lineNum">     113 </span>            : /* *************************** Public Interface ************************ */</a>
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span><span class="lineCov">          5 : void sha3_256_init(void *context)</span>
+<span class="lineNum">     116 </span>            : {
+<span class="lineNum">     117 </span><span class="lineCov">          5 :     struct sha3_ctx *ctx = context;</span>
+<span class="lineNum">     118 </span><span class="lineCov">          5 :     i_zero(ctx);</span>
+<span class="lineNum">     119 </span><span class="lineCov">          5 :     ctx-&gt;capacityWords = 2 * 256 / (8 * sizeof(uint64_t));</span>
+<a name="120"><span class="lineNum">     120 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span><span class="lineCov">          5 : void sha3_512_init(void *context)</span>
+<span class="lineNum">     123 </span>            : {
+<span class="lineNum">     124 </span><span class="lineCov">          5 :     struct sha3_ctx *ctx = context;</span>
+<span class="lineNum">     125 </span><span class="lineCov">          5 :     i_zero(ctx);</span>
+<span class="lineNum">     126 </span><span class="lineCov">          5 :     ctx-&gt;capacityWords = 2 * 512 / (8 * sizeof(uint64_t));</span>
+<a name="127"><span class="lineNum">     127 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     128 </span>            : 
+<span class="lineNum">     129 </span><span class="lineCov">       8598 : void sha3_loop(void *context, const void *data, size_t len)</span>
+<span class="lineNum">     130 </span>            : {
+<span class="lineNum">     131 </span><span class="lineCov">       8598 :     struct sha3_ctx *ctx = context;</span>
+<span class="lineNum">     132 </span>            :     /* 0...7 -- how much is needed to have a word */
+<span class="lineNum">     133 </span><span class="lineCov">       8598 :     unsigned old_tail = (8 - ctx-&gt;byteIndex) &amp; 7;</span>
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span>            :     size_t words;
+<span class="lineNum">     136 </span>            :     unsigned tail;
+<span class="lineNum">     137 </span>            :     size_t i;
+<span class="lineNum">     138 </span>            : 
+<span class="lineNum">     139 </span><span class="lineCov">       8598 :     const uint8_t *buf = data;</span>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineCov">       8598 :     i_assert(ctx-&gt;byteIndex &lt; 8);</span>
+<span class="lineNum">     142 </span><span class="lineCov">       8598 :     i_assert(ctx-&gt;wordIndex &lt; sizeof(ctx-&gt;s) / sizeof(ctx-&gt;s[0]));</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span><span class="lineCov">       8598 :     if(len &lt; old_tail) { /* have no complete word or haven't started</span>
+<span class="lineNum">     145 </span>            :                   * the word yet */
+<span class="lineNum">     146 </span>            :         /* endian-independent code follows: */
+<span class="lineNum">     147 </span><span class="lineCov">        932 :         while (len &gt; 0) {</span>
+<span class="lineNum">     148 </span><span class="lineCov">        320 :             len--;</span>
+<span class="lineNum">     149 </span><span class="lineCov">        640 :             ctx-&gt;saved |= (uint64_t) (*(buf++)) &lt;&lt;</span>
+<span class="lineNum">     150 </span><span class="lineCov">        320 :                     ((ctx-&gt;byteIndex++) * 8);</span>
+<span class="lineNum">     151 </span>            :         }
+<span class="lineNum">     152 </span><span class="lineCov">        306 :         i_assert(ctx-&gt;byteIndex &lt; 8);</span>
+<span class="lineNum">     153 </span><span class="lineCov">       8904 :         return;</span>
+<span class="lineNum">     154 </span>            :     }
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineCov">       8292 :     if(old_tail != 0) { /* will have one word to process */</span>
+<span class="lineNum">     157 </span>            :         /* endian-independent code follows: */
+<span class="lineNum">     158 </span><span class="lineCov">       7212 :         len -= old_tail;</span>
+<span class="lineNum">     159 </span><span class="lineCov">      43110 :         while (old_tail &gt; 0) {</span>
+<span class="lineNum">     160 </span><span class="lineCov">      28686 :             old_tail--;</span>
+<span class="lineNum">     161 </span><span class="lineCov">      57372 :             ctx-&gt;saved |= (uint64_t) (*(buf++)) &lt;&lt;</span>
+<span class="lineNum">     162 </span><span class="lineCov">      28686 :                 ((ctx-&gt;byteIndex++) * 8);</span>
+<span class="lineNum">     163 </span>            :         }
+<span class="lineNum">     164 </span>            : 
+<span class="lineNum">     165 </span>            :         /* now ready to add saved to the sponge */
+<span class="lineNum">     166 </span><span class="lineCov">       7212 :         ctx-&gt;s[ctx-&gt;wordIndex] ^= ctx-&gt;saved;</span>
+<span class="lineNum">     167 </span><span class="lineCov">       7212 :         i_assert(ctx-&gt;byteIndex == 8);</span>
+<span class="lineNum">     168 </span><span class="lineCov">       7212 :         ctx-&gt;byteIndex = 0;</span>
+<span class="lineNum">     169 </span><span class="lineCov">       7212 :         ctx-&gt;saved = 0;</span>
+<span class="lineNum">     170 </span><span class="lineCov">      14424 :         if(++ctx-&gt;wordIndex ==</span>
+<span class="lineNum">     171 </span><span class="lineCov">       7212 :                 (SHA3_KECCAK_SPONGE_WORDS -</span>
+<span class="lineNum">     172 </span><span class="lineCov">       7212 :                 ctx-&gt;capacityWords)) {</span>
+<span class="lineNum">     173 </span><span class="lineCov">        411 :             keccakf(ctx-&gt;s);</span>
+<span class="lineNum">     174 </span><span class="lineCov">        411 :             ctx-&gt;wordIndex = 0;</span>
+<span class="lineNum">     175 </span>            :         }
+<span class="lineNum">     176 </span>            :     }
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span>            :     /* now work in full words directly from input */
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineCov">       8292 :     i_assert(ctx-&gt;byteIndex == 0);</span>
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span><span class="lineCov">       8292 :     words = len / sizeof(uint64_t);</span>
+<span class="lineNum">     183 </span><span class="lineCov">       8292 :     tail = len - words * sizeof(uint64_t);</span>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span><span class="lineCov">    2097852 :     for(i = 0; i &lt; words; i++, buf += sizeof(uint64_t)) {</span>
+<span class="lineNum">     186 </span><span class="lineCov">    6268680 :         const uint64_t t = (uint64_t) (buf[0]) |</span>
+<span class="lineNum">     187 </span><span class="lineCov">    4179120 :                 ((uint64_t) (buf[1]) &lt;&lt; 8 * 1) |</span>
+<span class="lineNum">     188 </span><span class="lineCov">    4179120 :                 ((uint64_t) (buf[2]) &lt;&lt; 8 * 2) |</span>
+<span class="lineNum">     189 </span><span class="lineCov">    4179120 :                 ((uint64_t) (buf[3]) &lt;&lt; 8 * 3) |</span>
+<span class="lineNum">     190 </span><span class="lineCov">    4179120 :                 ((uint64_t) (buf[4]) &lt;&lt; 8 * 4) |</span>
+<span class="lineNum">     191 </span><span class="lineCov">    4179120 :                 ((uint64_t) (buf[5]) &lt;&lt; 8 * 5) |</span>
+<span class="lineNum">     192 </span><span class="lineCov">    4179120 :                 ((uint64_t) (buf[6]) &lt;&lt; 8 * 6) |</span>
+<span class="lineNum">     193 </span><span class="lineCov">    2089560 :                 ((uint64_t) (buf[7]) &lt;&lt; 8 * 7);</span>
+<span class="lineNum">     194 </span>            : #if defined(__x86_64__ ) || defined(__i386__)
+<span class="lineNum">     195 </span><span class="lineCov">    2089560 :         i_assert(memcmp(&amp;t, buf, 8) == 0);</span>
+<span class="lineNum">     196 </span>            : #endif
+<span class="lineNum">     197 </span><span class="lineCov">    2089560 :         ctx-&gt;s[ctx-&gt;wordIndex] ^= t;</span>
+<span class="lineNum">     198 </span><span class="lineCov">    4179120 :         if(++ctx-&gt;wordIndex ==</span>
+<span class="lineNum">     199 </span><span class="lineCov">    2089560 :                 (SHA3_KECCAK_SPONGE_WORDS - ctx-&gt;capacityWords)) {</span>
+<span class="lineNum">     200 </span><span class="lineCov">     177741 :             keccakf(ctx-&gt;s);</span>
+<span class="lineNum">     201 </span><span class="lineCov">     177741 :             ctx-&gt;wordIndex = 0;</span>
+<span class="lineNum">     202 </span>            :         }
+<span class="lineNum">     203 </span>            :     }
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span>            :     /* finally, save the partial word */
+<span class="lineNum">     206 </span><span class="lineCov">       8292 :     i_assert(ctx-&gt;byteIndex == 0 &amp;&amp; tail &lt; 8);</span>
+<span class="lineNum">     207 </span><span class="lineCov">      45288 :     while (tail &gt; 0) {</span>
+<span class="lineNum">     208 </span><span class="lineCov">      28704 :         tail--;</span>
+<span class="lineNum">     209 </span><span class="lineCov">      28704 :         ctx-&gt;saved |= (uint64_t) (*(buf++)) &lt;&lt; ((ctx-&gt;byteIndex++) * 8);</span>
+<span class="lineNum">     210 </span>            :     }
+<span class="lineNum">     211 </span><span class="lineCov">       8292 :     i_assert(ctx-&gt;byteIndex &lt; 8);</span>
+<span class="lineNum">     212 </span>            : }
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span>            : /* This is simply the 'update' with the padding block.
+<span class="lineNum">     215 </span>            :  * The padding block is 0x01 || 0x00* || 0x80. First 0x01 and last 0x80
+<span class="lineNum">     216 </span>            :  * bytes are always present, but they can be the same byte.
+<a name="217"><span class="lineNum">     217 </span>            :  */</a>
+<span class="lineNum">     218 </span>            : static void
+<span class="lineNum">     219 </span><span class="lineCov">         10 : sha3_finalize(struct sha3_ctx *ctx)</span>
+<span class="lineNum">     220 </span>            : {
+<span class="lineNum">     221 </span>            :     /* Append 2-bit suffix 01, per SHA-3 spec. Instead of 1 for padding we
+<span class="lineNum">     222 </span>            :      * use 1&lt;&lt;2 below. The 0x02 below corresponds to the suffix 01.
+<span class="lineNum">     223 </span>            :      * Overall, we feed 0, then 1, and finally 1 to start padding. Without
+<span class="lineNum">     224 </span>            :      * M || 01, we would simply use 1 to start padding. */
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span>            :     /* SHA3 version */
+<span class="lineNum">     227 </span><span class="lineCov">         20 :     ctx-&gt;s[ctx-&gt;wordIndex] ^=</span>
+<span class="lineNum">     228 </span><span class="lineCov">         20 :             (ctx-&gt;saved ^ ((uint64_t) ((uint64_t) (0x02 | (1 &lt;&lt; 2)) &lt;&lt;</span>
+<span class="lineNum">     229 </span><span class="lineCov">         10 :                             ((ctx-&gt;byteIndex) * 8))));</span>
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span><span class="lineCov">         10 :     ctx-&gt;s[SHA3_KECCAK_SPONGE_WORDS - ctx-&gt;capacityWords - 1] ^=</span>
+<span class="lineNum">     232 </span>            :             SHA3_CONST(0x8000000000000000UL);
+<span class="lineNum">     233 </span><span class="lineCov">         10 :     keccakf(ctx-&gt;s);</span>
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span>            : #ifdef WORDS_BIGENDIAN
+<span class="lineNum">     236 </span>            :     {
+<span class="lineNum">     237 </span>            :         unsigned i;
+<span class="lineNum">     238 </span>            :         for(i = 0; i &lt; SHA3_KECCAK_SPONGE_WORDS; i++) {
+<span class="lineNum">     239 </span>            :             const unsigned t1 = (uint32_t) ctx-&gt;s[i];
+<span class="lineNum">     240 </span>            :             const unsigned t2 = (uint32_t) ((ctx-&gt;s[i] &gt;&gt; 16) &gt;&gt; 16);
+<span class="lineNum">     241 </span>            :             ctx-&gt;sb[i * 8 + 0] = (uint8_t) (t1);
+<span class="lineNum">     242 </span>            :             ctx-&gt;sb[i * 8 + 1] = (uint8_t) (t1 &gt;&gt; 8);
+<span class="lineNum">     243 </span>            :             ctx-&gt;sb[i * 8 + 2] = (uint8_t) (t1 &gt;&gt; 16);
+<span class="lineNum">     244 </span>            :             ctx-&gt;sb[i * 8 + 3] = (uint8_t) (t1 &gt;&gt; 24);
+<span class="lineNum">     245 </span>            :             ctx-&gt;sb[i * 8 + 4] = (uint8_t) (t2);
+<span class="lineNum">     246 </span>            :             ctx-&gt;sb[i * 8 + 5] = (uint8_t) (t2 &gt;&gt; 8);
+<span class="lineNum">     247 </span>            :             ctx-&gt;sb[i * 8 + 6] = (uint8_t) (t2 &gt;&gt; 16);
+<span class="lineNum">     248 </span>            :             ctx-&gt;sb[i * 8 + 7] = (uint8_t) (t2 &gt;&gt; 24);
+<span class="lineNum">     249 </span>            :         }
+<span class="lineNum">     250 </span>            :     }
+<span class="lineNum">     251 </span>            : #endif
+<a name="252"><span class="lineNum">     252 </span><span class="lineCov">         10 : }</span></a>
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span><span class="lineCov">          5 : void sha3_256_result(void *context,</span>
+<span class="lineNum">     255 </span>            :              unsigned char digest[STATIC_ARRAY SHA256_RESULTLEN])
+<span class="lineNum">     256 </span>            : {
+<span class="lineNum">     257 </span><span class="lineCov">          5 :     struct sha3_ctx *ctx = context;</span>
+<span class="lineNum">     258 </span><span class="lineCov">          5 :     sha3_finalize(ctx);</span>
+<span class="lineNum">     259 </span><span class="lineCov">          5 :     memcpy(digest, ctx-&gt;sb, SHA256_RESULTLEN);</span>
+<span class="lineNum">     260 </span><span class="lineCov">          5 : }</span>
+<a name="261"><span class="lineNum">     261 </span>            : </a>
+<span class="lineNum">     262 </span>            : 
+<span class="lineNum">     263 </span><span class="lineCov">          5 : void sha3_512_result(void *context,</span>
+<span class="lineNum">     264 </span>            :              unsigned char digest[STATIC_ARRAY SHA512_RESULTLEN])
+<span class="lineNum">     265 </span>            : {
+<span class="lineNum">     266 </span><span class="lineCov">          5 :     struct sha3_ctx *ctx = context;</span>
+<span class="lineNum">     267 </span><span class="lineCov">          5 :     sha3_finalize(ctx);</span>
+<span class="lineNum">     268 </span><span class="lineCov">          5 :     memcpy(digest, ctx-&gt;sb, SHA512_RESULTLEN);</span>
+<span class="lineNum">     269 </span><span class="lineCov">          5 : }</span>
+<a name="270"><span class="lineNum">     270 </span>            : </a>
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 : void sha3_256_get_digest(const void *data, size_t size,</span>
+<span class="lineNum">     273 </span>            :              unsigned char digest[STATIC_ARRAY SHA256_RESULTLEN])
+<span class="lineNum">     274 </span>            : {
+<span class="lineNum">     275 </span>            :     struct sha3_ctx ctx;
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     sha3_256_init(&amp;ctx);</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     sha3_loop(&amp;ctx, data, size);</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     sha3_256_result(&amp;ctx, digest);</span>
+<a name="279"><span class="lineNum">     279 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 : void sha3_512_get_digest(const void *data, size_t size,</span>
+<span class="lineNum">     282 </span>            :              unsigned char digest[STATIC_ARRAY SHA512_RESULTLEN])
+<span class="lineNum">     283 </span>            : {
+<span class="lineNum">     284 </span>            :     struct sha3_ctx ctx;
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     sha3_512_init(&amp;ctx);</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     sha3_loop(&amp;ctx, data, size);</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     sha3_512_result(&amp;ctx, digest);</span>
+<a name="288"><span class="lineNum">     288 </span><span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineCov">          5 : static void hash_method_init_sha3_256(void *context)</span>
+<span class="lineNum">     291 </span>            : {
+<span class="lineNum">     292 </span><span class="lineCov">          5 :     sha3_256_init(context);</span>
+<a name="293"><span class="lineNum">     293 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     294 </span>            : 
+<span class="lineNum">     295 </span><span class="lineCov">       8598 : static void hash_method_loop_sha3(void *context, const void *data, size_t size)</span>
+<span class="lineNum">     296 </span>            : {
+<span class="lineNum">     297 </span><span class="lineCov">       8598 :     sha3_loop(context, data, size);</span>
+<a name="298"><span class="lineNum">     298 </span><span class="lineCov">       8598 : }</span></a>
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineCov">          5 : static void hash_method_result_sha3_256(void *context, unsigned char *result_r)</span>
+<span class="lineNum">     301 </span>            : {
+<span class="lineNum">     302 </span><span class="lineCov">          5 :     sha3_256_result(context, result_r);</span>
+<span class="lineNum">     303 </span><span class="lineCov">          5 : }</span>
+<span class="lineNum">     304 </span>            : 
+<span class="lineNum">     305 </span>            : const struct hash_method hash_method_sha3_256 = {
+<span class="lineNum">     306 </span>            :     &quot;sha3-256&quot;,
+<span class="lineNum">     307 </span>            :     sizeof(struct sha3_ctx),
+<span class="lineNum">     308 </span>            :     SHA256_RESULTLEN,
+<span class="lineNum">     309 </span>            : 
+<span class="lineNum">     310 </span>            :     hash_method_init_sha3_256,
+<span class="lineNum">     311 </span>            :     hash_method_loop_sha3,
+<span class="lineNum">     312 </span>            :     hash_method_result_sha3_256
+<a name="313"><span class="lineNum">     313 </span>            : };</a>
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span><span class="lineCov">          5 : static void hash_method_init_sha3_512(void *context)</span>
+<span class="lineNum">     316 </span>            : {
+<span class="lineNum">     317 </span><span class="lineCov">          5 :     sha3_512_init(context);</span>
+<a name="318"><span class="lineNum">     318 </span><span class="lineCov">          5 : }</span></a>
+<span class="lineNum">     319 </span>            : 
+<span class="lineNum">     320 </span><span class="lineCov">          5 : static void hash_method_result_sha3_512(void *context, unsigned char *result_r)</span>
+<span class="lineNum">     321 </span>            : {
+<span class="lineNum">     322 </span><span class="lineCov">          5 :     sha3_512_result(context, result_r);</span>
+<span class="lineNum">     323 </span><span class="lineCov">          5 : }</span>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span>            : const struct hash_method hash_method_sha3_512 = {
+<span class="lineNum">     326 </span>            :     &quot;sha3-512&quot;,
+<span class="lineNum">     327 </span>            :     sizeof(struct sha3_ctx),
+<span class="lineNum">     328 </span>            :     SHA512_RESULTLEN,
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span>            :     hash_method_init_sha3_512,
+<span class="lineNum">     331 </span>            :     hash_method_loop_sha3,
+<span class="lineNum">     332 </span>            :     hash_method_result_sha3_512
+<span class="lineNum">     333 </span>            : };
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

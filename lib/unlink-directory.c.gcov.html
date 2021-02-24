@@ -1,0 +1,367 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib/unlink-directory.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib</a> - unlink-directory.c<span style="font-size: 80%;"> (source / <a href="unlink-directory.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">54</td>
+            <td class="headerCovTableEntry">97</td>
+            <td class="headerCovTableEntryLo">55.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2002-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : /*
+<span class="lineNum">       4 </span>            :    There's a bit tricky race condition with recursive deletion.
+<span class="lineNum">       5 </span>            :    Suppose this happens:
+<span class="lineNum">       6 </span>            : 
+<span class="lineNum">       7 </span>            :    lstat(dir, ..) -&gt; OK, it's a directory
+<span class="lineNum">       8 </span>            :    // attacker deletes dir, replaces it with symlink to /
+<span class="lineNum">       9 </span>            :    opendir(dir) -&gt; it actually opens /
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            :    Most portable solution is to lstat() the dir, chdir() there, then check
+<span class="lineNum">      12 </span>            :    that &quot;.&quot; points to same device/inode as we originally lstat()ed. This
+<span class="lineNum">      13 </span>            :    assumes that the device has usable inodes, most should except for some NFS
+<span class="lineNum">      14 </span>            :    implementations.
+<span class="lineNum">      15 </span>            : 
+<span class="lineNum">      16 </span>            :    Filesystems may also reassign a deleted inode to another file
+<span class="lineNum">      17 </span>            :    immediately after it's deleted. That in theory makes it possible to exploit
+<span class="lineNum">      18 </span>            :    this race to delete the new directory. However, the new inode is quite
+<span class="lineNum">      19 </span>            :    unlikely to be any important directory, and attacker is quite unlikely to
+<span class="lineNum">      20 </span>            :    find out which directory even got the inode. Maybe with some setuid program
+<span class="lineNum">      21 </span>            :    or daemon interaction something could come out of it though.
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            :    Another less portable solution is to fchdir(open(dir, O_NOFOLLOW)).
+<span class="lineNum">      24 </span>            :    This should be completely safe.
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            :    The actual file deletion also has to be done relative to current
+<span class="lineNum">      27 </span>            :    directory, to make sure that the whole directory structure isn't replaced
+<span class="lineNum">      28 </span>            :    with another one while we're deleting it. Going back to parent directory
+<span class="lineNum">      29 </span>            :    isn't too easy either - safest (and easiest) way again is to open() the
+<span class="lineNum">      30 </span>            :    directory and fchdir() back there.
+<span class="lineNum">      31 </span>            : */
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : #define _GNU_SOURCE /* for O_NOFOLLOW with Linux */
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">      36 </span>            : #include &quot;path-util.h&quot;
+<span class="lineNum">      37 </span>            : #include &quot;unlink-directory.h&quot;
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      40 </span>            : #include &lt;unistd.h&gt;
+<span class="lineNum">      41 </span>            : #include &lt;dirent.h&gt;
+<span class="lineNum">      42 </span>            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            : #define ERROR_FORMAT &quot;%s(%s) failed: %m&quot;
+<span class="lineNum">      45 </span>            : #define ERROR_FORMAT_DNAME &quot;%s(%s/%s) failed: %m&quot;
+<a name="46"><span class="lineNum">      46 </span>            : </a>
+<span class="lineNum">      47 </span>            : static void ATTR_FORMAT(3,4)
+<span class="lineNum">      48 </span><span class="lineCov">          4 : unlink_directory_error(const char **error,</span>
+<span class="lineNum">      49 </span>            :                int *first_errno,
+<span class="lineNum">      50 </span>            :                const char *fmt, ...)
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span>            :     va_list args;
+<span class="lineNum">      53 </span><span class="lineCov">          4 :     va_start(args, fmt);</span>
+<span class="lineNum">      54 </span><span class="lineCov">          4 :     const char *err = t_strdup_vprintf(fmt, args);</span>
+<span class="lineNum">      55 </span><span class="lineCov">          4 :     if (*error == NULL) {</span>
+<span class="lineNum">      56 </span><span class="lineCov">          4 :         if (first_errno != NULL)</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :             *first_errno = errno;</span>
+<span class="lineNum">      58 </span><span class="lineCov">          4 :         *error = err;</span>
+<span class="lineNum">      59 </span>            :     } else
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :         i_error(&quot;%s&quot;, err);</span>
+<span class="lineNum">      61 </span><span class="lineCov">          4 :     va_end(args);</span>
+<span class="lineNum">      62 </span><span class="lineCov">          4 : }</span>
+<a name="63"><span class="lineNum">      63 </span>            : </a>
+<span class="lineNum">      64 </span>            : static int
+<span class="lineNum">      65 </span><span class="lineCov">        154 : unlink_directory_r(const char *dir, enum unlink_directory_flags flags,</span>
+<span class="lineNum">      66 </span>            :            const char **error)
+<span class="lineNum">      67 </span>            : {
+<span class="lineNum">      68 </span>            :     DIR *dirp;
+<span class="lineNum">      69 </span>            :     struct dirent *d;
+<span class="lineNum">      70 </span>            :     struct stat st;
+<span class="lineNum">      71 </span>            :         int dir_fd, old_errno;
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span>            : #ifdef O_NOFOLLOW
+<span class="lineNum">      74 </span><span class="lineCov">        154 :     dir_fd = open(dir, O_RDONLY | O_NOFOLLOW);</span>
+<span class="lineNum">      75 </span><span class="lineCov">        154 :     if (dir_fd == -1) {</span>
+<span class="lineNum">      76 </span><span class="lineCov">          4 :         unlink_directory_error(error, NULL,</span>
+<span class="lineNum">      77 </span>            :                        &quot;open(%s, O_RDONLY | O_NOFOLLOW) failed: %m&quot;,
+<span class="lineNum">      78 </span>            :                        dir);
+<span class="lineNum">      79 </span><span class="lineCov">          4 :         return -1;</span>
+<span class="lineNum">      80 </span>            :     }
+<span class="lineNum">      81 </span>            : #else
+<span class="lineNum">      82 </span>            :     struct stat st2;
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span>            :     if (lstat(dir, &amp;st) &lt; 0) {
+<span class="lineNum">      85 </span>            :         unlink_directory_error(error_r, NULL, ERROR_FORMAT, &quot;lstat&quot;, dir);
+<span class="lineNum">      86 </span>            :         return -1;
+<span class="lineNum">      87 </span>            :     }
+<span class="lineNum">      88 </span>            : 
+<span class="lineNum">      89 </span>            :     if (!S_ISDIR(st.st_mode)) {
+<span class="lineNum">      90 </span>            :         if ((st.st_mode &amp; S_IFMT) != S_IFLNK) {
+<span class="lineNum">      91 </span>            :             unlink_directory_error(error_r, NULL, &quot;%s is not a directory: %s&quot;, dir);
+<span class="lineNum">      92 </span>            :             errno = ENOTDIR;
+<span class="lineNum">      93 </span>            :         } else {
+<span class="lineNum">      94 </span>            :             /* be compatible with O_NOFOLLOW */
+<span class="lineNum">      95 </span>            :             errno = ELOOP;
+<span class="lineNum">      96 </span>            :             unlink_directory_error(error_r, NULL, &quot;%s is a symlink, not a directory: %s&quot;, dir);
+<span class="lineNum">      97 </span>            :         }
+<span class="lineNum">      98 </span>            :         return -1;
+<span class="lineNum">      99 </span>            :     }
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span>            :     dir_fd = open(dir, O_RDONLY);
+<span class="lineNum">     102 </span>            :     if (dir_fd == -1) {
+<span class="lineNum">     103 </span>            :         unlink_directory_error(error_r, NULL, &quot;open(%s, O_RDONLY) failed: %m&quot;, dir);
+<span class="lineNum">     104 </span>            :         return -1;
+<span class="lineNum">     105 </span>            :     }
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span>            :     if (fstat(dir_fd, &amp;st2) &lt; 0) {
+<span class="lineNum">     108 </span>            :         i_close_fd(&amp;dir_fd);
+<span class="lineNum">     109 </span>            :         unlink_directory_error(error_r, NULL, ERROR_FORMAT, &quot;fstat&quot;, dir);
+<span class="lineNum">     110 </span>            :         return -1;
+<span class="lineNum">     111 </span>            :     }
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span>            :     if (st.st_ino != st2.st_ino ||
+<span class="lineNum">     114 </span>            :         !CMP_DEV_T(st.st_dev, st2.st_dev)) {
+<span class="lineNum">     115 </span>            :         /* directory was just replaced with something else. */
+<span class="lineNum">     116 </span>            :         i_close_fd(&amp;dir_fd);
+<span class="lineNum">     117 </span>            :         errno = ENOTDIR;
+<span class="lineNum">     118 </span>            :         unlink_directory_error(error_r, NULL, &quot;%s race condition: directory was just replaced&quot;, dir);
+<span class="lineNum">     119 </span>            :         return -1;
+<span class="lineNum">     120 </span>            :     }
+<span class="lineNum">     121 </span>            : #endif
+<span class="lineNum">     122 </span><span class="lineCov">        150 :     if (fchdir(dir_fd) &lt; 0) {</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :                 i_close_fd(&amp;dir_fd);</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :         unlink_directory_error(error, NULL, ERROR_FORMAT, &quot;fchdir&quot;, dir);</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     126 </span>            :     }
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span><span class="lineCov">        150 :     dirp = opendir(&quot;.&quot;);</span>
+<span class="lineNum">     129 </span><span class="lineCov">        150 :     if (dirp == NULL) {</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :         i_close_fd(&amp;dir_fd);</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :         unlink_directory_error(error, NULL, &quot;opendir(.) (in %s) failed: %m&quot;, dir);</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     133 </span>            :     }
+<span class="lineNum">     134 </span>            : 
+<span class="lineNum">     135 </span><span class="lineCov">        150 :     int first_errno = 0;</span>
+<span class="lineNum">     136 </span>            :     for (;;) {
+<span class="lineNum">     137 </span><span class="lineCov">       1249 :         errno = 0;</span>
+<span class="lineNum">     138 </span><span class="lineCov">       1249 :         d = readdir(dirp);</span>
+<span class="lineNum">     139 </span><span class="lineCov">       1249 :         if (d == NULL) {</span>
+<span class="lineNum">     140 </span><span class="lineCov">        150 :             if (errno != 0) {</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :                 unlink_directory_error(error,</span>
+<span class="lineNum">     142 </span>            :                                &amp;first_errno,
+<span class="lineNum">     143 </span>            :                                ERROR_FORMAT,
+<span class="lineNum">     144 </span>            :                                &quot;readdir&quot;,
+<span class="lineNum">     145 </span>            :                                dir);
+<span class="lineNum">     146 </span>            :             }
+<span class="lineNum">     147 </span><span class="lineCov">        150 :             break;</span>
+<span class="lineNum">     148 </span>            :         }
+<span class="lineNum">     149 </span><span class="lineCov">       1099 :         if (d-&gt;d_name[0] == '.') {</span>
+<span class="lineNum">     150 </span><span class="lineCov">        450 :             if ((d-&gt;d_name[1] == '\0' ||</span>
+<span class="lineNum">     151 </span><span class="lineCov">        300 :                  (d-&gt;d_name[1] == '.' &amp;&amp; d-&gt;d_name[2] == '\0'))) {</span>
+<span class="lineNum">     152 </span>            :                 /* skip . and .. */
+<span class="lineNum">     153 </span><span class="lineCov">        300 :                 continue;</span>
+<span class="lineNum">     154 </span>            :             }
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :             if ((flags &amp; UNLINK_DIRECTORY_FLAG_SKIP_DOTFILES) != 0)</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :                 continue;</span>
+<span class="lineNum">     157 </span>            :         }
+<span class="lineNum">     158 </span>            : 
+<span class="lineNum">     159 </span><span class="lineCov">        799 :         if (unlink(d-&gt;d_name) &lt; 0 &amp;&amp; errno != ENOENT) {</span>
+<span class="lineNum">     160 </span><span class="lineCov">        135 :             old_errno = errno;</span>
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineCov">        135 :             if (lstat(d-&gt;d_name, &amp;st) &lt; 0) {</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :                 if (errno != ENOENT) {</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :                     unlink_directory_error(error,</span>
+<span class="lineNum">     165 </span>            :                                    &amp;first_errno,
+<span class="lineNum">     166 </span>            :                                    ERROR_FORMAT,
+<span class="lineNum">     167 </span>            :                                    &quot;lstat&quot;,
+<span class="lineNum">     168 </span>            :                                    dir);
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     170 </span>            :                 }
+<span class="lineNum">     171 </span><span class="lineCov">        270 :             } else if (S_ISDIR(st.st_mode) &amp;&amp;</span>
+<span class="lineNum">     172 </span><span class="lineCov">        135 :                    (flags &amp; UNLINK_DIRECTORY_FLAG_FILES_ONLY) == 0) {</span>
+<span class="lineNum">     173 </span><span class="lineCov">        135 :                 if (unlink_directory_r(d-&gt;d_name, flags, error) &lt; 0) {</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :                     if (first_errno == 0)</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :                         first_errno = errno;</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :                     if (errno != ENOENT)</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     178 </span>            :                 }
+<span class="lineNum">     179 </span><span class="lineCov">        135 :                 if (fchdir(dir_fd) &lt; 0) {</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :                     unlink_directory_error(error,</span>
+<span class="lineNum">     181 </span>            :                                    &amp;first_errno,
+<span class="lineNum">     182 </span>            :                                    ERROR_FORMAT,
+<span class="lineNum">     183 </span>            :                                    &quot;fchdir&quot;,
+<span class="lineNum">     184 </span>            :                                    dir);
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     186 </span>            :                 }
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineCov">        270 :                 if (rmdir(d-&gt;d_name) &lt; 0 &amp;&amp;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :                     errno != ENOENT) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :                     if (errno == EEXIST)</span>
+<span class="lineNum">     191 </span>            :                         /* standardize errno */
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :                         errno = ENOTEMPTY;</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :                     unlink_directory_error(error,</span>
+<span class="lineNum">     194 </span>            :                                    &amp;first_errno,
+<span class="lineNum">     195 </span>            :                                    ERROR_FORMAT,
+<span class="lineNum">     196 </span>            :                                    &quot;rmdir&quot;,
+<span class="lineNum">     197 </span>            :                                    dir);
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :                     break;</span>
+<span class="lineNum">     199 </span>            :                 }
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :             } else if (S_ISDIR(st.st_mode) &amp;&amp;</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :                    (flags &amp; UNLINK_DIRECTORY_FLAG_FILES_ONLY) != 0) {</span>
+<span class="lineNum">     202 </span>            :                 /* skip directory */
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :             } else if (old_errno == EBUSY &amp;&amp;</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :                    strncmp(d-&gt;d_name, &quot;.nfs&quot;, 4) == 0) {</span>
+<span class="lineNum">     205 </span>            :                 /* can't delete NFS files that are still
+<span class="lineNum">     206 </span>            :                    in use. let the caller decide if this error
+<span class="lineNum">     207 </span>            :                    is worth logging about */
+<span class="lineNum">     208 </span>            :                 break;
+<span class="lineNum">     209 </span>            :             } else
+<span class="lineNum">     210 </span>            :                                 /* so it wasn't a directory */
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :                 unlink_directory_error(error,</span>
+<span class="lineNum">     212 </span>            :                                &amp;first_errno,
+<span class="lineNum">     213 </span>            :                                ERROR_FORMAT_DNAME,
+<span class="lineNum">     214 </span>            :                                &quot;unlink&quot;,
+<span class="lineNum">     215 </span>            :                                dir,
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :                                d-&gt;d_name);</span>
+<span class="lineNum">     217 </span>            :         }
+<span class="lineNum">     218 </span><span class="lineCov">       1099 :     }</span>
+<span class="lineNum">     219 </span>            : 
+<span class="lineNum">     220 </span><span class="lineCov">        150 :     i_close_fd(&amp;dir_fd);</span>
+<span class="lineNum">     221 </span><span class="lineCov">        150 :     if (closedir(dirp) &lt; 0)</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :         unlink_directory_error(error,</span>
+<span class="lineNum">     223 </span>            :                        &amp;first_errno,
+<span class="lineNum">     224 </span>            :                        ERROR_FORMAT,
+<span class="lineNum">     225 </span>            :                        &quot;closedir&quot;,
+<span class="lineNum">     226 </span>            :                        dir);
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span><span class="lineCov">        150 :     if (*error != NULL) {</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :         errno = first_errno;</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     231 </span>            :     }
+<span class="lineNum">     232 </span><span class="lineCov">        150 :     return 0;</span>
+<a name="233"><span class="lineNum">     233 </span>            : }</a>
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span><span class="lineCov">         19 : int unlink_directory(const char *dir, enum unlink_directory_flags flags,</span>
+<span class="lineNum">     236 </span>            :              const char **error_r)
+<span class="lineNum">     237 </span>            : {
+<span class="lineNum">     238 </span>            :     const char *orig_dir, *error;
+<span class="lineNum">     239 </span>            :     int fd, ret, old_errno;
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span><span class="lineCov">         19 :     if (t_get_working_dir(&amp;orig_dir, &amp;error) &lt; 0) {</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :         i_warning(&quot;Could not get working directory in unlink_directory(): %s&quot;,</span>
+<span class="lineNum">     243 </span>            :               error);
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :         orig_dir = &quot;.&quot;;</span>
+<span class="lineNum">     245 </span>            :     }
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span><span class="lineCov">         19 :     fd = open(&quot;.&quot;, O_RDONLY);</span>
+<span class="lineNum">     248 </span><span class="lineCov">         19 :     if (fd == -1) {</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :         *error_r = t_strdup_printf(</span>
+<span class="lineNum">     250 </span>            :             &quot;Can't preserve current directory %s: &quot;
+<span class="lineNum">     251 </span>            :             &quot;open(.) failed: %m&quot;, orig_dir);
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     253 </span>            :     }
+<span class="lineNum">     254 </span>            : 
+<span class="lineNum">     255 </span>            :     /* Cannot set error_r to NULL inside of unlink_directory_r()
+<span class="lineNum">     256 </span>            :        because of recursion */
+<span class="lineNum">     257 </span><span class="lineCov">         19 :     *error_r = NULL;</span>
+<span class="lineNum">     258 </span><span class="lineCov">         19 :     ret = unlink_directory_r(dir, flags, error_r);</span>
+<span class="lineNum">     259 </span><span class="lineCov">         19 :     old_errno = errno;</span>
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineCov">         19 :     if (fchdir(fd) &lt; 0) {</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :         i_fatal(&quot;unlink_directory(%s): &quot;</span>
+<span class="lineNum">     263 </span>            :             &quot;Can't fchdir() back to our original dir %s: %m&quot;, dir, orig_dir);
+<span class="lineNum">     264 </span>            :     }
+<span class="lineNum">     265 </span><span class="lineCov">         19 :     i_close_fd(&amp;fd);</span>
+<span class="lineNum">     266 </span>            : 
+<span class="lineNum">     267 </span><span class="lineCov">         19 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     268 </span><span class="lineCov">          4 :         errno = old_errno;</span>
+<span class="lineNum">     269 </span><span class="lineCov">          4 :         return errno == ENOENT ? 0 : 1;</span>
+<span class="lineNum">     270 </span>            :     }
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineCov">         15 :     if ((flags &amp; UNLINK_DIRECTORY_FLAG_RMDIR) != 0) {</span>
+<span class="lineNum">     273 </span><span class="lineCov">         15 :         if (rmdir(dir) &lt; 0 &amp;&amp; errno != ENOENT) {</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;rmdir(%s) failed: %m&quot;, dir);</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :             if (errno == EEXIST) {</span>
+<span class="lineNum">     276 </span>            :                 /* standardize errno */
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :                 errno = ENOTEMPTY;</span>
+<span class="lineNum">     278 </span>            :             }
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :             return errno == ENOENT ? 0 : 1;</span>
+<span class="lineNum">     280 </span>            :         }
+<span class="lineNum">     281 </span>            :     }
+<span class="lineNum">     282 </span><span class="lineCov">         15 :     return 1;</span>
+<span class="lineNum">     283 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

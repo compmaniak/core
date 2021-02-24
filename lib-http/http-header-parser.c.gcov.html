@@ -1,0 +1,451 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - Dovecot coverage - lib-http/http-header-parser.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">lib-http</a> - http-header-parser.c<span style="font-size: 80%;"> (source / <a href="http-header-parser.c.func.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">Dovecot coverage</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">168</td>
+            <td class="headerCovTableEntry">178</td>
+            <td class="headerCovTableEntryHi">94.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2021-02-24</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+</td>
+            <td></td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /* Copyright (c) 2013-2018 Dovecot authors, see the included COPYING file */</a>
+<span class="lineNum">       2 </span>            : 
+<span class="lineNum">       3 </span>            : #include &quot;lib.h&quot;
+<span class="lineNum">       4 </span>            : #include &quot;buffer.h&quot;
+<span class="lineNum">       5 </span>            : #include &quot;istream.h&quot;
+<span class="lineNum">       6 </span>            : #include &quot;str.h&quot;
+<span class="lineNum">       7 </span>            : #include &quot;str-sanitize.h&quot;
+<span class="lineNum">       8 </span>            : #include &quot;http-parser.h&quot;
+<span class="lineNum">       9 </span>            : #include &quot;http-header.h&quot;
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : #include &quot;http-header-parser.h&quot;
+<span class="lineNum">      12 </span>            : 
+<span class="lineNum">      13 </span>            : enum http_header_parse_state {
+<span class="lineNum">      14 </span>            :     HTTP_HEADER_PARSE_STATE_INIT = 0,
+<span class="lineNum">      15 </span>            :     HTTP_HEADER_PARSE_STATE_NAME,
+<span class="lineNum">      16 </span>            :     HTTP_HEADER_PARSE_STATE_COLON,
+<span class="lineNum">      17 </span>            :     HTTP_HEADER_PARSE_STATE_OWS,
+<span class="lineNum">      18 </span>            :     HTTP_HEADER_PARSE_STATE_CONTENT,
+<span class="lineNum">      19 </span>            :     HTTP_HEADER_PARSE_STATE_CR,
+<span class="lineNum">      20 </span>            :     HTTP_HEADER_PARSE_STATE_LF,
+<span class="lineNum">      21 </span>            :     HTTP_HEADER_PARSE_STATE_NEW_LINE,
+<span class="lineNum">      22 </span>            :     HTTP_HEADER_PARSE_STATE_EOH
+<span class="lineNum">      23 </span>            : };
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : struct http_header_parser {
+<span class="lineNum">      26 </span>            :     struct istream *input;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            :     struct http_header_limits limits;
+<span class="lineNum">      29 </span>            :     enum http_header_parse_flags flags;
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            :     uoff_t size, field_size;
+<span class="lineNum">      32 </span>            :     unsigned int field_count;
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :     const unsigned char *begin, *cur, *end;
+<span class="lineNum">      35 </span>            :     const char *error;
+<span class="lineNum">      36 </span>            : 
+<span class="lineNum">      37 </span>            :     string_t *name;
+<span class="lineNum">      38 </span>            :     buffer_t *value_buf;
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            :     enum http_header_parse_state state;
+<span class="lineNum">      41 </span>            : };
+<a name="42"><span class="lineNum">      42 </span>            : </a>
+<span class="lineNum">      43 </span>            : struct http_header_parser *
+<span class="lineNum">      44 </span><span class="lineCov">         68 : http_header_parser_init(struct istream *input,</span>
+<span class="lineNum">      45 </span>            :     const struct http_header_limits *limits,
+<span class="lineNum">      46 </span>            :     enum http_header_parse_flags flags)
+<span class="lineNum">      47 </span>            : {
+<span class="lineNum">      48 </span>            :     struct http_header_parser *parser;
+<span class="lineNum">      49 </span>            : 
+<span class="lineNum">      50 </span><span class="lineCov">         68 :     parser = i_new(struct http_header_parser, 1);</span>
+<span class="lineNum">      51 </span><span class="lineCov">         68 :     parser-&gt;input = input;</span>
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span><span class="lineCov">         68 :     if (limits != NULL)</span>
+<span class="lineNum">      54 </span><span class="lineCov">         55 :         parser-&gt;limits = *limits;</span>
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span><span class="lineCov">         68 :     if (parser-&gt;limits.max_size == 0)</span>
+<span class="lineNum">      57 </span><span class="lineCov">         42 :         parser-&gt;limits.max_size = (uoff_t)-1;</span>
+<span class="lineNum">      58 </span><span class="lineCov">         68 :     if (parser-&gt;limits.max_field_size == 0)</span>
+<span class="lineNum">      59 </span><span class="lineCov">         42 :         parser-&gt;limits.max_field_size = (uoff_t)-1;</span>
+<span class="lineNum">      60 </span><span class="lineCov">         68 :     if (parser-&gt;limits.max_fields == 0)</span>
+<span class="lineNum">      61 </span><span class="lineCov">         42 :         parser-&gt;limits.max_fields = (unsigned int)-1;</span>
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span><span class="lineCov">         68 :     parser-&gt;flags = flags;</span>
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span><span class="lineCov">         68 :     parser-&gt;name = str_new(default_pool, 128);</span>
+<span class="lineNum">      66 </span><span class="lineCov">         68 :     parser-&gt;value_buf = buffer_create_dynamic(default_pool, 4096);</span>
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span><span class="lineCov">         68 :     return parser;</span>
+<a name="69"><span class="lineNum">      69 </span>            : }</a>
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span><span class="lineCov">         68 : void http_header_parser_deinit(struct http_header_parser **_parser)</span>
+<span class="lineNum">      72 </span>            : {
+<span class="lineNum">      73 </span><span class="lineCov">         68 :     struct http_header_parser *parser = *_parser;</span>
+<span class="lineNum">      74 </span>            : 
+<span class="lineNum">      75 </span><span class="lineCov">         68 :     *_parser = NULL;</span>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :     //i_stream_skip(ctx-&gt;input, ctx-&gt;skip);
+<span class="lineNum">      78 </span><span class="lineCov">         68 :     buffer_free(&amp;parser-&gt;value_buf);</span>
+<span class="lineNum">      79 </span><span class="lineCov">         68 :     str_free(&amp;parser-&gt;name);</span>
+<span class="lineNum">      80 </span><span class="lineCov">         68 :     i_free(parser);</span>
+<a name="81"><span class="lineNum">      81 </span><span class="lineCov">         68 : }</span></a>
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span><span class="lineCov">         12 : void http_header_parser_reset(struct http_header_parser *parser)</span>
+<span class="lineNum">      84 </span>            : {
+<span class="lineNum">      85 </span><span class="lineCov">         12 :     parser-&gt;state = HTTP_HEADER_PARSE_STATE_INIT;</span>
+<span class="lineNum">      86 </span><span class="lineCov">         12 :     parser-&gt;size = 0;</span>
+<span class="lineNum">      87 </span><span class="lineCov">         12 :     parser-&gt;field_size = 0;</span>
+<span class="lineNum">      88 </span><span class="lineCov">         12 :     parser-&gt;field_count = 0;</span>
+<a name="89"><span class="lineNum">      89 </span><span class="lineCov">         12 : }</span></a>
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineCov">       1032 : static int http_header_parse_name(struct http_header_parser *parser)</span>
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span><span class="lineCov">       1032 :     const unsigned char *first = parser-&gt;cur;</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span>            :     /* field-name     = token
+<span class="lineNum">      96 </span>            :        token          = 1*tchar
+<span class="lineNum">      97 </span>            :      */
+<span class="lineNum">      98 </span><span class="lineCov">       3590 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; http_char_is_token(*parser-&gt;cur))</span>
+<span class="lineNum">      99 </span><span class="lineCov">       1526 :         parser-&gt;cur++;</span>
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineCov">       1032 :     str_append_n(parser-&gt;name, first, parser-&gt;cur-first);</span>
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span><span class="lineCov">       1032 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     104 </span><span class="lineCov">        843 :         return 0;</span>
+<span class="lineNum">     105 </span><span class="lineCov">        189 :     if (str_len(parser-&gt;name) == 0) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         parser-&gt;error = &quot;Empty header field name&quot;;</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     108 </span>            :     }
+<span class="lineNum">     109 </span><span class="lineCov">        189 :     return 1;</span>
+<a name="110"><span class="lineNum">     110 </span>            : }</a>
+<span class="lineNum">     111 </span>            : 
+<span class="lineNum">     112 </span><span class="lineCov">        391 : static int http_header_parse_ows(struct http_header_parser *parser)</span>
+<span class="lineNum">     113 </span>            : {
+<span class="lineNum">     114 </span>            :     /* OWS            = *( SP / HTAB )
+<span class="lineNum">     115 </span>            :                       ; &quot;optional&quot; whitespace
+<span class="lineNum">     116 </span>            :      */
+<span class="lineNum">     117 </span><span class="lineCov">       1353 :     while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp;</span>
+<span class="lineNum">     118 </span><span class="lineCov">        572 :         (*parser-&gt;cur == ' ' || *parser-&gt;cur == '\t'))</span>
+<span class="lineNum">     119 </span><span class="lineCov">        193 :         parser-&gt;cur++;</span>
+<span class="lineNum">     120 </span><span class="lineCov">        391 :     return (parser-&gt;cur == parser-&gt;end ? 0 : 1);</span>
+<a name="121"><span class="lineNum">     121 </span>            : }</a>
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span><span class="lineCov">       2104 : static int http_header_parse_content(struct http_header_parser *parser)</span>
+<span class="lineNum">     124 </span>            : {
+<span class="lineNum">     125 </span>            :     const unsigned char *first;
+<span class="lineNum">     126 </span>            : 
+<span class="lineNum">     127 </span>            :     /* field-content  = field-vchar [ 1*( SP / HTAB ) field-vchar ]
+<span class="lineNum">     128 </span>            :        field-vchar    = VCHAR / obs-text
+<span class="lineNum">     129 </span>            :      */
+<span class="lineNum">     130 </span>            :     do {
+<span class="lineNum">     131 </span><span class="lineCov">       2104 :         first = parser-&gt;cur;</span>
+<span class="lineNum">     132 </span><span class="lineCov">       7693 :         while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; http_char_is_text(*parser-&gt;cur)) {</span>
+<span class="lineNum">     133 </span><span class="lineCov">       3485 :             parser-&gt;cur++;</span>
+<span class="lineNum">     134 </span>            :         }
+<span class="lineNum">     135 </span><span class="lineCov">       2104 :         buffer_append(parser-&gt;value_buf, first, parser-&gt;cur-first);</span>
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span><span class="lineCov">       2104 :         if ((parser-&gt;flags &amp; HTTP_HEADER_PARSE_FLAG_STRICT) != 0)</span>
+<span class="lineNum">     138 </span><span class="lineCov">         20 :             break;</span>
+<span class="lineNum">     139 </span>            : 
+<span class="lineNum">     140 </span>            :         /* We'll be lenient here to accommodate for some bad servers. We just
+<span class="lineNum">     141 </span>            :            drop offending characters */
+<span class="lineNum">     142 </span><span class="lineCov">       4341 :         while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp; !http_char_is_text(*parser-&gt;cur) &amp;&amp;</span>
+<span class="lineNum">     143 </span><span class="lineCov">        184 :             (*parser-&gt;cur != '\r' &amp;&amp; *parser-&gt;cur != '\n'))</span>
+<span class="lineNum">     144 </span><span class="lineCov">          4 :             parser-&gt;cur++;</span>
+<span class="lineNum">     145 </span><span class="lineCov">       2251 :     } while (parser-&gt;cur &lt; parser-&gt;end &amp;&amp;</span>
+<span class="lineNum">     146 </span><span class="lineCov">       2097 :         (*parser-&gt;cur != '\r' &amp;&amp; *parser-&gt;cur != '\n'));</span>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineCov">       2102 :     if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     149 </span><span class="lineCov">       1917 :         return 0;</span>
+<span class="lineNum">     150 </span><span class="lineCov">        185 :     return 1;</span>
+<a name="151"><span class="lineNum">     151 </span>            : }</a>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineCov">         11 : static inline const char *_chr_sanitize(unsigned char c)</span>
+<span class="lineNum">     154 </span>            : {
+<span class="lineNum">     155 </span><span class="lineCov">         11 :     if (c &gt;= 0x20 &amp;&amp; c &lt; 0x7F)</span>
+<span class="lineNum">     156 </span><span class="lineCov">          6 :         return t_strdup_printf(&quot;'%c'&quot;, c);</span>
+<span class="lineNum">     157 </span><span class="lineCov">          5 :     return t_strdup_printf(&quot;0x%02x&quot;, c);</span>
+<a name="158"><span class="lineNum">     158 </span>            : }</a>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineCov">       3439 : static int http_header_parse(struct http_header_parser *parser)</span>
+<span class="lineNum">     161 </span>            : {
+<span class="lineNum">     162 </span>            :     int ret;
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span>            :     /* RFC 7230, Section 3.2: Header Fields
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span>            :        'header'       = *( header-field CRLF ) CRLF
+<span class="lineNum">     167 </span>            :                       ; Actually part of HTTP-message syntax
+<span class="lineNum">     168 </span>            : 
+<span class="lineNum">     169 </span>            :        header-field   = field-name &quot;:&quot; OWS field-value OWS
+<span class="lineNum">     170 </span>            :        field-name     = token
+<span class="lineNum">     171 </span>            :        field-value    = *( field-content / obs-fold )
+<span class="lineNum">     172 </span>            :        field-content  = field-vchar [ 1*( SP / HTAB ) field-vchar ]
+<span class="lineNum">     173 </span>            :        field-vchar    = VCHAR / obs-text
+<span class="lineNum">     174 </span>            :        obs-fold       = CRLF 1*( SP / HTAB )
+<span class="lineNum">     175 </span>            :                       ; obsolete line folding
+<span class="lineNum">     176 </span>            :                       ; see Section 3.2.4
+<span class="lineNum">     177 </span>            :      */
+<span class="lineNum">     178 </span>            : 
+<span class="lineNum">     179 </span>            :     for (;;) {
+<span class="lineNum">     180 </span><span class="lineCov">       3439 :         switch (parser-&gt;state) {</span>
+<span class="lineNum">     181 </span>            :         case HTTP_HEADER_PARSE_STATE_INIT:
+<span class="lineNum">     182 </span><span class="lineCov">        234 :             buffer_set_used_size(parser-&gt;value_buf, 0);</span>
+<span class="lineNum">     183 </span><span class="lineCov">        234 :             str_truncate(parser-&gt;name, 0);</span>
+<span class="lineNum">     184 </span><span class="lineCov">        234 :             if (*parser-&gt;cur == '\r') {</span>
+<span class="lineNum">     185 </span>            :                 /* last CRLF */
+<span class="lineNum">     186 </span><span class="lineCov">         43 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     187 </span><span class="lineCov">         43 :                 parser-&gt;state = HTTP_HEADER_PARSE_STATE_EOH;</span>
+<span class="lineNum">     188 </span><span class="lineCov">         43 :                 if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     189 </span><span class="lineCov">         22 :                     return 0;</span>
+<span class="lineNum">     190 </span><span class="lineCov">         21 :                 break;</span>
+<span class="lineNum">     191 </span><span class="lineCov">        191 :             } else if (*parser-&gt;cur == '\n') {</span>
+<span class="lineNum">     192 </span>            :                 /* last LF */
+<span class="lineNum">     193 </span><span class="lineCov">          2 :                 parser-&gt;state = HTTP_HEADER_PARSE_STATE_EOH;</span>
+<span class="lineNum">     194 </span><span class="lineCov">          2 :                 break;</span>
+<span class="lineNum">     195 </span>            :             }
+<span class="lineNum">     196 </span>            :             /* next line */
+<span class="lineNum">     197 </span><span class="lineCov">        189 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_NAME;</span>
+<span class="lineNum">     198 </span>            :             /* fall through */
+<span class="lineNum">     199 </span>            :         case HTTP_HEADER_PARSE_STATE_NAME:
+<span class="lineNum">     200 </span><span class="lineCov">       1032 :             if ((ret=http_header_parse_name(parser)) &lt;= 0)</span>
+<span class="lineNum">     201 </span><span class="lineCov">        843 :                 return ret;</span>
+<span class="lineNum">     202 </span><span class="lineCov">        189 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_COLON;</span>
+<span class="lineNum">     203 </span>            :             /* fall through */
+<span class="lineNum">     204 </span>            :         case HTTP_HEADER_PARSE_STATE_COLON:
+<span class="lineNum">     205 </span><span class="lineCov">        189 :             if (*parser-&gt;cur != ':') {</span>
+<span class="lineNum">     206 </span><span class="lineCov">          5 :                 parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     207 </span><span class="lineCov">          5 :                     (&quot;Expected ':' after header field name '%s', but found %s&quot;,</span>
+<span class="lineNum">     208 </span>            :                         str_sanitize(str_c(parser-&gt;name),64),
+<span class="lineNum">     209 </span><span class="lineCov">          5 :                         _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     210 </span><span class="lineCov">          5 :                 return -1;</span>
+<span class="lineNum">     211 </span>            :             }
+<span class="lineNum">     212 </span><span class="lineCov">        184 :             parser-&gt;cur++;</span>
+<span class="lineNum">     213 </span><span class="lineCov">        184 :             if (str_len(parser-&gt;name) == 0) {</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :                 parser-&gt;error = &quot;Empty header field name&quot;;</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     216 </span>            :             }
+<span class="lineNum">     217 </span><span class="lineCov">        184 :             if (++parser-&gt;field_count &gt; parser-&gt;limits.max_fields) {</span>
+<span class="lineNum">     218 </span><span class="lineCov">          1 :                 parser-&gt;error = &quot;Excessive number of header fields&quot;;</span>
+<span class="lineNum">     219 </span><span class="lineCov">          1 :                 return -1;</span>
+<span class="lineNum">     220 </span>            :             }
+<span class="lineNum">     221 </span><span class="lineCov">        183 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_OWS;</span>
+<span class="lineNum">     222 </span>            :             /* fall through */
+<span class="lineNum">     223 </span>            :         case HTTP_HEADER_PARSE_STATE_OWS:
+<span class="lineNum">     224 </span><span class="lineCov">        391 :             if ((ret=http_header_parse_ows(parser)) &lt;= 0)</span>
+<span class="lineNum">     225 </span><span class="lineCov">        206 :                 return ret;</span>
+<span class="lineNum">     226 </span><span class="lineCov">        185 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_CONTENT;</span>
+<span class="lineNum">     227 </span>            :             /* fall through */
+<span class="lineNum">     228 </span>            :         case HTTP_HEADER_PARSE_STATE_CONTENT:
+<span class="lineNum">     229 </span><span class="lineCov">       2102 :             if ((ret=http_header_parse_content(parser)) &lt;= 0)</span>
+<span class="lineNum">     230 </span><span class="lineCov">       1917 :                 return ret;</span>
+<span class="lineNum">     231 </span><span class="lineCov">        185 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_CR;</span>
+<span class="lineNum">     232 </span>            :             /* fall through */
+<span class="lineNum">     233 </span>            :         case HTTP_HEADER_PARSE_STATE_CR:
+<span class="lineNum">     234 </span><span class="lineCov">        185 :             if (*parser-&gt;cur == '\r') {</span>
+<span class="lineNum">     235 </span><span class="lineCov">        168 :                 parser-&gt;cur++;</span>
+<span class="lineNum">     236 </span><span class="lineCov">         17 :             } else if (*parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     237 </span><span class="lineCov">          4 :                 parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     238 </span><span class="lineCov">          8 :                     (&quot;Invalid character %s in content of header field '%s'&quot;,</span>
+<span class="lineNum">     239 </span><span class="lineCov">          4 :                         _chr_sanitize(*parser-&gt;cur),</span>
+<span class="lineNum">     240 </span>            :                         str_sanitize(str_c(parser-&gt;name),64));
+<span class="lineNum">     241 </span><span class="lineCov">          4 :                 return -1;</span>
+<span class="lineNum">     242 </span>            :             }
+<span class="lineNum">     243 </span><span class="lineCov">        181 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_LF;</span>
+<span class="lineNum">     244 </span><span class="lineCov">        181 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     245 </span><span class="lineCov">         93 :                 return 0;</span>
+<span class="lineNum">     246 </span>            :             /* fall through */
+<span class="lineNum">     247 </span>            :         case HTTP_HEADER_PARSE_STATE_LF:
+<span class="lineNum">     248 </span><span class="lineCov">        181 :             if (*parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :                 parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :                     (&quot;Expected LF after CR at end of header field '%s', but found %s&quot;,</span>
+<span class="lineNum">     251 </span>            :                         str_sanitize(str_c(parser-&gt;name),64),
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :                         _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     254 </span>            :             }
+<span class="lineNum">     255 </span><span class="lineCov">        181 :             parser-&gt;cur++;</span>
+<span class="lineNum">     256 </span><span class="lineCov">        181 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_NEW_LINE;</span>
+<span class="lineNum">     257 </span><span class="lineCov">        181 :             if (parser-&gt;cur == parser-&gt;end)</span>
+<span class="lineNum">     258 </span><span class="lineCov">        102 :                 return 0;</span>
+<span class="lineNum">     259 </span>            :             /* fall through */
+<span class="lineNum">     260 </span>            :         case HTTP_HEADER_PARSE_STATE_NEW_LINE:
+<span class="lineNum">     261 </span><span class="lineCov">        179 :             if (*parser-&gt;cur == ' ' || *parser-&gt;cur == '\t') {</span>
+<span class="lineNum">     262 </span>            :                 /* obs-fold */
+<span class="lineNum">     263 </span><span class="lineCov">          2 :                 buffer_append_c(parser-&gt;value_buf, ' ');</span>
+<span class="lineNum">     264 </span><span class="lineCov">          2 :                 parser-&gt;state = HTTP_HEADER_PARSE_STATE_OWS;</span>
+<span class="lineNum">     265 </span><span class="lineCov">          2 :                 break;</span>
+<span class="lineNum">     266 </span>            :             } 
+<span class="lineNum">     267 </span>            :             /* next header line */
+<span class="lineNum">     268 </span><span class="lineCov">        177 :             parser-&gt;state = HTTP_HEADER_PARSE_STATE_INIT;</span>
+<span class="lineNum">     269 </span><span class="lineCov">        177 :             return 1;</span>
+<span class="lineNum">     270 </span>            :         case HTTP_HEADER_PARSE_STATE_EOH:
+<span class="lineNum">     271 </span><span class="lineCov">         44 :             if (*parser-&gt;cur != '\n') {</span>
+<span class="lineNum">     272 </span><span class="lineCov">          2 :                 parser-&gt;error = t_strdup_printf</span>
+<span class="lineNum">     273 </span><span class="lineCov">          2 :                     (&quot;Encountered stray CR at beginning of header line, followed by %s&quot;,</span>
+<span class="lineNum">     274 </span><span class="lineCov">          2 :                         _chr_sanitize(*parser-&gt;cur));</span>
+<span class="lineNum">     275 </span><span class="lineCov">          2 :                 return -1;</span>
+<span class="lineNum">     276 </span>            :             }
+<span class="lineNum">     277 </span>            :             /* header fully parsed */
+<span class="lineNum">     278 </span><span class="lineCov">         42 :             parser-&gt;cur++;</span>
+<span class="lineNum">     279 </span><span class="lineCov">         42 :             return 1;</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span>            :         default:
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :             i_unreached();</span>
+<span class="lineNum">     283 </span>            :         }
+<span class="lineNum">     284 </span><span class="lineCov">         25 :     }</span>
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span>            :     i_unreached();
+<span class="lineNum">     287 </span>            :     return -1;
+<a name="288"><span class="lineNum">     288 </span>            : }</a>
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineCov">       3436 : int http_header_parse_next_field(struct http_header_parser *parser,</span>
+<span class="lineNum">     291 </span>            :     const char **name_r, const unsigned char **data_r, size_t *size_r,
+<span class="lineNum">     292 </span>            :     const char **error_r)
+<span class="lineNum">     293 </span>            : {
+<span class="lineNum">     294 </span><span class="lineCov">       3436 :     const uoff_t max_size = parser-&gt;limits.max_size;</span>
+<span class="lineNum">     295 </span><span class="lineCov">       3436 :     const uoff_t max_field_size = parser-&gt;limits.max_field_size;</span>
+<span class="lineNum">     296 </span>            :     const unsigned char *data;
+<span class="lineNum">     297 </span>            :     size_t size;
+<span class="lineNum">     298 </span>            :     int ret;
+<span class="lineNum">     299 </span>            : 
+<span class="lineNum">     300 </span><span class="lineCov">       3436 :     *error_r = NULL;</span>
+<span class="lineNum">     301 </span>            : 
+<span class="lineNum">     302 </span><span class="lineCov">      10055 :     while ((ret=i_stream_read_more(parser-&gt;input, &amp;parser-&gt;begin, &amp;size)) &gt; 0) {</span>
+<span class="lineNum">     303 </span>            : 
+<span class="lineNum">     304 </span>            :         /* check header size limits */
+<span class="lineNum">     305 </span><span class="lineCov">       3416 :         if (parser-&gt;size &gt;= max_size) {</span>
+<span class="lineNum">     306 </span><span class="lineCov">          1 :             *error_r = &quot;Excessive header size&quot;;</span>
+<span class="lineNum">     307 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     308 </span>            :         }
+<span class="lineNum">     309 </span><span class="lineCov">       3415 :         if (parser-&gt;field_size &gt; max_field_size) {</span>
+<span class="lineNum">     310 </span><span class="lineCov">          1 :             *error_r = &quot;Excessive header field size&quot;;</span>
+<span class="lineNum">     311 </span><span class="lineCov">          1 :             return -1;</span>
+<span class="lineNum">     312 </span>            :         }
+<span class="lineNum">     313 </span>            : 
+<span class="lineNum">     314 </span>            :         /* don't parse beyond header size limits */
+<span class="lineNum">     315 </span><span class="lineCov">       3414 :         if (size &gt; (max_size - parser-&gt;size))</span>
+<span class="lineNum">     316 </span><span class="lineCov">         13 :             size = max_size - parser-&gt;size;</span>
+<span class="lineNum">     317 </span><span class="lineCov">       3414 :         if (size &gt; (max_field_size - parser-&gt;field_size)) {</span>
+<span class="lineNum">     318 </span><span class="lineCov">         12 :             size = max_field_size - parser-&gt;field_size;</span>
+<span class="lineNum">     319 </span><span class="lineCov">         12 :             size = (size == 0 ? 1 : size); /* need to parse one more byte */</span>
+<span class="lineNum">     320 </span>            :         }
+<span class="lineNum">     321 </span>            : 
+<span class="lineNum">     322 </span><span class="lineCov">       3414 :         parser-&gt;cur = parser-&gt;begin;</span>
+<span class="lineNum">     323 </span><span class="lineCov">       3414 :         parser-&gt;end = parser-&gt;cur + size;</span>
+<span class="lineNum">     324 </span>            : 
+<span class="lineNum">     325 </span><span class="lineCov">       3414 :         if ((ret=http_header_parse(parser)) &lt; 0) {</span>
+<span class="lineNum">     326 </span><span class="lineCov">         12 :             *error_r = parser-&gt;error;</span>
+<span class="lineNum">     327 </span><span class="lineCov">         12 :             return -1;</span>
+<span class="lineNum">     328 </span>            :         }
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span><span class="lineCov">       3402 :         i_stream_skip(parser-&gt;input, parser-&gt;cur - parser-&gt;begin);</span>
+<span class="lineNum">     331 </span><span class="lineCov">       3402 :         parser-&gt;size += parser-&gt;cur - parser-&gt;begin;</span>
+<span class="lineNum">     332 </span><span class="lineCov">       3402 :         parser-&gt;field_size += parser-&gt;cur - parser-&gt;begin;</span>
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span><span class="lineCov">       3402 :         if (ret == 1) {</span>
+<span class="lineNum">     335 </span><span class="lineCov">        219 :             parser-&gt;field_size = 0;</span>
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineCov">        219 :             if (parser-&gt;state != HTTP_HEADER_PARSE_STATE_EOH) {</span>
+<span class="lineNum">     338 </span><span class="lineCov">        177 :                 data = buffer_get_data(parser-&gt;value_buf, &amp;size);</span>
+<span class="lineNum">     339 </span>            :             
+<span class="lineNum">     340 </span>            :                 /* trim trailing OWS */
+<span class="lineNum">     341 </span><span class="lineCov">        699 :                 while (size &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     342 </span><span class="lineCov">        438 :                     (data[size-1] == ' ' || data[size-1] == '\t'))</span>
+<span class="lineNum">     343 </span><span class="lineCov">         84 :                     size--;</span>
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span><span class="lineCov">        177 :                 *name_r = str_c(parser-&gt;name);</span>
+<span class="lineNum">     346 </span><span class="lineCov">        177 :                 *data_r = data;</span>
+<span class="lineNum">     347 </span><span class="lineCov">        177 :                 *size_r = size;</span>
+<span class="lineNum">     348 </span><span class="lineCov">        177 :                 parser-&gt;state = HTTP_HEADER_PARSE_STATE_INIT;</span>
+<span class="lineNum">     349 </span>            :             } else {
+<span class="lineNum">     350 </span><span class="lineCov">         42 :                 *name_r = NULL;</span>
+<span class="lineNum">     351 </span><span class="lineCov">         42 :                 *data_r = NULL;</span>
+<span class="lineNum">     352 </span>            :             }
+<span class="lineNum">     353 </span><span class="lineCov">        219 :             return 1;</span>
+<span class="lineNum">     354 </span>            :         }
+<span class="lineNum">     355 </span>            :     }
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span><span class="lineCov">       3203 :     i_assert(ret != -2);</span>
+<span class="lineNum">     358 </span><span class="lineCov">       3203 :     if (ret &lt; 0) {</span>
+<span class="lineNum">     359 </span><span class="lineCov">          2 :         i_assert(parser-&gt;input-&gt;eof);</span>
+<span class="lineNum">     360 </span><span class="lineCov">          2 :         if (parser-&gt;input-&gt;stream_errno == 0)</span>
+<span class="lineNum">     361 </span><span class="lineCov">          2 :             *error_r = &quot;Premature end of input&quot;;</span>
+<span class="lineNum">     362 </span>            :         else
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :             *error_r = t_strdup_printf(&quot;Stream error: %s&quot;,</span>
+<span class="lineNum">     364 </span>            :                 i_stream_get_error(parser-&gt;input));
+<span class="lineNum">     365 </span>            :     }
+<span class="lineNum">     366 </span><span class="lineCov">       3203 :     return ret;</span>
+<span class="lineNum">     367 </span>            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.10</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>
